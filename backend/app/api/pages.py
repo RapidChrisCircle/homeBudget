@@ -3,8 +3,8 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from ..deps import get_db
 from ..models import HomeStatus
-from .home import get_db
 
 router = APIRouter(prefix="/pages", tags=["verification-pages"])
 

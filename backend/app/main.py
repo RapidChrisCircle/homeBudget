@@ -1,21 +1,30 @@
+import sys
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import home, pages
-from .database import Base, engine, settings
+from .api import home, pages, transactions
+from .database import settings
 
 app = FastAPI(
     title="Home Platform"
 )
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
 def initialize_database() -> tuple[bool, str | None]:
 
     try:
 
-        Base.metadata.create_all(
-            bind=engine
-        )
+        if str(BACKEND_DIR) not in sys.path:
+            sys.path.insert(0, str(BACKEND_DIR))
+
+        alembic_cfg = Config(str(BACKEND_DIR / "alembic.ini"))
+        command.upgrade(alembic_cfg, "head")
 
         return True, None
 
@@ -40,6 +49,12 @@ app.add_middleware(
 
 app.include_router(
     home.router,
+    prefix="/api"
+)
+
+
+app.include_router(
+    transactions.router,
     prefix="/api"
 )
 

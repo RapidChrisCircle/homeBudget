@@ -34,3 +34,19 @@
 .card ul {
   margin-top: 8px;
 }
+
+.card table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  overflow-x: auto;
+  display: block;
+}
+
+.card table th,
+.card table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid #eee;
+  white-space: nowrap;
+}

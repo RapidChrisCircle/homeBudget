@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-ssr
+src/test/
+**/*.test.jsx
+**/*.test.ts
+.oxlintrc.json
+.env
+.git
+.gitignore
+npm-debug.log*

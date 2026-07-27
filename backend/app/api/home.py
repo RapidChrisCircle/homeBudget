@@ -1,22 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..database import SessionLocal
+from ..deps import get_db
 from ..models import HomeStatus
 from ..schemas import HomeStatusResponse
 
 router = APIRouter()
-
-
-def get_db():
-
-    db = SessionLocal()
-
-    try:
-        yield db
-
-    finally:
-        db.close()
 
 
 @router.get("/status", response_model=HomeStatusResponse)

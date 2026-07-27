@@ -82,6 +82,13 @@ Expected:
 
 The dev-time `docker-compose.yml` at the repository root is a devcontainer definition only (used by `.devcontainer/devcontainer.json`) - it does not run the app or a database. For local DB verification, provide a reachable PostgreSQL instance and the environment variables in `.env.example`, copied to `.env`.
 
+Schema is managed by Alembic (`backend/alembic/`), not `create_all`. The app runs `alembic upgrade head` automatically at startup (see `initialize_database()` in `backend/app/main.py`), so a fresh database is brought up to date on first boot - no manual step needed for a first-time setup. When you change a model in `backend/app/models.py`, generate a migration for it before it'll take effect anywhere but your local dev DB:
+
+cd backend
+python3 -m alembic revision --autogenerate -m "describe the change"
+
+Review the generated file in `backend/alembic/versions/` before committing - autogenerate is a starting point, not always correct as-is.
+
 Also note: `GET /api/status` returns 404 when the `home_status` table has no rows (it no longer auto-seeds a row) - this is intentional, so `/verify/db`'s error state is exercised until a row is inserted manually.
 
 ## QNAP Deployment

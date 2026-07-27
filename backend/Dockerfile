@@ -23,6 +23,8 @@ RUN useradd --create-home --shell /bin/bash appuser
 
 COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
 COPY --chown=appuser:appuser app ./app
+COPY --chown=appuser:appuser alembic ./alembic
+COPY --chown=appuser:appuser alembic.ini .
 
 USER appuser
 

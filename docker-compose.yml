@@ -1,7 +1,7 @@
 services:
   dev:
     image: mcr.microsoft.com/devcontainers/python:3.12
-    container_name: home-platform-dev
+    container_name: homeBudget
     volumes:
       - .:/workspace
     working_dir: /workspace
