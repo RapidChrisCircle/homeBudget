@@ -1,0 +1,41 @@
+{
+    "name": "Home WebApp Platform for Development",
+    "dockerComposeFile": "../docker-compose.yml",
+    "service": "dev",
+    "workspaceFolder": "/workspace",
+    "remoteUser": "vscode",
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {
+            "version": "os-provided"
+        },
+        "ghcr.io/devcontainers/features/github-cli:1": {},
+        "ghcr.io/devcontainers/features/node:1": {
+            "version": "lts"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-python.debugpy",
+                "charliermarsh.ruff",
+                "bradlc.vscode-tailwindcss",
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "ms-azuretools.vscode-docker",
+                "github.vscode-github-actions",
+                "mtxr.sqltools",
+                "mtxr.sqltools-driver-pg"
+            ],
+            "settings": {
+                "editor.formatOnSave": true,
+                "editor.codeActionsOnSave": {
+                    "source.organizeImports": "explicit"
+                },
+                "python.testing.pytestEnabled": true
+            }
+        }
+    },
+    "postCreateCommand": "pip install -r backend/requirements.txt && npm --prefix frontend install"
+}

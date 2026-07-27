@@ -1,0 +1,53 @@
+# Deployment stack for QNAP Container Station.
+#
+# Assumes Postgres already runs as its own Container Station application, on
+# its own Docker network. This stack does not create a database - it joins
+# that existing network so the api container can reach Postgres by name.
+#
+# When creating the application in Container Station (Create > Application >
+# pull from GitHub, pointing at this file), you will be prompted to fill in
+# the variables below - Container Station does not read a .env file.
+#
+# DB_NETWORK_NAME   - docker network the existing Postgres container is on
+#                      (docker network ls on the NAS, or Container Station's
+#                      network view for that application)
+# DATABASE_HOST     - container/service name of the existing Postgres container
+# DATABASE_PORT     - Postgres port (default 5432)
+# DATABASE_NAME     - database name to use/create
+# DATABASE_USER     - database user
+# DATABASE_PASSWORD - database password
+# ALLOWED_ORIGINS   - comma-separated origins allowed to call the api directly
+#                      (not needed for browsing through the web container,
+#                      only for local dev against a remote api)
+# API_PORT          - host port to publish the api on (default 8000)
+# WEB_PORT          - host port to publish the web UI on (default 8080)
+
+networks:
+  dbnet:
+    external: true
+    name: ${DB_NETWORK_NAME:?set DB_NETWORK_NAME to the existing Postgres stack's docker network name}
+
+services:
+  api:
+    image: ghcr.io/${GHCR_OWNER:?set GHCR_OWNER to the lowercase GitHub org/user that publishes the images}/home-platform-api:latest
+    restart: unless-stopped
+    networks:
+      - dbnet
+      - default
+    environment:
+      DATABASE_HOST: ${DATABASE_HOST:?set DATABASE_HOST to the Postgres container/service name on DB_NETWORK_NAME}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_NAME: ${DATABASE_NAME:?set DATABASE_NAME}
+      DATABASE_USER: ${DATABASE_USER:?set DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+  web:
+    image: ghcr.io/${GHCR_OWNER:?set GHCR_OWNER to the lowercase GitHub org/user that publishes the images}/home-platform-web:latest
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"

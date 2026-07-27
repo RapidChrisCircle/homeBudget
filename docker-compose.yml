@@ -1,0 +1,10 @@
+services:
+  dev:
+    image: mcr.microsoft.com/devcontainers/python:3.12
+    container_name: home-platform-dev
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: sleep infinity
+    environment:
+      TZ: Australia/Brisbane
