@@ -29,7 +29,7 @@ networks:
 
 services:
   api:
-    image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/home-platform-api:latest
+    image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/homebudget-api:latest
     restart: unless-stopped
     networks:
       - dbnet
@@ -45,7 +45,7 @@ services:
       - "${API_PORT:-8000}:8000"
 
   web:
-    image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/home-platform-web:latest
+    image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/homebudget-web:latest
     restart: unless-stopped
     depends_on:
       - api

@@ -35,8 +35,8 @@ jobs:
           context: ./backend
           push: true
           tags: |
-            ghcr.io/${{ steps.vars.outputs.owner }}/home-platform-api:latest
-            ghcr.io/${{ steps.vars.outputs.owner }}/home-platform-api:${{ github.sha }}
+            ghcr.io/${{ steps.vars.outputs.owner }}/homebudget-api:latest
+            ghcr.io/${{ steps.vars.outputs.owner }}/homebudget-api:${{ github.sha }}
 
       - name: Build frontend
         uses: docker/build-push-action@v6
@@ -44,5 +44,5 @@ jobs:
           context: ./frontend
           push: true
           tags: |
-            ghcr.io/${{ steps.vars.outputs.owner }}/home-platform-web:latest
-            ghcr.io/${{ steps.vars.outputs.owner }}/home-platform-web:${{ github.sha }}
+            ghcr.io/${{ steps.vars.outputs.owner }}/homebudget-web:latest
+            ghcr.io/${{ steps.vars.outputs.owner }}/homebudget-web:${{ github.sha }}
