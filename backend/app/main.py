@@ -30,6 +30,7 @@ def initialize_database() -> tuple[bool, str | None]:
 
     except Exception as exc:
 
+        print(f"[startup] database migration failed: {exc}", file=sys.stderr)
         return False, str(exc)
 
 
