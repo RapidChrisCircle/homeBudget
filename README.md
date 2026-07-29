@@ -98,12 +98,12 @@ Also note: `GET /api/status` returns 404 when the `home_status` table has no row
 Steps:
 
 1. On the NAS, find the existing Postgres container's Docker network name and container name (`docker network ls` / `docker inspect <postgres-container>`, or Container Station's network view for that application).
-2. In Container Station: Create > Application > pull from GitHub, pointing at this repository and `docker-compose.qnap.yml`.
+2. In Container Station: Create > Application > pull from GitHub, pointing at `https://github.com/RapidChrisCircle/homeBudget` and `docker-compose.qnap.yml`.
 3. Container Station will detect the variables referenced in the compose file (it does not read `.env` files) and prompt for them:
 
    | Variable | Meaning |
    |---|---|
-   | `GHCR_OWNER` | lowercase GitHub org/user that publishes the images |
+   | `GHCR_OWNER` | lowercase GitHub org/user that publishes the images; defaults to `rapidchriscircle`, only override if the images are ever published from a different owner |
    | `DB_NETWORK_NAME` | Docker network name of the existing Postgres application |
    | `DATABASE_HOST` | container/service name of the existing Postgres container on that network |
    | `DATABASE_PORT` | Postgres port (default `5432`) |
