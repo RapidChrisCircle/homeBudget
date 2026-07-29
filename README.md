@@ -1,4 +1,4 @@
-# nas-webapp-template - C Dowling
+# nas-webapp-template
 
 ## Quick Start Script
 
