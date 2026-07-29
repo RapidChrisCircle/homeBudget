@@ -12,8 +12,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.home import get_db
 from app.database import Base
+from app.deps import get_db
 from app.main import app
 
 test_engine = create_engine(

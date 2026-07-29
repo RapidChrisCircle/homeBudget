@@ -154,6 +154,25 @@ def test_import_wrong_column_count_rejects_row(client):
     assert any("columns" in e["message"] for e in errors)
 
 
+def test_import_non_utf8_file_rejects_with_422_not_500(client):
+
+    # Raw 0x92 (a cp1252 right single quote) is not a valid standalone UTF-8
+    # byte - a common real-world case for bank CSV exports saved as cp1252.
+    prefix = (HEADER + ',1111,24/07/2026,"Joe').encode("utf-8")
+    suffix = 's Cafe",,-5.00,,100.00,WDL\n'.encode("utf-8")
+    csv_bytes = prefix + b"\x92" + suffix
+
+    response = client.post(
+        "/api/transactions/import",
+        files={"file": ("transactions.csv", io.BytesIO(csv_bytes), "text/csv")},
+    )
+
+    assert response.status_code == 422
+
+    errors = response.json()["detail"]["errors"]
+    assert any("UTF-8" in e["message"] for e in errors)
+
+
 def test_import_multiple_errors_reports_all_row_numbers(client):
 
     csv_content = HEADER + (

@@ -5,15 +5,6 @@ from typing import Optional
 from pydantic import BaseModel
 
 
-class HomeStatusResponse(BaseModel):
-
-    id: int
-    message: str
-
-    class Config:
-        from_attributes = True
-
-
 class TransactionResponse(BaseModel):
 
     id: int
@@ -49,9 +40,3 @@ class ImportResultResponse(BaseModel):
     batch: ImportBatchResponse
     imported_count: int
     skipped_duplicate_count: int
-
-
-class ImportErrorDetail(BaseModel):
-
-    row_number: int
-    message: str

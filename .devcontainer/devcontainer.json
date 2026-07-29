@@ -1,5 +1,5 @@
 {
-    "name": "Home WebApp Platform for Development",
+    "name": "homeBudget Development",
     "dockerComposeFile": "../docker-compose.yml",
     "service": "dev",
     "workspaceFolder": "/workspace",

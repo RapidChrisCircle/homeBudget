@@ -23,6 +23,7 @@ export default function TransactionsPage() {
   const [uploading, setUploading] = useState(false)
   const [uploadResult, setUploadResult] = useState(null)
   const [uploadErrors, setUploadErrors] = useState(null)
+  const [actionError, setActionError] = useState('')
 
   const fetchData = async (cancelledRef) => {
     const [transactionsRes, batchesRes] = await Promise.all([
@@ -104,26 +105,44 @@ export default function TransactionsPage() {
   }
 
   const handleDeleteTransaction = async (id) => {
-    await api.delete(`/transactions/${id}`)
-    await refresh()
+    setActionError('')
+    try {
+      await api.delete(`/transactions/${id}`)
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Delete failed'
+      setActionError(String(message))
+    }
   }
 
   const handleDeleteBatch = async (id) => {
     if (!window.confirm('Delete this import and all its transactions?')) {
       return
     }
-    await api.delete(`/import-batches/${id}`)
-    await refresh()
+    setActionError('')
+    try {
+      await api.delete(`/import-batches/${id}`)
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Delete failed'
+      setActionError(String(message))
+    }
   }
 
   const handleWipeAll = async () => {
     if (!window.confirm('Delete ALL transactions and import history? This cannot be undone.')) {
       return
     }
-    await api.delete('/transactions')
-    setUploadResult(null)
-    setUploadErrors(null)
-    await refresh()
+    setActionError('')
+    try {
+      await api.delete('/transactions')
+      setUploadResult(null)
+      setUploadErrors(null)
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Wipe failed'
+      setActionError(String(message))
+    }
   }
 
   const batchFilename = (importBatchId) => {
@@ -134,6 +153,12 @@ export default function TransactionsPage() {
   return (
     <section className="card">
       <h2>Transactions</h2>
+
+      {actionError && (
+        <p>
+          <strong>Action failed:</strong> {actionError}
+        </p>
+      )}
 
       <div className="card">
         <h3>Import CSV</h3>

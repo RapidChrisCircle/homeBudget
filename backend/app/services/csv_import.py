@@ -62,14 +62,24 @@ def _parse_decimal(value: str, field_name: str, row_number: int, errors: list[tu
 
 def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
 
-    text = file_bytes.decode("utf-8-sig")
+    try:
+        text = file_bytes.decode("utf-8-sig")
+
+    except UnicodeDecodeError:
+        raise CsvValidationError([
+            (1, "file is not valid UTF-8 text - please save/export the CSV as UTF-8")
+        ]) from None
+
     reader = csv.reader(io.StringIO(text))
 
     try:
         header = next(reader)
 
     except StopIteration:
-        raise CsvValidationError([(1, "file is empty, expected a header row")])
+        raise CsvValidationError([(1, "file is empty, expected a header row")]) from None
+
+    except csv.Error as exc:
+        raise CsvValidationError([(1, f"could not parse CSV header: {exc}")]) from None
 
     if header != EXPECTED_HEADERS:
         raise CsvValidationError([
@@ -78,81 +88,90 @@ def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
 
     errors: list[tuple[int, str]] = []
     rows: list[ParsedRow] = []
+    last_row_number = 1
 
-    for row_number, raw_row in enumerate(reader, start=2):
+    try:
+        for row_number, raw_row in enumerate(reader, start=2):
 
-        if all(_blank(value) for value in raw_row):
-            continue
+            last_row_number = row_number
 
-        if len(raw_row) != len(EXPECTED_HEADERS):
-            errors.append((row_number, f"expected {len(EXPECTED_HEADERS)} columns, found {len(raw_row)}"))
-            continue
+            if all(_blank(value) for value in raw_row):
+                continue
 
-        if raw_row == EXPECTED_HEADERS:
-            errors.append((row_number, "row appears to be a repeated header row"))
-            continue
+            if len(raw_row) != len(EXPECTED_HEADERS):
+                errors.append((row_number, f"expected {len(EXPECTED_HEADERS)} columns, found {len(raw_row)}"))
+                continue
 
-        (
-            bsb_raw, account_raw, date_raw, narration_raw, cheque_raw,
-            debit_raw, credit_raw, balance_raw, type_raw
-        ) = raw_row
+            if raw_row == EXPECTED_HEADERS:
+                errors.append((row_number, "row appears to be a repeated header row"))
+                continue
 
-        errors_before = len(errors)
+            (
+                bsb_raw, account_raw, date_raw, narration_raw, cheque_raw,
+                debit_raw, credit_raw, balance_raw, type_raw
+            ) = raw_row
 
-        account_number = account_raw.strip()
-        if _blank(account_number):
-            errors.append((row_number, "Account Number is required"))
+            errors_before = len(errors)
 
-        bsb_number = None if _blank(bsb_raw) else bsb_raw.strip()
+            account_number = account_raw.strip()
+            if _blank(account_number):
+                errors.append((row_number, "Account Number is required"))
 
-        transaction_date = None
-        try:
-            transaction_date = datetime.strptime(date_raw.strip(), "%d/%m/%Y").date()
+            bsb_number = None if _blank(bsb_raw) else bsb_raw.strip()
 
-        except ValueError:
-            errors.append((row_number, f"invalid Transaction Date '{date_raw}', expected DD/MM/YYYY"))
+            transaction_date = None
+            try:
+                transaction_date = datetime.strptime(date_raw.strip(), "%d/%m/%Y").date()
 
-        narration = narration_raw.strip()
-        if _blank(narration):
-            errors.append((row_number, "Narration is required"))
+            except ValueError:
+                errors.append((row_number, f"invalid Transaction Date '{date_raw}', expected DD/MM/YYYY"))
 
-        cheque_number = None if _blank(cheque_raw) else cheque_raw.strip()
+            narration = narration_raw.strip()
+            if _blank(narration):
+                errors.append((row_number, "Narration is required"))
 
-        debit_present = not _blank(debit_raw)
-        credit_present = not _blank(credit_raw)
+            cheque_number = None if _blank(cheque_raw) else cheque_raw.strip()
 
-        debit = _parse_decimal(debit_raw, "Debit", row_number, errors) if debit_present else None
-        credit = _parse_decimal(credit_raw, "Credit", row_number, errors) if credit_present else None
+            debit_present = not _blank(debit_raw)
+            credit_present = not _blank(credit_raw)
 
-        if debit_present and credit_present:
-            errors.append((row_number, "row has both Debit and Credit populated"))
-        elif not debit_present and not credit_present:
-            errors.append((row_number, "row has neither Debit nor Credit populated"))
+            debit = _parse_decimal(debit_raw, "Debit", row_number, errors) if debit_present else None
+            credit = _parse_decimal(credit_raw, "Credit", row_number, errors) if credit_present else None
 
-        balance = None
-        if _blank(balance_raw):
-            errors.append((row_number, "Balance is required"))
-        else:
-            balance = _parse_decimal(balance_raw, "Balance", row_number, errors)
+            if debit_present and credit_present:
+                errors.append((row_number, "row has both Debit and Credit populated"))
+            elif not debit_present and not credit_present:
+                errors.append((row_number, "row has neither Debit nor Credit populated"))
 
-        transaction_type = type_raw.strip()
-        if _blank(transaction_type):
-            errors.append((row_number, "Transaction Type is required"))
+            balance = None
+            if _blank(balance_raw):
+                errors.append((row_number, "Balance is required"))
+            else:
+                balance = _parse_decimal(balance_raw, "Balance", row_number, errors)
 
-        if len(errors) > errors_before:
-            continue
+            transaction_type = type_raw.strip()
+            if _blank(transaction_type):
+                errors.append((row_number, "Transaction Type is required"))
 
-        rows.append(ParsedRow(
-            bsb_number=bsb_number,
-            account_number=account_number,
-            transaction_date=transaction_date,
-            narration=narration,
-            cheque_number=cheque_number,
-            debit=debit,
-            credit=credit,
-            balance=balance,
-            transaction_type=transaction_type,
-        ))
+            if len(errors) > errors_before:
+                continue
+
+            rows.append(ParsedRow(
+                bsb_number=bsb_number,
+                account_number=account_number,
+                transaction_date=transaction_date,
+                narration=narration,
+                cheque_number=cheque_number,
+                debit=debit,
+                credit=credit,
+                balance=balance,
+                transaction_type=transaction_type,
+            ))
+
+    except csv.Error as exc:
+        raise CsvValidationError([
+            (last_row_number + 1, f"malformed CSV data near this row: {exc}")
+        ]) from None
 
     if errors:
         raise CsvValidationError(errors)

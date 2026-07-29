@@ -19,6 +19,7 @@
 # ALLOWED_ORIGINS   - comma-separated origins allowed to call the api directly
 #                      (not needed for browsing through the web container,
 #                      only for local dev against a remote api)
+# DEBUG_SQL         - set to true to log every SQL statement (verbose - dev/debug only)
 # API_PORT          - host port to publish the api on (default 8000)
 # WEB_PORT          - host port to publish the web UI on (default 8080)
 
@@ -41,6 +42,7 @@ services:
       DATABASE_USER: ${DATABASE_USER:?set DATABASE_USER}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
+      DEBUG_SQL: ${DEBUG_SQL:-false}
     ports:
       - "${API_PORT:-8000}:8000"
 

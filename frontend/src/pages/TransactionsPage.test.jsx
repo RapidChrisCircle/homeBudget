@@ -108,4 +108,20 @@ describe('TransactionsPage', () => {
       expect(api.delete).toHaveBeenCalledWith('/transactions/1')
     })
   })
+
+  it('shows an error message when a delete request fails instead of failing silently', async () => {
+    mockLoad()
+    api.delete.mockRejectedValue({ response: { data: { detail: 'Delete not allowed' } } })
+
+    render(<TransactionsPage />)
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const deleteButtons = screen.getAllByRole('button', { name: 'Delete' })
+    fireEvent.click(deleteButtons[deleteButtons.length - 1])
+
+    await waitFor(() => {
+      expect(screen.getByText(/Delete not allowed/)).toBeInTheDocument()
+    })
+  })
 })

@@ -6,11 +6,11 @@ from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import home, pages, transactions
+from .api import transactions
 from .database import settings
 
 app = FastAPI(
-    title="Home Platform"
+    title="homeBudget"
 )
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -49,19 +49,8 @@ app.add_middleware(
 
 
 app.include_router(
-    home.router,
-    prefix="/api"
-)
-
-
-app.include_router(
     transactions.router,
     prefix="/api"
-)
-
-
-app.include_router(
-    pages.router
 )
 
 
@@ -69,7 +58,7 @@ app.include_router(
 def root():
 
     return {
-        "message": "Home Platform API running",
+        "message": "homeBudget API running",
         "database_ready": app.state.database_ready,
         "database_error": app.state.database_error
     }

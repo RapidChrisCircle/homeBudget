@@ -77,7 +77,11 @@ def wipe_transactions(db: Session = Depends(get_db)):
 @router.get("/import-batches", response_model=list[ImportBatchResponse])
 def list_import_batches(db: Session = Depends(get_db)):
 
-    return db.query(ImportBatch).order_by(ImportBatch.imported_at.desc()).all()
+    return (
+        db.query(ImportBatch)
+        .order_by(ImportBatch.imported_at.desc(), ImportBatch.id.desc())
+        .all()
+    )
 
 
 @router.delete("/import-batches/{batch_id}", status_code=204)

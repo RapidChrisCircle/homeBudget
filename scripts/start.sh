@@ -5,6 +5,14 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 
+if [[ ! -f "$ROOT_DIR/.env" ]]; then
+  echo "[start] Missing $ROOT_DIR/.env - the backend cannot start without it."
+  echo "[start] Copy .env.example to .env and point it at a reachable Postgres instance:"
+  echo "[start]   cp .env.example .env"
+  echo "[start] Then edit .env with your database host/port/name/user/password."
+  exit 1
+fi
+
 install_deps=false
 
 for arg in "$@"; do
@@ -22,7 +30,7 @@ done
 
 if [[ "$install_deps" == true ]]; then
   echo "[start] Installing backend dependencies..."
-  python3 -m pip install -r "$BACKEND_DIR/requirements.txt"
+  python3 -m pip install -r "$BACKEND_DIR/requirements.txt" -r "$BACKEND_DIR/requirements-dev.txt"
 
   echo "[start] Installing frontend dependencies..."
   (cd "$FRONTEND_DIR" && npm install)
