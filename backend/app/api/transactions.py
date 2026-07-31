@@ -61,6 +61,24 @@ def list_transactions(db: Session = Depends(get_db)):
     )
 
 
+@router.get("/transactions/types", response_model=list[str])
+def list_transaction_types(db: Session = Depends(get_db)):
+    """Distinct transaction_type values seen in the ledger (e.g. DEP/WDL/TFD),
+    used to populate the Transaction type dropdown on the Rules page rather
+    than leaving it as free text.
+    """
+
+    rows = (
+        db.query(Transaction.transaction_type)
+        .filter(Transaction.transaction_type.isnot(None))
+        .distinct()
+        .order_by(Transaction.transaction_type)
+        .all()
+    )
+
+    return [row[0] for row in rows]
+
+
 @router.patch("/transactions/{transaction_id}/category", response_model=TransactionResponse)
 def update_transaction_category(
     transaction_id: int,

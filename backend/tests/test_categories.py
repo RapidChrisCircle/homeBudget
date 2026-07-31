@@ -45,6 +45,68 @@ def test_update_category_404_when_missing(client):
     assert response.status_code == 404
 
 
+def test_create_category_defaults_to_expense_kind(client):
+
+    response = client.post("/api/categories", json={"name": "Groceries"})
+
+    assert response.json()["kind"] == "expense"
+    assert response.json()["budget_amount"] is None
+
+
+def test_create_category_with_kind_and_budget(client):
+
+    response = client.post(
+        "/api/categories",
+        json={"name": "Groceries", "kind": "expense", "budget_amount": "800.00"},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["kind"] == "expense"
+    assert body["budget_amount"] == "800.00"
+
+
+def test_create_category_rejects_unknown_kind(client):
+
+    response = client.post("/api/categories", json={"name": "Groceries", "kind": "bogus"})
+
+    assert response.status_code == 422
+
+
+def test_create_category_rejects_negative_budget(client):
+
+    response = client.post(
+        "/api/categories",
+        json={"name": "Groceries", "kind": "expense", "budget_amount": "-5.00"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_budget_amount_cleared_for_non_expense_kind(client):
+
+    response = client.post(
+        "/api/categories",
+        json={"name": "Salary", "kind": "income", "budget_amount": "500.00"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["budget_amount"] is None
+
+
+def test_update_category_changes_kind_and_budget(client):
+
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+
+    response = client.put(
+        f"/api/categories/{category_id}",
+        json={"name": "Groceries", "kind": "expense", "budget_amount": "900.00"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["budget_amount"] == "900.00"
+
+
 def test_delete_category_404_when_missing(client):
 
     response = client.delete("/api/categories/999")

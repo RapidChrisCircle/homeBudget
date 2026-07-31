@@ -27,13 +27,16 @@ const sampleRule = {
 
 const sampleCategory = { id: 1, name: 'Groceries' }
 
-function mockLoad(rules = [sampleRule], categories = [sampleCategory]) {
+function mockLoad(rules = [sampleRule], categories = [sampleCategory], transactionTypes = ['DEP', 'WDL']) {
   api.get.mockImplementation((path) => {
     if (path === '/category-rules') {
       return Promise.resolve({ data: rules })
     }
     if (path === '/categories') {
       return Promise.resolve({ data: categories })
+    }
+    if (path === '/transactions/types') {
+      return Promise.resolve({ data: transactionTypes })
     }
     return Promise.reject(new Error(`unexpected path ${path}`))
   })
@@ -89,6 +92,33 @@ describe('RulesPage', () => {
         category_id: 1,
       })
     })
+  })
+
+  it('populates the transaction type dropdown from available types', async () => {
+    mockLoad([], [sampleCategory], ['DEP', 'WDL', 'TFD'])
+
+    renderPage()
+
+    await waitFor(() => expect(screen.queryByText('Loading rules...')).not.toBeInTheDocument())
+
+    const select = screen.getByLabelText('Transaction type')
+    fireEvent.change(select, { target: { value: 'TFD' } })
+
+    expect(select).toHaveValue('TFD')
+    expect(screen.getByRole('option', { name: 'Any type' })).toBeInTheDocument()
+  })
+
+  it('keeps a rule\'s saved transaction type visible even if no longer in the fetched list', async () => {
+    const rule = { ...sampleRule, transaction_type: 'TFD' }
+    mockLoad([rule], [sampleCategory], ['DEP', 'WDL'])
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('woolworths')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getByLabelText('Transaction type')).toHaveValue('TFD')
   })
 
   it('prefills the narration pattern from the query parameter', async () => {

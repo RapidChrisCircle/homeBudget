@@ -3,6 +3,10 @@ from sqlalchemy.orm import relationship
 
 from .database import Base
 
+# Shared by Category validation (api/categories.py) and the reporting service
+# (services/reporting.py) so the set of valid kinds is defined exactly once.
+CATEGORY_KINDS = ("expense", "income", "transfer")
+
 
 class Account(Base):
 
@@ -58,6 +62,19 @@ class Account(Base):
 
 
 class Category(Base):
+    """A spending/income grouping.
+
+    kind is one of CATEGORY_KINDS:
+    - "expense" - counts toward spending totals; budget_amount applies.
+    - "income" - counts toward income totals.
+    - "transfer" - excluded from every report. Use this for money moving
+      between the user's own accounts (e.g. a credit card payment) so it
+      doesn't inflate both income and spending.
+
+    budget_amount is a single recurring MONTHLY figure (positive dollars,
+    NULL = no budget set) that applies to every month - there is no
+    per-month override. Only meaningful when kind == "expense".
+    """
 
     __tablename__ = "categories"
 
@@ -69,6 +86,18 @@ class Category(Base):
     name = Column(
         String,
         nullable=False
+    )
+
+    kind = Column(
+        String,
+        nullable=False,
+        default="expense",
+        server_default="expense"
+    )
+
+    budget_amount = Column(
+        Numeric(12, 2),
+        nullable=True
     )
 
     transactions = relationship(

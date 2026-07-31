@@ -41,6 +41,8 @@ class CategoryResponse(BaseModel):
 
     id: int
     name: str
+    kind: str
+    budget_amount: Optional[Decimal]
 
     class Config:
         from_attributes = True
@@ -49,11 +51,15 @@ class CategoryResponse(BaseModel):
 class CategoryCreate(BaseModel):
 
     name: str
+    kind: str = "expense"
+    budget_amount: Optional[Decimal] = None
 
 
 class CategoryUpdate(BaseModel):
 
     name: str
+    kind: str = "expense"
+    budget_amount: Optional[Decimal] = None
 
 
 class CategoryRuleResponse(BaseModel):
@@ -169,3 +175,75 @@ class ImportResultResponse(BaseModel):
     skipped_duplicate_count: int
     new_account_count: int
     auto_categorized_count: int
+
+
+class ReportPeriodResponse(BaseModel):
+
+    year: int
+    month: int
+    label: str
+    transaction_count: int
+
+
+class MonthlySummaryResponse(BaseModel):
+
+    total_income: Decimal
+    total_spending: Decimal
+    net_saved: Decimal
+
+
+class BudgetLineResponse(BaseModel):
+
+    category_id: int
+    category_name: str
+    budget_amount: Optional[Decimal]
+    actual: Decimal
+    difference: Optional[Decimal]
+    transaction_count: int
+
+    class Config:
+        from_attributes = True
+
+
+class CategoryGridPeriodResponse(BaseModel):
+
+    year: int
+    month: int
+    label: str
+
+
+class CategoryGridRowResponse(BaseModel):
+
+    category_id: int
+    category_name: str
+    kind: str
+    amounts: dict[str, Decimal]
+    total: Decimal
+
+
+class CategoryGridResponse(BaseModel):
+
+    periods: list[CategoryGridPeriodResponse]
+    rows: list[CategoryGridRowResponse]
+
+
+class UncategorizedSummaryResponse(BaseModel):
+
+    transaction_count: int
+    uncategorized_count: int
+    total_in: Decimal
+    total_out: Decimal
+    net_total: Decimal
+
+
+class MonthlyReportResponse(BaseModel):
+
+    year: int
+    month: int
+    label: str
+    start_date: date
+    end_date: date
+    summary: MonthlySummaryResponse
+    budgets: list[BudgetLineResponse]
+    grid: CategoryGridResponse
+    uncategorized: UncategorizedSummaryResponse

@@ -266,6 +266,25 @@ def test_list_transactions_empty_returns_empty_list_not_404(client):
     assert response.json() == []
 
 
+def test_list_transaction_types_returns_distinct_sorted_values(client):
+
+    upload(client, SAMPLE_CSV)
+
+    response = client.get("/api/transactions/types")
+
+    assert response.status_code == 200
+    assert response.json() == sorted(set(response.json()))
+    assert set(response.json()) == {"DEP", "WDL", "TFD"}
+
+
+def test_list_transaction_types_empty_when_no_transactions(client):
+
+    response = client.get("/api/transactions/types")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 def test_import_auto_creates_account_for_unknown_account_number(client, db_session):
 
     response = upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')

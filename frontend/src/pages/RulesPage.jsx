@@ -25,6 +25,7 @@ function buildPayload(form) {
 export default function RulesPage() {
   const [rules, setRules] = useState([])
   const [categories, setCategories] = useState([])
+  const [transactionTypes, setTransactionTypes] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionError, setActionError] = useState('')
@@ -38,12 +39,14 @@ export default function RulesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const refresh = async () => {
-    const [rulesRes, categoriesRes] = await Promise.all([
+    const [rulesRes, categoriesRes, typesRes] = await Promise.all([
       api.get('/category-rules'),
       api.get('/categories'),
+      api.get('/transactions/types'),
     ])
     setRules(rulesRes.data)
     setCategories(categoriesRes.data)
+    setTransactionTypes(typesRes.data)
   }
 
   useEffect(() => {
@@ -186,6 +189,11 @@ export default function RulesPage() {
     }
   }
 
+  // Include the rule's current type even if no transaction of that type
+  // exists any more (e.g. edited after the underlying rows were deleted),
+  // so editing never silently blanks out a saved value.
+  const typeOptions = Array.from(new Set([...transactionTypes, form.transaction_type].filter(Boolean)))
+
   return (
     <section className="card">
       <h2>Rules</h2>
@@ -232,11 +240,14 @@ export default function RulesPage() {
           <div>
             <label>
               Transaction type
-              <input
-                type="text"
-                value={form.transaction_type}
-                onChange={handleFieldChange('transaction_type')}
-              />
+              <select value={form.transaction_type} onChange={handleFieldChange('transaction_type')}>
+                <option value="">Any type</option>
+                {typeOptions.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           <div>

@@ -1,5 +1,6 @@
 import AccountsPage from './pages/AccountsPage.jsx'
 import CategoriesPage from './pages/CategoriesPage.jsx'
+import ReportsPage from './pages/ReportsPage.jsx'
 import RulesPage from './pages/RulesPage.jsx'
 import TransactionsPage from './pages/TransactionsPage.jsx'
 
@@ -26,5 +27,10 @@ export const pages = [
     path: '/rules',
     label: 'Rules',
     element: <RulesPage />,
+  },
+  {
+    path: '/reports',
+    label: 'Reports',
+    element: <ReportsPage />,
   },
 ]

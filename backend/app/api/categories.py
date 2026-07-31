@@ -3,10 +3,29 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
-from ..models import Category, CategoryRule, Transaction
+from ..models import CATEGORY_KINDS, Category, CategoryRule, Transaction
 from ..schemas import CategoryCreate, CategoryResponse, CategoryUpdate
 
 router = APIRouter()
+
+
+def _validate_category_payload(payload):
+
+    if payload.kind not in CATEGORY_KINDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"kind must be one of: {', '.join(CATEGORY_KINDS)}",
+        )
+
+    if payload.budget_amount is not None and payload.budget_amount < 0:
+        raise HTTPException(status_code=422, detail="budget_amount must be a positive dollar value")
+
+    # A budget only means something on an expense category. Coercing rather
+    # than rejecting avoids an edit-order trap: switching an existing
+    # budgeted category to income/transfer shouldn't require clearing the
+    # budget first - the response just echoes back null.
+    if payload.kind != "expense":
+        payload.budget_amount = None
 
 
 @router.get("/categories", response_model=list[CategoryResponse])
@@ -24,6 +43,8 @@ def create_category(
     payload: CategoryCreate,
     db: Session = Depends(get_db)
 ):
+
+    _validate_category_payload(payload)
 
     category = Category(**payload.model_dump())
     db.add(category)
@@ -51,7 +72,10 @@ def update_category(
     if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
 
-    category.name = payload.name
+    _validate_category_payload(payload)
+
+    for field, value in payload.model_dump().items():
+        setattr(category, field, value)
 
     try:
         db.commit()
