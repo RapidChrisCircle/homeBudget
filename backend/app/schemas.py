@@ -56,6 +56,66 @@ class CategoryUpdate(BaseModel):
     name: str
 
 
+class CategoryRuleResponse(BaseModel):
+
+    id: int
+    narration_pattern: str
+    transaction_type: Optional[str]
+    min_amount: Optional[Decimal]
+    max_amount: Optional[Decimal]
+    category_id: int
+    category_name: Optional[str]
+    priority: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CategoryRuleCreate(BaseModel):
+
+    narration_pattern: str
+    transaction_type: Optional[str] = None
+    min_amount: Optional[Decimal] = None
+    max_amount: Optional[Decimal] = None
+    category_id: int
+
+
+class CategoryRuleUpdate(BaseModel):
+
+    narration_pattern: str
+    transaction_type: Optional[str] = None
+    min_amount: Optional[Decimal] = None
+    max_amount: Optional[Decimal] = None
+    category_id: int
+
+
+class CategoryRuleMove(BaseModel):
+
+    direction: str
+
+
+class CategoryRulePreviewRequest(BaseModel):
+
+    narration_pattern: str
+    transaction_type: Optional[str] = None
+    min_amount: Optional[Decimal] = None
+    max_amount: Optional[Decimal] = None
+    category_id: Optional[int] = None
+    exclude_rule_id: Optional[int] = None
+
+
+class CategoryRulePreviewResponse(BaseModel):
+
+    match_count: int
+    would_categorize_count: int
+
+
+class ApplyRulesResponse(BaseModel):
+
+    categorized_count: int
+
+
 class TransactionCategoryUpdate(BaseModel):
 
     category_id: Optional[int]
@@ -75,6 +135,7 @@ class TransactionResponse(BaseModel):
     account_name: Optional[str]
     category_id: Optional[int]
     category_name: Optional[str]
+    categorized_by_rule_id: Optional[int]
     bsb_number: Optional[str]
     account_number: str
     transaction_date: date
@@ -107,3 +168,4 @@ class ImportResultResponse(BaseModel):
     imported_count: int
     skipped_duplicate_count: int
     new_account_count: int
+    auto_categorized_count: int

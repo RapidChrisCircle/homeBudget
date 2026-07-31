@@ -76,12 +76,96 @@ class Category(Base):
         back_populates="category"
     )
 
+    rules = relationship(
+        "CategoryRule",
+        back_populates="category"
+    )
+
     __table_args__ = (
         UniqueConstraint(
             "name",
             name="uq_categories_name"
         ),
     )
+
+
+class CategoryRule(Base):
+    """A rule that automatically assigns a category to matching transactions.
+
+    Criteria are ANDed: a transaction matches only if every populated
+    criterion matches. narration_pattern is a case-insensitive substring
+    match and is always required.
+
+    min_amount/max_amount are entered as POSITIVE dollar values and are
+    compared against the absolute value of whichever of debit/credit is
+    populated - debits are stored negative, so a signed comparison would
+    never match. Bounds are inclusive. Because the comparison is on
+    magnitude, an amount range matches income as well as spending unless
+    transaction_type is also set.
+
+    Rules are evaluated in (priority, id) order and the first match wins.
+    """
+
+    __tablename__ = "category_rules"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    narration_pattern = Column(
+        String,
+        nullable=False
+    )
+
+    transaction_type = Column(
+        String,
+        nullable=True
+    )
+
+    min_amount = Column(
+        Numeric(12, 2),
+        nullable=True
+    )
+
+    max_amount = Column(
+        Numeric(12, 2),
+        nullable=True
+    )
+
+    category_id = Column(
+        Integer,
+        ForeignKey("categories.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    priority = Column(
+        Integer,
+        nullable=False,
+        default=0
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )
+
+    category = relationship(
+        "Category",
+        back_populates="rules"
+    )
+
+    tagged_transactions = relationship(
+        "Transaction",
+        back_populates="categorized_by_rule"
+    )
+
+    @property
+    def category_name(self):
+
+        return self.category.name if self.category else None
 
 
 class ImportBatch(Base):
@@ -153,6 +237,13 @@ class Transaction(Base):
         index=True
     )
 
+    categorized_by_rule_id = Column(
+        Integer,
+        ForeignKey("category_rules.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
     bsb_number = Column(
         String,
         nullable=True
@@ -211,6 +302,11 @@ class Transaction(Base):
     category = relationship(
         "Category",
         back_populates="transactions"
+    )
+
+    categorized_by_rule = relationship(
+        "CategoryRule",
+        back_populates="tagged_transactions"
     )
 
     @property

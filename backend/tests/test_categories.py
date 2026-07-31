@@ -1,6 +1,6 @@
 from datetime import date
 
-from app.models import Category, ImportBatch, Transaction
+from app.models import Category, CategoryRule, ImportBatch, Transaction
 
 
 def test_create_category(client):
@@ -85,3 +85,46 @@ def test_delete_category_untags_linked_transactions(client, db_session):
 
     db_session.expire_all()
     assert db_session.get(Transaction, transaction_id).category_id is None
+
+
+def test_delete_category_removes_its_rules_and_clears_markers(client, db_session):
+
+    category = Category(name="Groceries")
+    db_session.add(category)
+    db_session.flush()
+
+    rule = CategoryRule(narration_pattern="coffee", category_id=category.id, priority=0)
+    db_session.add(rule)
+    db_session.flush()
+
+    batch = ImportBatch(filename="seed.csv", row_count=1, skipped_duplicate_count=0)
+    db_session.add(batch)
+    db_session.flush()
+
+    transaction = Transaction(
+        import_batch_id=batch.id,
+        category_id=category.id,
+        categorized_by_rule_id=rule.id,
+        bsb_number=None,
+        account_number="1111",
+        transaction_date=date(2026, 7, 24),
+        narration="Coffee",
+        cheque_number=None,
+        debit="-5.00",
+        credit=None,
+        balance="100.00",
+        transaction_type="WDL",
+    )
+    db_session.add(transaction)
+    db_session.commit()
+    transaction_id = transaction.id
+
+    response = client.delete(f"/api/categories/{category.id}")
+
+    assert response.status_code == 204
+    assert db_session.query(CategoryRule).count() == 0
+
+    db_session.expire_all()
+    updated = db_session.get(Transaction, transaction_id)
+    assert updated.category_id is None
+    assert updated.categorized_by_rule_id is None

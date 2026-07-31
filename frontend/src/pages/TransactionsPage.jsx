@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
 
 function formatAccount(transaction) {
@@ -27,6 +28,9 @@ export default function TransactionsPage() {
   const [actionError, setActionError] = useState('')
   const [selectedIds, setSelectedIds] = useState([])
   const [bulkCategoryId, setBulkCategoryId] = useState('')
+  const [applyMessage, setApplyMessage] = useState('')
+  const [applying, setApplying] = useState(false)
+  const navigate = useNavigate()
 
   const fetchData = async (cancelledRef) => {
     const [transactionsRes, batchesRes, categoriesRes] = await Promise.all([
@@ -147,6 +151,25 @@ export default function TransactionsPage() {
     }
   }
 
+  const handleApplyRules = async () => {
+    setActionError('')
+    setApplying(true)
+    try {
+      const response = await api.post('/category-rules/apply')
+      setApplyMessage(`Categorized ${response.data.categorized_count} transaction(s).`)
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Apply rules failed'
+      setActionError(String(message))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const handleMakeRule = (narration) => {
+    navigate(`/rules?narration=${encodeURIComponent(narration)}`)
+  }
+
   const handleDeleteTransaction = async (id) => {
     setActionError('')
     try {
@@ -213,7 +236,8 @@ export default function TransactionsPage() {
           <p>
             Imported {uploadResult.imported_count} transaction(s), skipped{' '}
             {uploadResult.skipped_duplicate_count} duplicate(s), created{' '}
-            {uploadResult.new_account_count} new account(s).
+            {uploadResult.new_account_count} new account(s), auto-categorized{' '}
+            {uploadResult.auto_categorized_count} transaction(s).
           </p>
         )}
 
@@ -292,6 +316,10 @@ export default function TransactionsPage() {
               <button type="button" onClick={handleBulkAssign} disabled={selectedIds.length === 0}>
                 Set category for selected ({selectedIds.length})
               </button>
+              <button type="button" onClick={handleApplyRules} disabled={applying}>
+                Apply rules now
+              </button>
+              {applyMessage && <span>{applyMessage}</span>}
             </div>
 
             <table>
@@ -339,9 +367,19 @@ export default function TransactionsPage() {
                           </option>
                         ))}
                       </select>
+                      {transaction.categorized_by_rule_id && (
+                        <span title="Set automatically by a rule"> auto</span>
+                      )}
                     </td>
                     <td>{batchFilename(transaction.import_batch_id)}</td>
                     <td>
+                      <button
+                        type="button"
+                        aria-label={`Make rule from ${transaction.narration}`}
+                        onClick={() => handleMakeRule(transaction.narration)}
+                      >
+                        Make rule
+                      </button>
                       <button type="button" onClick={() => handleDeleteTransaction(transaction.id)}>
                         Delete
                       </button>

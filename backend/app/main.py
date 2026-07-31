@@ -6,7 +6,7 @@ from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import accounts, categories, transactions
+from .api import accounts, categories, category_rules, transactions
 from .database import settings
 
 app = FastAPI(
@@ -60,6 +60,11 @@ app.include_router(
 
 app.include_router(
     categories.router,
+    prefix="/api"
+)
+
+app.include_router(
+    category_rules.router,
     prefix="/api"
 )
 

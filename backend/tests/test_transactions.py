@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from app.models import Account, ImportBatch, Transaction
+from app.models import Account, CategoryRule, ImportBatch, Transaction
 from app.services import csv_formats
 from app.services.csv_formats import CsvFormat
 
@@ -398,6 +398,122 @@ def test_assign_category_404_when_category_missing(client):
     response = client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": 999})
 
     assert response.status_code == 404
+
+
+def test_import_auto_categorizes_matching_rows(client, db_session):
+
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+    rule_id = client.post(
+        "/api/category-rules",
+        json={"narration_pattern": "woolworths", "category_id": category_id},
+    ).json()["id"]
+
+    upload(client, HEADER + ',1111,24/07/2026,"WOOLWORTHS NEWPORT",,-98.00,,100.00,WDL\n')
+
+    transaction = db_session.query(Transaction).one()
+    assert transaction.category_id == category_id
+    assert transaction.categorized_by_rule_id == rule_id
+
+
+def test_import_reports_auto_categorized_count(client):
+
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+    client.post("/api/category-rules", json={"narration_pattern": "woolworths", "category_id": category_id})
+
+    response = upload(client, HEADER + (
+        ',1111,24/07/2026,"WOOLWORTHS NEWPORT",,-98.00,,100.00,WDL\n'
+        ',1111,25/07/2026,"COLES NEWPORT",,-12.00,,88.00,WDL\n'
+    ))
+
+    assert response.json()["auto_categorized_count"] == 1
+
+
+def test_import_leaves_non_matching_rows_uncategorized(client, db_session):
+
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+    client.post("/api/category-rules", json={"narration_pattern": "woolworths", "category_id": category_id})
+
+    upload(client, HEADER + ',1111,24/07/2026,"COLES NEWPORT",,-12.00,,88.00,WDL\n')
+
+    transaction = db_session.query(Transaction).one()
+    assert transaction.category_id is None
+    assert transaction.categorized_by_rule_id is None
+
+
+def test_import_with_no_rules_reports_zero_auto_categorized(client):
+
+    response = upload(client, HEADER + ',1111,24/07/2026,"WOOLWORTHS NEWPORT",,-98.00,,100.00,WDL\n')
+
+    assert response.json()["auto_categorized_count"] == 0
+
+
+def test_manual_category_patch_clears_rule_marker(client, db_session):
+
+    upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
+    transaction = db_session.query(Transaction).one()
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+
+    # Simulate the row having been auto-categorized by a rule earlier.
+    rule = CategoryRule(narration_pattern="coffee", category_id=category_id, priority=0)
+    db_session.add(rule)
+    db_session.flush()
+    transaction.category_id = category_id
+    transaction.categorized_by_rule_id = rule.id
+    db_session.commit()
+
+    other_id = client.post("/api/categories", json={"name": "Dining"}).json()["id"]
+    response = client.patch(f"/api/transactions/{transaction.id}/category", json={"category_id": other_id})
+
+    assert response.status_code == 200
+    assert response.json()["categorized_by_rule_id"] is None
+
+    db_session.expire_all()
+    assert db_session.get(Transaction, transaction.id).categorized_by_rule_id is None
+
+
+def test_clearing_category_manually_clears_rule_marker(client, db_session):
+
+    upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
+    transaction = db_session.query(Transaction).one()
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+
+    rule = CategoryRule(narration_pattern="coffee", category_id=category_id, priority=0)
+    db_session.add(rule)
+    db_session.flush()
+    transaction.category_id = category_id
+    transaction.categorized_by_rule_id = rule.id
+    db_session.commit()
+
+    response = client.patch(f"/api/transactions/{transaction.id}/category", json={"category_id": None})
+
+    assert response.status_code == 200
+    assert response.json()["category_id"] is None
+    assert response.json()["categorized_by_rule_id"] is None
+
+
+def test_bulk_category_update_clears_rule_marker(client, db_session):
+
+    upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
+    transaction = db_session.query(Transaction).one()
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+
+    rule = CategoryRule(narration_pattern="coffee", category_id=category_id, priority=0)
+    db_session.add(rule)
+    db_session.flush()
+    transaction.category_id = category_id
+    transaction.categorized_by_rule_id = rule.id
+    db_session.commit()
+
+    other_id = client.post("/api/categories", json={"name": "Dining"}).json()["id"]
+    response = client.post(
+        "/api/transactions/bulk-category",
+        json={"transaction_ids": [transaction.id], "category_id": other_id},
+    )
+
+    assert response.status_code == 200
+
+    db_session.expire_all()
+    assert db_session.get(Transaction, transaction.id).categorized_by_rule_id is None
 
 
 def test_bulk_assign_category_to_transactions(client):

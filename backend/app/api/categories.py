@@ -3,7 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
-from ..models import Category, Transaction
+from ..models import Category, CategoryRule, Transaction
 from ..schemas import CategoryCreate, CategoryResponse, CategoryUpdate
 
 router = APIRouter()
@@ -75,7 +75,27 @@ def delete_category(
     if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
 
-    db.query(Transaction).filter(Transaction.category_id == category_id).update({"category_id": None})
+    # Cascades are enforced here rather than left to the FK: SQLite does not
+    # apply ondelete without PRAGMA foreign_keys=ON, so a cascade-only version
+    # would pass every test and behave differently against Postgres.
+    rule_ids = [
+        rule_id
+        for (rule_id,) in db.query(CategoryRule.id).filter(CategoryRule.category_id == category_id).all()
+    ]
+
+    if rule_ids:
+        (
+            db.query(Transaction)
+            .filter(Transaction.categorized_by_rule_id.in_(rule_ids))
+            .update({"categorized_by_rule_id": None}, synchronize_session=False)
+        )
+        db.query(CategoryRule).filter(CategoryRule.category_id == category_id).delete(synchronize_session=False)
+
+    (
+        db.query(Transaction)
+        .filter(Transaction.category_id == category_id)
+        .update({"category_id": None, "categorized_by_rule_id": None}, synchronize_session=False)
+    )
 
     db.delete(category)
     db.commit()

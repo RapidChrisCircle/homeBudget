@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy.orm import Session
 
 from ..models import Account, ImportBatch, Transaction
+from .categorization import apply_rules_to_transaction, load_rules
 from .csv_formats import CSV_FORMATS, CsvFormat, find_format_for_header
 
 
@@ -174,7 +175,12 @@ def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
     return csv_format, rows
 
 
-def import_rows(db: Session, filename: str, csv_format: CsvFormat, rows: list[ParsedRow]) -> tuple[ImportBatch, int]:
+def import_rows(
+    db: Session,
+    filename: str,
+    csv_format: CsvFormat,
+    rows: list[ParsedRow]
+) -> tuple[ImportBatch, int, int]:
 
     account_numbers = {row.account_number for row in rows}
 
@@ -188,7 +194,11 @@ def import_rows(db: Session, filename: str, csv_format: CsvFormat, rows: list[Pa
         for a in db.query(Account).filter(Account.account_number.in_(account_numbers)).all()
     }
 
+    # Loaded once for the whole file - matching is then pure Python per row.
+    rules = load_rules(db)
+
     new_account_count = 0
+    auto_categorized_count = 0
 
     batch = ImportBatch(filename=filename, row_count=0, skipped_duplicate_count=0)
     db.add(batch)
@@ -225,7 +235,7 @@ def import_rows(db: Session, filename: str, csv_format: CsvFormat, rows: list[Pa
             existing_accounts[row.account_number] = account
             new_account_count += 1
 
-        db.add(Transaction(
+        transaction = Transaction(
             import_batch_id=batch.id,
             account_id=account.id,
             bsb_number=row.bsb_number,
@@ -237,7 +247,12 @@ def import_rows(db: Session, filename: str, csv_format: CsvFormat, rows: list[Pa
             credit=row.credit,
             balance=row.balance,
             transaction_type=row.transaction_type,
-        ))
+        )
+
+        if apply_rules_to_transaction(rules, transaction):
+            auto_categorized_count += 1
+
+        db.add(transaction)
         inserted += 1
 
     batch.row_count = inserted
@@ -246,4 +261,4 @@ def import_rows(db: Session, filename: str, csv_format: CsvFormat, rows: list[Pa
     db.commit()
     db.refresh(batch)
 
-    return batch, new_account_count
+    return batch, new_account_count, auto_categorized_count

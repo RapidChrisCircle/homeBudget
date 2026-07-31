@@ -1,5 +1,6 @@
 import AccountsPage from './pages/AccountsPage.jsx'
 import CategoriesPage from './pages/CategoriesPage.jsx'
+import RulesPage from './pages/RulesPage.jsx'
 import TransactionsPage from './pages/TransactionsPage.jsx'
 
 // Single source of truth for browsable pages. Add an entry here and it
@@ -20,5 +21,10 @@ export const pages = [
     path: '/categories',
     label: 'Categories',
     element: <CategoriesPage />,
+  },
+  {
+    path: '/rules',
+    label: 'Rules',
+    element: <RulesPage />,
   },
 ]

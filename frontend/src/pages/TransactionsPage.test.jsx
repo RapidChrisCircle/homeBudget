@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
 import TransactionsPage from './TransactionsPage.jsx'
@@ -19,6 +20,7 @@ const sampleTransaction = {
   account_name: 'Joint Everyday',
   category_id: null,
   category_name: null,
+  categorized_by_rule_id: null,
   bsb_number: null,
   account_number: '1111',
   transaction_date: '2026-07-24',
@@ -55,6 +57,19 @@ function mockLoad(transactions = [sampleTransaction], batches = [sampleBatch], c
   })
 }
 
+// The page navigates to /rules, so it needs Router context. The probe route
+// lets tests assert where "Make rule" landed.
+function renderPage() {
+  return render(
+    <MemoryRouter initialEntries={['/transactions']}>
+      <Routes>
+        <Route path="/transactions" element={<TransactionsPage />} />
+        <Route path="/rules" element={<div>rules page</div>} />
+      </Routes>
+    </MemoryRouter>
+  )
+}
+
 describe('TransactionsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -63,7 +78,7 @@ describe('TransactionsPage', () => {
   it('renders loading then the transaction table once data resolves', async () => {
     mockLoad()
 
-    render(<TransactionsPage />)
+    renderPage()
 
     expect(screen.getByText('Loading transactions...')).toBeInTheDocument()
 
@@ -88,7 +103,7 @@ describe('TransactionsPage', () => {
       },
     })
 
-    render(<TransactionsPage />)
+    renderPage()
 
     await waitFor(() => expect(screen.queryByText('Loading transactions...')).not.toBeInTheDocument())
 
@@ -107,7 +122,7 @@ describe('TransactionsPage', () => {
     mockLoad()
     api.delete.mockResolvedValue({})
 
-    render(<TransactionsPage />)
+    renderPage()
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
@@ -123,7 +138,7 @@ describe('TransactionsPage', () => {
     mockLoad()
     api.delete.mockRejectedValue({ response: { data: { detail: 'Delete not allowed' } } })
 
-    render(<TransactionsPage />)
+    renderPage()
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
@@ -135,13 +150,18 @@ describe('TransactionsPage', () => {
     })
   })
 
-  it('shows the new account count after a successful import', async () => {
+  it('shows the new account and auto-categorized counts after a successful import', async () => {
     mockLoad([], [])
     api.post.mockResolvedValue({
-      data: { imported_count: 2, skipped_duplicate_count: 0, new_account_count: 1 },
+      data: {
+        imported_count: 2,
+        skipped_duplicate_count: 0,
+        new_account_count: 1,
+        auto_categorized_count: 2,
+      },
     })
 
-    render(<TransactionsPage />)
+    renderPage()
 
     await waitFor(() => expect(screen.queryByText('Loading transactions...')).not.toBeInTheDocument())
 
@@ -153,13 +173,14 @@ describe('TransactionsPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/created 1 new account\(s\)/)).toBeInTheDocument()
     })
+    expect(screen.getByText(/auto-categorized\s+2 transaction\(s\)/)).toBeInTheDocument()
   })
 
   it('calls the category patch endpoint when a row category is changed', async () => {
     mockLoad()
     api.patch.mockResolvedValue({})
 
-    render(<TransactionsPage />)
+    renderPage()
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
@@ -170,5 +191,44 @@ describe('TransactionsPage', () => {
     await waitFor(() => {
       expect(api.patch).toHaveBeenCalledWith('/transactions/1/category', { category_id: 1 })
     })
+  })
+
+  it('navigates to the rules page with the row narration when Make rule is clicked', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Make rule from Coffee' }))
+
+    expect(await screen.findByText('rules page')).toBeInTheDocument()
+  })
+
+  it('applies rules and shows the number categorized', async () => {
+    mockLoad()
+    api.post.mockResolvedValue({ data: { categorized_count: 3 } })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply rules now' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/category-rules/apply')
+    })
+    expect(await screen.findByText('Categorized 3 transaction(s).')).toBeInTheDocument()
+  })
+
+  it('shows the auto marker for a rule-categorized row', async () => {
+    mockLoad([{ ...sampleTransaction, category_id: 1, category_name: 'Groceries', categorized_by_rule_id: 7 }])
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const row = screen.getByText('Coffee').closest('tr')
+    expect(within(row).getByTitle('Set automatically by a rule')).toBeInTheDocument()
   })
 })

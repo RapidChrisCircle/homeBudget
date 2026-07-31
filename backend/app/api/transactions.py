@@ -38,13 +38,16 @@ def import_transactions(
             },
         )
 
-    batch, new_account_count = import_rows(db, filename=file.filename, csv_format=csv_format, rows=rows)
+    batch, new_account_count, auto_categorized_count = import_rows(
+        db, filename=file.filename, csv_format=csv_format, rows=rows
+    )
 
     return ImportResultResponse(
         batch=ImportBatchResponse.model_validate(batch),
         imported_count=batch.row_count,
         skipped_duplicate_count=batch.skipped_duplicate_count,
         new_account_count=new_account_count,
+        auto_categorized_count=auto_categorized_count,
     )
 
 
@@ -73,7 +76,10 @@ def update_transaction_category(
     if payload.category_id is not None and db.get(Category, payload.category_id) is None:
         raise HTTPException(status_code=404, detail="Category not found")
 
+    # Setting a category by hand makes it permanent - clearing the rule
+    # marker takes this transaction out of scope for future rule runs.
     transaction.category_id = payload.category_id
+    transaction.categorized_by_rule_id = None
     db.commit()
     db.refresh(transaction)
 
@@ -92,7 +98,10 @@ def bulk_update_transaction_category(
     updated = (
         db.query(Transaction)
         .filter(Transaction.id.in_(payload.transaction_ids))
-        .update({"category_id": payload.category_id}, synchronize_session=False)
+        .update(
+            {"category_id": payload.category_id, "categorized_by_rule_id": None},
+            synchronize_session=False
+        )
     )
     db.commit()
 
