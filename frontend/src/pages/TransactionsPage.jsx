@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../services/api'
 
 function formatAccount(transaction) {
@@ -16,10 +16,66 @@ function formatAmount(value) {
   return Number(value).toFixed(2)
 }
 
+const EMPTY_FILTERS = {
+  account_id: '',
+  category: '', // '' = all, 'uncategorized' = uncategorized only, else a category id
+  date_from: '',
+  date_to: '',
+  search: '',
+  transaction_type: '',
+  min_amount: '',
+  max_amount: '',
+}
+
+// Reads the filter values a search-params object carries, in the shape the
+// filter form uses (a single "category" field standing in for the two
+// distinct query params category_id / uncategorized).
+function filtersFromSearchParams(searchParams) {
+  return {
+    account_id: searchParams.get('account_id') || '',
+    category: searchParams.get('uncategorized') === 'true'
+      ? 'uncategorized'
+      : searchParams.get('category_id') || '',
+    date_from: searchParams.get('date_from') || '',
+    date_to: searchParams.get('date_to') || '',
+    search: searchParams.get('search') || '',
+    transaction_type: searchParams.get('transaction_type') || '',
+    min_amount: searchParams.get('min_amount') || '',
+    max_amount: searchParams.get('max_amount') || '',
+  }
+}
+
+// The inverse: turns filter form values into the query params /transactions
+// actually understands. Resets to page 1 - a new filter invalidates whatever
+// page you were on.
+function searchParamsFromFilters(filters) {
+  const params = new URLSearchParams()
+
+  if (filters.account_id) params.set('account_id', filters.account_id)
+
+  if (filters.category === 'uncategorized') {
+    params.set('uncategorized', 'true')
+  } else if (filters.category) {
+    params.set('category_id', filters.category)
+  }
+
+  if (filters.date_from) params.set('date_from', filters.date_from)
+  if (filters.date_to) params.set('date_to', filters.date_to)
+  if (filters.search) params.set('search', filters.search)
+  if (filters.transaction_type) params.set('transaction_type', filters.transaction_type)
+  if (filters.min_amount) params.set('min_amount', filters.min_amount)
+  if (filters.max_amount) params.set('max_amount', filters.max_amount)
+
+  return params
+}
+
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState([])
   const [batches, setBatches] = useState([])
   const [categories, setCategories] = useState([])
+  const [accounts, setAccounts] = useState([])
+  const [transactionTypes, setTransactionTypes] = useState([])
+  const [pageInfo, setPageInfo] = useState({ total: 0, page: 1, page_size: 50, total_pages: 1 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -30,19 +86,31 @@ export default function TransactionsPage() {
   const [bulkCategoryId, setBulkCategoryId] = useState('')
   const [applyMessage, setApplyMessage] = useState('')
   const [applying, setApplying] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
   const navigate = useNavigate()
 
   const fetchData = async (cancelledRef) => {
-    const [transactionsRes, batchesRes, categoriesRes] = await Promise.all([
-      api.get('/transactions'),
+    const [transactionsRes, batchesRes, categoriesRes, accountsRes, typesRes] = await Promise.all([
+      api.get(`/transactions?${searchParams.toString()}`),
       api.get('/import-batches'),
       api.get('/categories'),
+      api.get('/accounts'),
+      api.get('/transactions/types'),
     ])
 
     if (!cancelledRef?.current) {
-      setTransactions(transactionsRes.data)
+      setTransactions(transactionsRes.data.items)
+      setPageInfo({
+        total: transactionsRes.data.total,
+        page: transactionsRes.data.page,
+        page_size: transactionsRes.data.page_size,
+        total_pages: transactionsRes.data.total_pages,
+      })
       setBatches(batchesRes.data)
       setCategories(categoriesRes.data)
+      setAccounts(accountsRes.data)
+      setTransactionTypes(typesRes.data)
     }
   }
 
@@ -57,11 +125,17 @@ export default function TransactionsPage() {
     }
   }
 
+  // Filters (and the current page) live in the URL - this is what makes a
+  // filtered view reloadable, shareable, and lets other pages (e.g. Reports'
+  // "review uncategorized" link) deep-link straight into a filtered ledger.
+  // Re-fetches whenever the URL's query string changes, from any source:
+  // Apply/Clear, a page-change click, or an external deep link on mount.
   useEffect(() => {
     const cancelledRef = { current: false }
 
     setLoading(true)
     setError('')
+    setFilterForm(filtersFromSearchParams(searchParams))
 
     fetchData(cancelledRef)
       .catch((err) => {
@@ -79,7 +153,31 @@ export default function TransactionsPage() {
     return () => {
       cancelledRef.current = true
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.toString()])
+
+  const handleFilterFieldChange = (field) => (event) => {
+    setFilterForm((prev) => ({ ...prev, [field]: event.target.value }))
+  }
+
+  const handleApplyFilters = (event) => {
+    event.preventDefault()
+    setSelectedIds([])
+    setSearchParams(searchParamsFromFilters(filterForm))
+  }
+
+  const handleClearFilters = () => {
+    setSelectedIds([])
+    setFilterForm(EMPTY_FILTERS)
+    setSearchParams({})
+  }
+
+  const handlePageChange = (newPage) => {
+    setSelectedIds([])
+    const next = new URLSearchParams(searchParams)
+    next.set('page', String(newPage))
+    setSearchParams(next)
+  }
 
   const handleFileChange = async (event) => {
     const file = event.target.files?.[0]
@@ -293,6 +391,101 @@ export default function TransactionsPage() {
       </div>
 
       <div className="card">
+        <h3>Filters</h3>
+        <form onSubmit={handleApplyFilters}>
+          <div>
+            <label>
+              Account
+              <select value={filterForm.account_id} onChange={handleFilterFieldChange('account_id')}>
+                <option value="">All accounts</option>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div>
+            <label>
+              Category
+              <select value={filterForm.category} onChange={handleFilterFieldChange('category')}>
+                <option value="">All categories</option>
+                <option value="uncategorized">Uncategorized only</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div>
+            <label>
+              From date
+              <input type="date" value={filterForm.date_from} onChange={handleFilterFieldChange('date_from')} />
+            </label>
+          </div>
+          <div>
+            <label>
+              To date
+              <input type="date" value={filterForm.date_to} onChange={handleFilterFieldChange('date_to')} />
+            </label>
+          </div>
+          <div>
+            <label>
+              Narration contains
+              <input type="text" value={filterForm.search} onChange={handleFilterFieldChange('search')} />
+            </label>
+          </div>
+          <div>
+            <label>
+              Type
+              <select
+                value={filterForm.transaction_type}
+                onChange={handleFilterFieldChange('transaction_type')}
+              >
+                <option value="">Any type</option>
+                {transactionTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div>
+            <label>
+              Min amount
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={filterForm.min_amount}
+                onChange={handleFilterFieldChange('min_amount')}
+              />
+            </label>
+          </div>
+          <div>
+            <label>
+              Max amount
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={filterForm.max_amount}
+                onChange={handleFilterFieldChange('max_amount')}
+              />
+            </label>
+          </div>
+          <button type="submit">Apply filters</button>
+          <button type="button" onClick={handleClearFilters}>
+            Clear filters
+          </button>
+        </form>
+      </div>
+
+      <div className="card">
         <h3>Ledger</h3>
 
         {loading && <p>Loading transactions...</p>}
@@ -388,6 +581,26 @@ export default function TransactionsPage() {
                 ))}
               </tbody>
             </table>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => handlePageChange(pageInfo.page - 1)}
+                disabled={pageInfo.page <= 1}
+              >
+                Previous
+              </button>
+              <span>
+                {' '}Page {pageInfo.page} of {pageInfo.total_pages} ({pageInfo.total} total){' '}
+              </span>
+              <button
+                type="button"
+                onClick={() => handlePageChange(pageInfo.page + 1)}
+                disabled={pageInfo.page >= pageInfo.total_pages}
+              >
+                Next
+              </button>
+            </div>
           </>
         )}
       </div>

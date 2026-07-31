@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
 import AccountsPage from './AccountsPage.jsx'
@@ -20,6 +21,8 @@ const sampleAccount = {
   bsb_number: '013-006',
   account_number: '5229 8024 5118 3514',
   created_at: '2026-07-24T10:00:00Z',
+  balance: '-4838.18',
+  balance_as_of: '2026-07-24',
 }
 
 function mockLoad(accounts = [sampleAccount]) {
@@ -31,6 +34,14 @@ function mockLoad(accounts = [sampleAccount]) {
   })
 }
 
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <AccountsPage />
+    </MemoryRouter>
+  )
+}
+
 describe('AccountsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -39,7 +50,7 @@ describe('AccountsPage', () => {
   it('renders loading then the account table once data resolves', async () => {
     mockLoad()
 
-    render(<AccountsPage />)
+    renderPage()
 
     expect(screen.getByText('Loading accounts...')).toBeInTheDocument()
 
@@ -48,11 +59,41 @@ describe('AccountsPage', () => {
     })
   })
 
+  it('shows the balance and as-of date', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/-4838.18 \(as of 2026-07-24\)/)).toBeInTheDocument()
+    })
+  })
+
+  it('shows "No transactions yet" when the account has no balance', async () => {
+    mockLoad([{ ...sampleAccount, balance: null, balance_as_of: null }])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('No transactions yet')).toBeInTheDocument()
+    })
+  })
+
+  it('links the account name to its detail page', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Joint Everyday')).toBeInTheDocument())
+
+    expect(screen.getByRole('link', { name: 'Joint Everyday' })).toHaveAttribute('href', '/accounts/1')
+  })
+
   it('submits the create form with the entered fields', async () => {
     mockLoad([])
     api.post.mockResolvedValue({ data: sampleAccount })
 
-    render(<AccountsPage />)
+    renderPage()
 
     await waitFor(() => expect(screen.queryByText('Loading accounts...')).not.toBeInTheDocument())
 
@@ -73,7 +114,7 @@ describe('AccountsPage', () => {
     api.delete.mockResolvedValue({})
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    render(<AccountsPage />)
+    renderPage()
 
     await waitFor(() => expect(screen.getByText('Joint Everyday')).toBeInTheDocument())
 
@@ -89,7 +130,7 @@ describe('AccountsPage', () => {
     api.delete.mockRejectedValue({ response: { data: { detail: 'Cannot delete an account with existing transactions' } } })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    render(<AccountsPage />)
+    renderPage()
 
     await waitFor(() => expect(screen.getByText('Joint Everyday')).toBeInTheDocument())
 

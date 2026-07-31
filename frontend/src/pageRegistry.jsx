@@ -1,3 +1,4 @@
+import AccountDetailPage from './pages/AccountDetailPage.jsx'
 import AccountsPage from './pages/AccountsPage.jsx'
 import CategoriesPage from './pages/CategoriesPage.jsx'
 import ReportsPage from './pages/ReportsPage.jsx'
@@ -17,6 +18,12 @@ export const pages = [
     path: '/accounts',
     label: 'Accounts',
     element: <AccountsPage />,
+  },
+  {
+    path: '/accounts/:accountId',
+    label: 'Account Detail',
+    element: <AccountDetailPage />,
+    hidden: true,
   },
   {
     path: '/categories',

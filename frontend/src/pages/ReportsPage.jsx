@@ -9,6 +9,16 @@ function formatAmount(value) {
   return Number(value).toFixed(2)
 }
 
+// report.end_date is EXCLUSIVE (reporting.py's half-open [start, end) convention),
+// but the ledger's date_to filter is INCLUSIVE - so the deep link needs the
+// last actual day of the month, not the report's end_date itself.
+function lastInclusiveDay(exclusiveEndDate) {
+  const [year, month, day] = exclusiveEndDate.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() - 1)
+  return date.toISOString().slice(0, 10)
+}
+
 export default function ReportsPage() {
   const [report, setReport] = useState(null)
   const [periods, setPeriods] = useState([])
@@ -148,7 +158,11 @@ export default function ReportsPage() {
           month are uncategorized (net {formatAmount(uncategorized.net_total)}). The summary above only
           covers categorized, non-transfer transactions.
         </p>
-        <Link to="/transactions">Review uncategorized transactions</Link>
+        <Link
+          to={`/transactions?uncategorized=true&date_from=${report.start_date}&date_to=${lastInclusiveDay(report.end_date)}`}
+        >
+          Review uncategorized transactions
+        </Link>
       </div>
 
       <div className="card">

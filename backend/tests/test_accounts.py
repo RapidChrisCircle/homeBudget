@@ -23,6 +23,92 @@ def test_create_account(client):
     assert "id" in body
 
 
+def test_create_account_has_no_balance_yet(client):
+
+    response = client.post("/api/accounts", json=ACCOUNT_PAYLOAD)
+
+    body = response.json()
+    assert body["balance"] is None
+    assert body["balance_as_of"] is None
+
+
+def test_get_account_balance_from_most_recent_transaction(client, db_session):
+
+    account = Account(**ACCOUNT_PAYLOAD)
+    db_session.add(account)
+    db_session.flush()
+
+    batch = ImportBatch(filename="seed.csv", row_count=2, skipped_duplicate_count=0)
+    db_session.add(batch)
+    db_session.flush()
+
+    db_session.add(Transaction(
+        import_batch_id=batch.id,
+        account_id=account.id,
+        bsb_number=None,
+        account_number=account.account_number,
+        transaction_date=date(2026, 7, 24),
+        narration="Newer",
+        cheque_number=None,
+        debit="-5.00",
+        credit=None,
+        balance="-4838.18",
+        transaction_type="WDL",
+    ))
+    # Imported later (higher id) but an OLDER statement - must not win.
+    db_session.add(Transaction(
+        import_batch_id=batch.id,
+        account_id=account.id,
+        bsb_number=None,
+        account_number=account.account_number,
+        transaction_date=date(2026, 6, 1),
+        narration="Older, imported later",
+        cheque_number=None,
+        debit="-10.00",
+        credit=None,
+        balance="-100.00",
+        transaction_type="WDL",
+    ))
+    db_session.commit()
+
+    response = client.get(f"/api/accounts/{account.id}")
+
+    body = response.json()
+    assert body["balance"] == "-4838.18"
+    assert body["balance_as_of"] == "2026-07-24"
+
+
+def test_list_accounts_includes_balances(client, db_session):
+
+    account = Account(**ACCOUNT_PAYLOAD)
+    db_session.add(account)
+    db_session.flush()
+
+    batch = ImportBatch(filename="seed.csv", row_count=1, skipped_duplicate_count=0)
+    db_session.add(batch)
+    db_session.flush()
+
+    db_session.add(Transaction(
+        import_batch_id=batch.id,
+        account_id=account.id,
+        bsb_number=None,
+        account_number=account.account_number,
+        transaction_date=date(2026, 7, 24),
+        narration="Coffee",
+        cheque_number=None,
+        debit="-5.00",
+        credit=None,
+        balance="100.00",
+        transaction_type="WDL",
+    ))
+    db_session.commit()
+
+    accounts = client.get("/api/accounts").json()
+
+    assert accounts[0]["balance"] == "100.00"
+    assert accounts[0]["balance_as_of"] == "2026-07-24"
+
+
 def test_create_account_duplicate_account_number_rejected(client):
 
     client.post("/api/accounts", json=ACCOUNT_PAYLOAD)

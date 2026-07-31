@@ -14,6 +14,12 @@ class AccountResponse(BaseModel):
     bsb_number: Optional[str]
     account_number: str
     created_at: datetime
+    # Not columns on Account - populated from the most recent transaction's
+    # running balance (see services/ledger.py). None (not 0.00) means the
+    # account has no transactions yet; zero is a real balance and the two
+    # must render differently.
+    balance: Optional[Decimal] = None
+    balance_as_of: Optional[date] = None
 
     class Config:
         from_attributes = True
@@ -154,6 +160,15 @@ class TransactionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TransactionListResponse(BaseModel):
+
+    items: list[TransactionResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 class ImportBatchResponse(BaseModel):

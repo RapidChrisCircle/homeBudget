@@ -27,6 +27,16 @@ def upload(client, content: str, filename: str = "transactions.csv"):
     )
 
 
+def list_transactions(client, **params):
+    """GET /transactions now returns a paginated {items, total, ...} envelope
+    rather than a bare list - this unwraps it for tests that just want the
+    rows, defaulting to a page_size well above anything a test seeds.
+    """
+
+    params.setdefault("page_size", 200)
+    return client.get("/api/transactions", params=params).json()["items"]
+
+
 def test_import_valid_csv_inserts_transactions_and_batch(client):
 
     response = upload(client, SAMPLE_CSV)
@@ -38,7 +48,7 @@ def test_import_valid_csv_inserts_transactions_and_batch(client):
     assert body["skipped_duplicate_count"] == 0
     assert body["batch"]["row_count"] == 6
 
-    assert len(client.get("/api/transactions").json()) == 6
+    assert len(list_transactions(client)) == 6
     assert len(client.get("/api/import-batches").json()) == 1
 
 
@@ -195,12 +205,12 @@ def test_import_multiple_errors_reports_all_row_numbers(client):
 def test_delete_single_transaction(client):
 
     upload(client, SAMPLE_CSV)
-    transaction_id = client.get("/api/transactions").json()[0]["id"]
+    transaction_id = list_transactions(client)[0]["id"]
 
     response = client.delete(f"/api/transactions/{transaction_id}")
 
     assert response.status_code == 204
-    assert len(client.get("/api/transactions").json()) == 5
+    assert len(list_transactions(client)) == 5
 
 
 def test_delete_single_transaction_404_when_missing(client):
@@ -222,7 +232,7 @@ def test_delete_import_batch_cascades_to_transactions(client):
 
     assert response.status_code == 204
 
-    remaining = client.get("/api/transactions").json()
+    remaining = list_transactions(client)
     assert len(remaining) == 1
     assert remaining[0]["narration"] == "Second batch"
 
@@ -241,7 +251,7 @@ def test_wipe_all_deletes_everything(client):
     response = client.delete("/api/transactions")
 
     assert response.status_code == 204
-    assert client.get("/api/transactions").json() == []
+    assert list_transactions(client) == []
     assert client.get("/api/import-batches").json() == []
 
 
@@ -254,7 +264,7 @@ def test_list_transactions_sorted_by_date_desc(client):
 
     upload(client, csv_content)
 
-    narrations = [t["narration"] for t in client.get("/api/transactions").json()]
+    narrations = [t["narration"] for t in list_transactions(client)]
     assert narrations == ["Newer", "Older"]
 
 
@@ -263,7 +273,111 @@ def test_list_transactions_empty_returns_empty_list_not_404(client):
     response = client.get("/api/transactions")
 
     assert response.status_code == 200
-    assert response.json() == []
+    assert response.json()["items"] == []
+    assert response.json()["total"] == 0
+
+
+def test_list_transactions_envelope_shape(client):
+
+    upload(client, SAMPLE_CSV)
+
+    response = client.get("/api/transactions?page_size=4")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) == 4
+    assert body["total"] == 6
+    assert body["page"] == 1
+    assert body["page_size"] == 4
+    assert body["total_pages"] == 2
+
+
+def test_list_transactions_page_beyond_the_end_returns_empty_not_404(client):
+
+    upload(client, SAMPLE_CSV)
+
+    response = client.get("/api/transactions?page=99")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert response.json()["total"] == 6
+
+
+def test_list_transactions_page_size_cap_enforced(client):
+
+    response = client.get("/api/transactions?page_size=99999")
+
+    assert response.status_code == 422
+
+
+def test_list_transactions_rejects_uncategorized_with_category_id(client):
+
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+
+    response = client.get(f"/api/transactions?uncategorized=true&category_id={category_id}")
+
+    assert response.status_code == 422
+
+
+def test_list_transactions_rejects_out_of_range_page(client):
+
+    assert client.get("/api/transactions?page=0").status_code == 422
+
+
+def test_list_transactions_filters_by_account_id(client):
+
+    upload(client, SAMPLE_CSV)
+    account_id = list_transactions(client)[0]["account_id"]
+
+    response = client.get(f"/api/transactions?account_id={account_id}")
+
+    assert response.status_code == 200
+    assert all(t["account_id"] == account_id for t in response.json()["items"])
+
+
+def test_list_transactions_filters_uncategorized_only(client):
+
+    upload(client, SAMPLE_CSV)
+    transactions = list_transactions(client)
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+    client.patch(f"/api/transactions/{transactions[0]['id']}/category", json={"category_id": category_id})
+
+    response = client.get("/api/transactions?uncategorized=true")
+
+    items = response.json()["items"]
+    assert len(items) == len(transactions) - 1
+    assert all(t["category_id"] is None for t in items)
+
+
+def test_list_transactions_filters_by_search(client):
+
+    upload(client, SAMPLE_CSV)
+
+    response = client.get("/api/transactions?search=CCTrueUp")
+
+    items = response.json()["items"]
+    assert len(items) == 2
+    assert all("CCTrueUp" in t["narration"] for t in items)
+
+
+def test_list_transactions_filters_by_date_range(client):
+
+    upload(client, SAMPLE_CSV)
+
+    response = client.get("/api/transactions?date_from=2026-07-24&date_to=2026-07-24")
+
+    assert len(response.json()["items"]) == 6
+
+
+def test_list_transactions_filters_by_amount_range(client):
+
+    upload(client, SAMPLE_CSV)
+
+    response = client.get("/api/transactions?min_amount=50&max_amount=150")
+
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["narration"].startswith("LS Taquiza")
 
 
 def test_list_transaction_types_returns_distinct_sorted_values(client):
@@ -376,7 +490,7 @@ def test_import_second_format_is_auto_detected_and_sets_institution(client, db_s
 def test_assign_category_to_transaction(client):
 
     upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
-    transaction_id = client.get("/api/transactions").json()[0]["id"]
+    transaction_id = list_transactions(client)[0]["id"]
     category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
 
     response = client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": category_id})
@@ -390,7 +504,7 @@ def test_assign_category_to_transaction(client):
 def test_clear_category_from_transaction(client):
 
     upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
-    transaction_id = client.get("/api/transactions").json()[0]["id"]
+    transaction_id = list_transactions(client)[0]["id"]
     category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
 
     client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": category_id})
@@ -412,7 +526,7 @@ def test_assign_category_404_when_transaction_missing(client):
 def test_assign_category_404_when_category_missing(client):
 
     upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
-    transaction_id = client.get("/api/transactions").json()[0]["id"]
+    transaction_id = list_transactions(client)[0]["id"]
 
     response = client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": 999})
 
@@ -538,7 +652,7 @@ def test_bulk_category_update_clears_rule_marker(client, db_session):
 def test_bulk_assign_category_to_transactions(client):
 
     upload(client, SAMPLE_CSV)
-    transaction_ids = [t["id"] for t in client.get("/api/transactions").json()]
+    transaction_ids = [t["id"] for t in list_transactions(client)]
     category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
 
     response = client.post(
@@ -549,5 +663,5 @@ def test_bulk_assign_category_to_transactions(client):
     assert response.status_code == 200
     assert response.json()["updated_count"] == len(transaction_ids)
 
-    categories = {t["category_id"] for t in client.get("/api/transactions").json()}
+    categories = {t["category_id"] for t in list_transactions(client)}
     assert categories == {category_id}

@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../services/api'
+
+function formatBalance(account) {
+  // null (not 0.00) means no transactions yet - render that distinctly from
+  // a real zero balance rather than showing a misleading "0.00".
+  if (account.balance === null || account.balance === undefined) {
+    return 'No transactions yet'
+  }
+  return `${Number(account.balance).toFixed(2)} (as of ${account.balance_as_of})`
+}
 
 const EMPTY_FORM = {
   name: '',
@@ -192,17 +202,21 @@ export default function AccountsPage() {
                 <th>Type</th>
                 <th>BSB</th>
                 <th>Account Number</th>
+                <th>Balance</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {accounts.map((account) => (
                 <tr key={account.id}>
-                  <td>{account.name}</td>
+                  <td>
+                    <Link to={`/accounts/${account.id}`}>{account.name}</Link>
+                  </td>
                   <td>{account.institution}</td>
                   <td>{account.account_type}</td>
                   <td>{account.bsb_number}</td>
                   <td>{account.account_number}</td>
+                  <td>{formatBalance(account)}</td>
                   <td>
                     <button type="button" onClick={() => startEdit(account)}>
                       Edit

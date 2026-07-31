@@ -1,4 +1,4 @@
-from test_transactions import HEADER, upload
+from test_transactions import HEADER, list_transactions, upload
 
 
 def make_category(client, name="Groceries", kind="expense", budget_amount=None):
@@ -24,7 +24,7 @@ def test_monthly_report_returns_all_four_sections(client):
 
     category_id = make_category(client, budget_amount="100.00")
     upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
-    transaction_id = client.get("/api/transactions").json()[0]["id"]
+    transaction_id = list_transactions(client)[0]["id"]
     client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": category_id})
 
     response = client.get("/api/reports/monthly?year=2026&month=7")

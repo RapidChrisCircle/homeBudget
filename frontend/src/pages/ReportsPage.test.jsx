@@ -158,6 +158,22 @@ describe('ReportsPage', () => {
     })
   })
 
+  it('links "review uncategorized" to the ledger filtered to this month, uncategorized only', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/17 of 412 transaction\(s\)/)).toBeInTheDocument())
+
+    const link = screen.getByRole('link', { name: 'Review uncategorized transactions' })
+    // end_date (2026-08-01) is exclusive, so the deep link's date_to must be
+    // the last actual day of the month (2026-07-31), not the end_date itself.
+    expect(link).toHaveAttribute(
+      'href',
+      '/transactions?uncategorized=true&date_from=2026-07-01&date_to=2026-07-31'
+    )
+  })
+
   it('marks a negative spent figure as a net refund', async () => {
     const refundReport = {
       ...sampleReport,

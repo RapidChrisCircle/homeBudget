@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from datetime import date
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
@@ -8,9 +11,11 @@ from ..schemas import (
     ImportBatchResponse,
     ImportResultResponse,
     TransactionCategoryUpdate,
+    TransactionListResponse,
     TransactionResponse,
 )
 from ..services.csv_import import CsvValidationError, import_rows, parse_and_validate
+from ..services.ledger import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, TransactionFilters, build_transaction_query, paginate
 
 router = APIRouter()
 
@@ -51,13 +56,49 @@ def import_transactions(
     )
 
 
-@router.get("/transactions", response_model=list[TransactionResponse])
-def list_transactions(db: Session = Depends(get_db)):
+@router.get("/transactions", response_model=TransactionListResponse)
+def list_transactions(
+    account_id: int | None = None,
+    category_id: int | None = None,
+    uncategorized: bool = False,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    search: str | None = None,
+    transaction_type: str | None = None,
+    min_amount: Decimal | None = None,
+    max_amount: Decimal | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    db: Session = Depends(get_db)
+):
 
-    return (
-        db.query(Transaction)
-        .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
-        .all()
+    if uncategorized and category_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="uncategorized and category_id are contradictory - use one or the other",
+        )
+
+    filters = TransactionFilters(
+        account_id=account_id,
+        category_id=category_id,
+        uncategorized=uncategorized,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        transaction_type=transaction_type,
+        min_amount=min_amount,
+        max_amount=max_amount,
+    )
+
+    query = build_transaction_query(db, filters)
+    items, total = paginate(query, page=page, page_size=page_size)
+
+    return TransactionListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=max(1, -(-total // page_size)),
     )
 
 

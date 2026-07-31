@@ -1,5 +1,5 @@
 from app.models import CategoryRule, Transaction
-from test_transactions import HEADER, upload
+from test_transactions import HEADER, list_transactions, upload
 
 
 def make_category(client, name="Groceries"):
@@ -207,7 +207,7 @@ def test_preview_would_categorize_count_excludes_manual_rows(client):
     category_id = make_category(client)
     upload(client, HEADER + ',1111,24/07/2026,"WOOLWORTHS NEWPORT",,-98.00,,100.00,WDL\n')
 
-    transaction_id = client.get("/api/transactions").json()[0]["id"]
+    transaction_id = list_transactions(client)[0]["id"]
     client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": category_id})
 
     response = client.post(
@@ -252,7 +252,7 @@ def test_apply_rules_categorizes_uncategorized_transactions(client):
 
     assert response.status_code == 200
     assert response.json()["categorized_count"] == 1
-    assert client.get("/api/transactions").json()[0]["category_id"] == category_id
+    assert list_transactions(client)[0]["category_id"] == category_id
 
 
 def test_apply_rules_returns_zero_when_no_rules_exist(client):
@@ -279,7 +279,7 @@ def test_apply_rules_respects_priority_order(client):
     client.post(f"/api/category-rules/{second_id}/move", json={"direction": "up"})
     client.post("/api/category-rules/apply")
 
-    assert client.get("/api/transactions").json()[0]["category_id"] == groceries_id
+    assert list_transactions(client)[0]["category_id"] == groceries_id
 
 
 def test_apply_rules_matches_on_amount_range_using_absolute_value(client):

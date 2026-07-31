@@ -41,11 +41,33 @@ const sampleBatch = {
 }
 
 const sampleCategory = { id: 1, name: 'Groceries' }
+const sampleAccount = { id: 1, name: 'Joint Everyday' }
 
-function mockLoad(transactions = [sampleTransaction], batches = [sampleBatch], categories = [sampleCategory]) {
+function envelope(transactions, overrides = {}) {
+  return {
+    items: transactions,
+    total: transactions.length,
+    page: 1,
+    page_size: 50,
+    total_pages: 1,
+    ...overrides,
+  }
+}
+
+function mockLoad({
+  transactions = [sampleTransaction],
+  batches = [sampleBatch],
+  categories = [sampleCategory],
+  accounts = [sampleAccount],
+  transactionTypes = ['WDL'],
+  listResponse = envelope(transactions),
+} = {}) {
   api.get.mockImplementation((path) => {
-    if (path === '/transactions') {
-      return Promise.resolve({ data: transactions })
+    if (path === '/transactions/types') {
+      return Promise.resolve({ data: transactionTypes })
+    }
+    if (path.startsWith('/transactions?') || path === '/transactions') {
+      return Promise.resolve({ data: listResponse })
     }
     if (path === '/import-batches') {
       return Promise.resolve({ data: batches })
@@ -53,15 +75,18 @@ function mockLoad(transactions = [sampleTransaction], batches = [sampleBatch], c
     if (path === '/categories') {
       return Promise.resolve({ data: categories })
     }
+    if (path === '/accounts') {
+      return Promise.resolve({ data: accounts })
+    }
     return Promise.reject(new Error(`unexpected path ${path}`))
   })
 }
 
 // The page navigates to /rules, so it needs Router context. The probe route
 // lets tests assert where "Make rule" landed.
-function renderPage() {
+function renderPage(initialEntry = '/transactions') {
   return render(
-    <MemoryRouter initialEntries={['/transactions']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/transactions" element={<TransactionsPage />} />
         <Route path="/rules" element={<div>rules page</div>} />
@@ -90,7 +115,7 @@ describe('TransactionsPage', () => {
   })
 
   it('shows validation errors when the import is rejected with a 422', async () => {
-    mockLoad([], [])
+    mockLoad({ transactions: [], batches: [] })
     api.post.mockRejectedValue({
       response: {
         status: 422,
@@ -151,7 +176,7 @@ describe('TransactionsPage', () => {
   })
 
   it('shows the new account and auto-categorized counts after a successful import', async () => {
-    mockLoad([], [])
+    mockLoad({ transactions: [], batches: [] })
     api.post.mockResolvedValue({
       data: {
         imported_count: 2,
@@ -222,7 +247,9 @@ describe('TransactionsPage', () => {
   })
 
   it('shows the auto marker for a rule-categorized row', async () => {
-    mockLoad([{ ...sampleTransaction, category_id: 1, category_name: 'Groceries', categorized_by_rule_id: 7 }])
+    mockLoad({
+      transactions: [{ ...sampleTransaction, category_id: 1, category_name: 'Groceries', categorized_by_rule_id: 7 }],
+    })
 
     renderPage()
 
@@ -230,5 +257,98 @@ describe('TransactionsPage', () => {
 
     const row = screen.getByText('Coffee').closest('tr')
     expect(within(row).getByTitle('Set automatically by a rule')).toBeInTheDocument()
+  })
+
+  it('applies filters and requests the filtered query string', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
+    fireEvent.change(screen.getByLabelText('Account'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/^\/transactions\?.*search=woolworths/))
+    })
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/account_id=1/))
+  })
+
+  it('requests uncategorized=true when the Uncategorized only option is chosen', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'uncategorized' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/uncategorized=true/))
+    })
+  })
+
+  it('clears filters back to an unfiltered request', async () => {
+    mockLoad()
+
+    renderPage('/transactions?search=woolworths')
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(screen.getByLabelText('Narration contains')).toHaveValue('woolworths')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Narration contains')).toHaveValue('')
+    })
+    expect(api.get).toHaveBeenCalledWith('/transactions?')
+  })
+
+  it('prefills filters from the URL on a deep link', async () => {
+    mockLoad()
+
+    renderPage('/transactions?uncategorized=true&date_from=2026-07-01&date_to=2026-07-31')
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Category')).toHaveValue('uncategorized')
+    })
+    expect(screen.getByLabelText('From date')).toHaveValue('2026-07-01')
+    expect(screen.getByLabelText('To date')).toHaveValue('2026-07-31')
+  })
+
+  it('shows pagination info and requests the next page', async () => {
+    mockLoad({ listResponse: envelope([sampleTransaction], { total: 120, page: 1, page_size: 50, total_pages: 3 }) })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/Page 1 of 3/)).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/page=2/))
+    })
+  })
+
+  it('clears row selection when the page changes', async () => {
+    mockLoad({ listResponse: envelope([sampleTransaction], { total: 120, page: 1, page_size: 50, total_pages: 3 }) })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const checkbox = screen.getByRole('checkbox')
+    fireEvent.click(checkbox)
+    expect(screen.getByText('Set category for selected (1)')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Set category for selected (0)')).toBeInTheDocument()
+    })
   })
 })
