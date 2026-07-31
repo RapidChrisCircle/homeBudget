@@ -1,7 +1,11 @@
 import io
 from datetime import date
 
-from app.models import ImportBatch, Transaction
+import pytest
+
+from app.models import Account, ImportBatch, Transaction
+from app.services import csv_formats
+from app.services.csv_formats import CsvFormat
 
 HEADER = "BSB Number,Account Number,Transaction Date,Narration,Cheque Number,Debit,Credit,Balance,Transaction Type\n"
 
@@ -260,3 +264,155 @@ def test_list_transactions_empty_returns_empty_list_not_404(client):
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_import_auto_creates_account_for_unknown_account_number(client, db_session):
+
+    response = upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
+
+    assert response.status_code == 201
+    assert response.json()["new_account_count"] == 1
+
+    account = db_session.query(Account).filter_by(account_number="1111").one()
+    assert account.name == "1111"
+    assert account.institution == "ANZ"
+
+    transaction = db_session.query(Transaction).one()
+    assert transaction.account_id == account.id
+
+
+def test_import_reuses_existing_account_across_imports(client, db_session):
+
+    upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
+    response = upload(client, HEADER + ',1111,25/07/2026,"Groceries",,-6.00,,94.00,WDL\n')
+
+    assert response.status_code == 201
+    assert response.json()["new_account_count"] == 0
+    assert db_session.query(Account).filter_by(account_number="1111").count() == 1
+
+
+def test_import_single_csv_with_multiple_accounts_creates_all_accounts(client, db_session):
+
+    response = upload(client, SAMPLE_CSV)
+
+    assert response.status_code == 201
+    assert response.json()["new_account_count"] == 2
+
+    account_numbers = {a.account_number for a in db_session.query(Account).all()}
+    assert account_numbers == {"5229 8024 5118 3514", "0128778"}
+
+
+def test_import_unrecognized_header_row_rejected(client):
+
+    bad_header = "Date,Description,Amount\n"
+    response = client.post(
+        "/api/transactions/import",
+        files={"file": ("bad.csv", io.BytesIO(bad_header.encode("utf-8")), "text/csv")},
+    )
+
+    assert response.status_code == 422
+
+    errors = response.json()["detail"]["errors"]
+    assert any("does not match any supported bank format" in e["message"] for e in errors)
+
+
+@pytest.fixture
+def second_bank_format():
+
+    # Same 9-column logical layout as the ANZ format (see CsvFormat docstring),
+    # just different header labels and an ISO date format - a realistic
+    # example of a second bank's export differing only cosmetically.
+    fmt = CsvFormat(
+        key="other_bank",
+        institution="Other Bank",
+        expected_headers=[
+            "BSB", "Account", "Value Date", "Description", "Cheque No",
+            "Debit Amount", "Credit Amount", "Running Balance", "Type",
+        ],
+        date_format="%Y-%m-%d",
+    )
+    csv_formats.CSV_FORMATS.append(fmt)
+
+    yield fmt
+
+    csv_formats.CSV_FORMATS.remove(fmt)
+
+
+def test_import_second_format_is_auto_detected_and_sets_institution(client, db_session, second_bank_format):
+
+    header = "BSB,Account,Value Date,Description,Cheque No,Debit Amount,Credit Amount,Running Balance,Type\n"
+    csv_content = header + ',9999,2026-07-24,"Coffee",,-5.00,,100.00,WDL\n'
+
+    response = client.post(
+        "/api/transactions/import",
+        files={"file": ("other_bank.csv", io.BytesIO(csv_content.encode("utf-8")), "text/csv")},
+    )
+
+    assert response.status_code == 201
+
+    account = db_session.query(Account).filter_by(account_number="9999").one()
+    assert account.institution == "Other Bank"
+
+
+def test_assign_category_to_transaction(client):
+
+    upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
+    transaction_id = client.get("/api/transactions").json()[0]["id"]
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+
+    response = client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": category_id})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["category_id"] == category_id
+    assert body["category_name"] == "Groceries"
+
+
+def test_clear_category_from_transaction(client):
+
+    upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
+    transaction_id = client.get("/api/transactions").json()[0]["id"]
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+
+    client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": category_id})
+    response = client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": None})
+
+    assert response.status_code == 200
+    assert response.json()["category_id"] is None
+
+
+def test_assign_category_404_when_transaction_missing(client):
+
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+
+    response = client.patch("/api/transactions/999/category", json={"category_id": category_id})
+
+    assert response.status_code == 404
+
+
+def test_assign_category_404_when_category_missing(client):
+
+    upload(client, HEADER + ',1111,24/07/2026,"Coffee",,-5.00,,100.00,WDL\n')
+    transaction_id = client.get("/api/transactions").json()[0]["id"]
+
+    response = client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": 999})
+
+    assert response.status_code == 404
+
+
+def test_bulk_assign_category_to_transactions(client):
+
+    upload(client, SAMPLE_CSV)
+    transaction_ids = [t["id"] for t in client.get("/api/transactions").json()]
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+
+    response = client.post(
+        "/api/transactions/bulk-category",
+        json={"transaction_ids": transaction_ids, "category_id": category_id},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["updated_count"] == len(transaction_ids)
+
+    categories = {t["category_id"] for t in client.get("/api/transactions").json()}
+    assert categories == {category_id}

@@ -1,3 +1,5 @@
+import AccountsPage from './pages/AccountsPage.jsx'
+import CategoriesPage from './pages/CategoriesPage.jsx'
 import TransactionsPage from './pages/TransactionsPage.jsx'
 
 // Single source of truth for browsable pages. Add an entry here and it
@@ -8,5 +10,15 @@ export const pages = [
     path: '/transactions',
     label: 'Transactions',
     element: <TransactionsPage />,
+  },
+  {
+    path: '/accounts',
+    label: 'Accounts',
+    element: <AccountsPage />,
+  },
+  {
+    path: '/categories',
+    label: 'Categories',
+    element: <CategoriesPage />,
   },
 ]

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
 import TransactionsPage from './TransactionsPage.jsx'
@@ -7,6 +7,7 @@ vi.mock('../services/api', () => ({
   api: {
     get: vi.fn(),
     post: vi.fn(),
+    patch: vi.fn(),
     delete: vi.fn(),
   },
 }))
@@ -14,6 +15,10 @@ vi.mock('../services/api', () => ({
 const sampleTransaction = {
   id: 1,
   import_batch_id: 1,
+  account_id: 1,
+  account_name: 'Joint Everyday',
+  category_id: null,
+  category_name: null,
   bsb_number: null,
   account_number: '1111',
   transaction_date: '2026-07-24',
@@ -33,13 +38,18 @@ const sampleBatch = {
   skipped_duplicate_count: 0,
 }
 
-function mockLoad(transactions = [sampleTransaction], batches = [sampleBatch]) {
+const sampleCategory = { id: 1, name: 'Groceries' }
+
+function mockLoad(transactions = [sampleTransaction], batches = [sampleBatch], categories = [sampleCategory]) {
   api.get.mockImplementation((path) => {
     if (path === '/transactions') {
       return Promise.resolve({ data: transactions })
     }
     if (path === '/import-batches') {
       return Promise.resolve({ data: batches })
+    }
+    if (path === '/categories') {
+      return Promise.resolve({ data: categories })
     }
     return Promise.reject(new Error(`unexpected path ${path}`))
   })
@@ -122,6 +132,43 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Delete not allowed/)).toBeInTheDocument()
+    })
+  })
+
+  it('shows the new account count after a successful import', async () => {
+    mockLoad([], [])
+    api.post.mockResolvedValue({
+      data: { imported_count: 2, skipped_duplicate_count: 0, new_account_count: 1 },
+    })
+
+    render(<TransactionsPage />)
+
+    await waitFor(() => expect(screen.queryByText('Loading transactions...')).not.toBeInTheDocument())
+
+    const file = new File(['a,b'], 'good.csv', { type: 'text/csv' })
+    const input = document.querySelector('input[type="file"]')
+
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => {
+      expect(screen.getByText(/created 1 new account\(s\)/)).toBeInTheDocument()
+    })
+  })
+
+  it('calls the category patch endpoint when a row category is changed', async () => {
+    mockLoad()
+    api.patch.mockResolvedValue({})
+
+    render(<TransactionsPage />)
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const row = screen.getByText('Coffee').closest('tr')
+    const categorySelect = within(row).getByDisplayValue('Uncategorized')
+    fireEvent.change(categorySelect, { target: { value: '1' } })
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/transactions/1/category', { category_id: 1 })
     })
   })
 })

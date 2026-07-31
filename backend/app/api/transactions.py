@@ -2,8 +2,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
-from ..models import ImportBatch, Transaction
-from ..schemas import ImportBatchResponse, ImportResultResponse, TransactionResponse
+from ..models import Category, ImportBatch, Transaction
+from ..schemas import (
+    BulkCategoryUpdate,
+    ImportBatchResponse,
+    ImportResultResponse,
+    TransactionCategoryUpdate,
+    TransactionResponse,
+)
 from ..services.csv_import import CsvValidationError, import_rows, parse_and_validate
 
 router = APIRouter()
@@ -21,7 +27,7 @@ def import_transactions(
     content = file.file.read()
 
     try:
-        rows = parse_and_validate(content)
+        csv_format, rows = parse_and_validate(content)
 
     except CsvValidationError as exc:
         raise HTTPException(
@@ -32,12 +38,13 @@ def import_transactions(
             },
         )
 
-    batch = import_rows(db, filename=file.filename, rows=rows)
+    batch, new_account_count = import_rows(db, filename=file.filename, csv_format=csv_format, rows=rows)
 
     return ImportResultResponse(
         batch=ImportBatchResponse.model_validate(batch),
         imported_count=batch.row_count,
         skipped_duplicate_count=batch.skipped_duplicate_count,
+        new_account_count=new_account_count,
     )
 
 
@@ -49,6 +56,47 @@ def list_transactions(db: Session = Depends(get_db)):
         .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
         .all()
     )
+
+
+@router.patch("/transactions/{transaction_id}/category", response_model=TransactionResponse)
+def update_transaction_category(
+    transaction_id: int,
+    payload: TransactionCategoryUpdate,
+    db: Session = Depends(get_db)
+):
+
+    transaction = db.get(Transaction, transaction_id)
+
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    if payload.category_id is not None and db.get(Category, payload.category_id) is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    transaction.category_id = payload.category_id
+    db.commit()
+    db.refresh(transaction)
+
+    return transaction
+
+
+@router.post("/transactions/bulk-category")
+def bulk_update_transaction_category(
+    payload: BulkCategoryUpdate,
+    db: Session = Depends(get_db)
+):
+
+    if payload.category_id is not None and db.get(Category, payload.category_id) is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    updated = (
+        db.query(Transaction)
+        .filter(Transaction.id.in_(payload.transaction_ids))
+        .update({"category_id": payload.category_id}, synchronize_session=False)
+    )
+    db.commit()
+
+    return {"updated_count": updated}
 
 
 @router.delete("/transactions/{transaction_id}", status_code=204)

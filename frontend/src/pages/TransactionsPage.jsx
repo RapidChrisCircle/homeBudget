@@ -18,22 +18,27 @@ function formatAmount(value) {
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState([])
   const [batches, setBatches] = useState([])
+  const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadResult, setUploadResult] = useState(null)
   const [uploadErrors, setUploadErrors] = useState(null)
   const [actionError, setActionError] = useState('')
+  const [selectedIds, setSelectedIds] = useState([])
+  const [bulkCategoryId, setBulkCategoryId] = useState('')
 
   const fetchData = async (cancelledRef) => {
-    const [transactionsRes, batchesRes] = await Promise.all([
+    const [transactionsRes, batchesRes, categoriesRes] = await Promise.all([
       api.get('/transactions'),
       api.get('/import-batches'),
+      api.get('/categories'),
     ])
 
     if (!cancelledRef?.current) {
       setTransactions(transactionsRes.data)
       setBatches(batchesRes.data)
+      setCategories(categoriesRes.data)
     }
   }
 
@@ -104,6 +109,44 @@ export default function TransactionsPage() {
     }
   }
 
+  const handleCategoryChange = async (transactionId, categoryId) => {
+    setActionError('')
+    try {
+      await api.patch(`/transactions/${transactionId}/category`, {
+        category_id: categoryId ? Number(categoryId) : null,
+      })
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Category update failed'
+      setActionError(String(message))
+    }
+  }
+
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((selectedId) => selectedId !== id) : [...prev, id]
+    )
+  }
+
+  const handleBulkAssign = async () => {
+    if (selectedIds.length === 0) {
+      return
+    }
+    setActionError('')
+    try {
+      await api.post('/transactions/bulk-category', {
+        transaction_ids: selectedIds,
+        category_id: bulkCategoryId ? Number(bulkCategoryId) : null,
+      })
+      setSelectedIds([])
+      setBulkCategoryId('')
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Bulk category update failed'
+      setActionError(String(message))
+    }
+  }
+
   const handleDeleteTransaction = async (id) => {
     setActionError('')
     try {
@@ -169,7 +212,8 @@ export default function TransactionsPage() {
         {!uploading && uploadResult && (
           <p>
             Imported {uploadResult.imported_count} transaction(s), skipped{' '}
-            {uploadResult.skipped_duplicate_count} duplicate(s).
+            {uploadResult.skipped_duplicate_count} duplicate(s), created{' '}
+            {uploadResult.new_account_count} new account(s).
           </p>
         )}
 
@@ -235,40 +279,78 @@ export default function TransactionsPage() {
         )}
 
         {!loading && !error && (
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Account</th>
-                <th>Narration</th>
-                <th>Debit</th>
-                <th>Credit</th>
-                <th>Balance</th>
-                <th>Type</th>
-                <th>Import</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.map((transaction) => (
-                <tr key={transaction.id}>
-                  <td>{transaction.transaction_date}</td>
-                  <td>{formatAccount(transaction)}</td>
-                  <td>{transaction.narration}</td>
-                  <td>{formatAmount(transaction.debit)}</td>
-                  <td>{formatAmount(transaction.credit)}</td>
-                  <td>{formatAmount(transaction.balance)}</td>
-                  <td>{transaction.transaction_type}</td>
-                  <td>{batchFilename(transaction.import_batch_id)}</td>
-                  <td>
-                    <button type="button" onClick={() => handleDeleteTransaction(transaction.id)}>
-                      Delete
-                    </button>
-                  </td>
+          <>
+            <div>
+              <select value={bulkCategoryId} onChange={(e) => setBulkCategoryId(e.target.value)}>
+                <option value="">Uncategorized</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+              <button type="button" onClick={handleBulkAssign} disabled={selectedIds.length === 0}>
+                Set category for selected ({selectedIds.length})
+              </button>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Date</th>
+                  <th>Account</th>
+                  <th>Narration</th>
+                  <th>Debit</th>
+                  <th>Credit</th>
+                  <th>Balance</th>
+                  <th>Type</th>
+                  <th>Category</th>
+                  <th>Import</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {transactions.map((transaction) => (
+                  <tr key={transaction.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(transaction.id)}
+                        onChange={() => toggleSelected(transaction.id)}
+                      />
+                    </td>
+                    <td>{transaction.transaction_date}</td>
+                    <td>{transaction.account_name || formatAccount(transaction)}</td>
+                    <td>{transaction.narration}</td>
+                    <td>{formatAmount(transaction.debit)}</td>
+                    <td>{formatAmount(transaction.credit)}</td>
+                    <td>{formatAmount(transaction.balance)}</td>
+                    <td>{transaction.transaction_type}</td>
+                    <td>
+                      <select
+                        value={transaction.category_id ?? ''}
+                        onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
+                      >
+                        <option value="">Uncategorized</option>
+                        {categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>{batchFilename(transaction.import_batch_id)}</td>
+                    <td>
+                      <button type="button" onClick={() => handleDeleteTransaction(transaction.id)}>
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
     </section>

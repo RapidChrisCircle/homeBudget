@@ -6,19 +6,8 @@ from decimal import Decimal, InvalidOperation
 
 from sqlalchemy.orm import Session
 
-from ..models import ImportBatch, Transaction
-
-EXPECTED_HEADERS = [
-    "BSB Number",
-    "Account Number",
-    "Transaction Date",
-    "Narration",
-    "Cheque Number",
-    "Debit",
-    "Credit",
-    "Balance",
-    "Transaction Type",
-]
+from ..models import Account, ImportBatch, Transaction
+from .csv_formats import CSV_FORMATS, CsvFormat, find_format_for_header
 
 
 @dataclass
@@ -81,9 +70,12 @@ def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
     except csv.Error as exc:
         raise CsvValidationError([(1, f"could not parse CSV header: {exc}")]) from None
 
-    if header != EXPECTED_HEADERS:
+    csv_format = find_format_for_header(header)
+
+    if csv_format is None:
+        supported = " | ".join(", ".join(fmt.expected_headers) for fmt in CSV_FORMATS)
         raise CsvValidationError([
-            (1, f"unexpected header row, expected columns: {', '.join(EXPECTED_HEADERS)}")
+            (1, f"unexpected header row, does not match any supported bank format. Supported formats: {supported}")
         ])
 
     errors: list[tuple[int, str]] = []
@@ -98,11 +90,11 @@ def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
             if all(_blank(value) for value in raw_row):
                 continue
 
-            if len(raw_row) != len(EXPECTED_HEADERS):
-                errors.append((row_number, f"expected {len(EXPECTED_HEADERS)} columns, found {len(raw_row)}"))
+            if len(raw_row) != len(csv_format.expected_headers):
+                errors.append((row_number, f"expected {len(csv_format.expected_headers)} columns, found {len(raw_row)}"))
                 continue
 
-            if raw_row == EXPECTED_HEADERS:
+            if raw_row == csv_format.expected_headers:
                 errors.append((row_number, "row appears to be a repeated header row"))
                 continue
 
@@ -121,10 +113,10 @@ def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
 
             transaction_date = None
             try:
-                transaction_date = datetime.strptime(date_raw.strip(), "%d/%m/%Y").date()
+                transaction_date = datetime.strptime(date_raw.strip(), csv_format.date_format).date()
 
             except ValueError:
-                errors.append((row_number, f"invalid Transaction Date '{date_raw}', expected DD/MM/YYYY"))
+                errors.append((row_number, f"invalid Transaction Date '{date_raw}', expected format {csv_format.date_format}"))
 
             narration = narration_raw.strip()
             if _blank(narration):
@@ -179,10 +171,10 @@ def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
     if not rows:
         raise CsvValidationError([(2, "CSV has no data rows to import")])
 
-    return rows
+    return csv_format, rows
 
 
-def import_rows(db: Session, filename: str, rows: list[ParsedRow]) -> ImportBatch:
+def import_rows(db: Session, filename: str, csv_format: CsvFormat, rows: list[ParsedRow]) -> tuple[ImportBatch, int]:
 
     account_numbers = {row.account_number for row in rows}
 
@@ -190,6 +182,13 @@ def import_rows(db: Session, filename: str, rows: list[ParsedRow]) -> ImportBatc
         (t.bsb_number, t.account_number, t.transaction_date, t.narration, t.debit, t.credit, t.balance)
         for t in db.query(Transaction).filter(Transaction.account_number.in_(account_numbers)).all()
     }
+
+    existing_accounts = {
+        a.account_number: a
+        for a in db.query(Account).filter(Account.account_number.in_(account_numbers)).all()
+    }
+
+    new_account_count = 0
 
     batch = ImportBatch(filename=filename, row_count=0, skipped_duplicate_count=0)
     db.add(batch)
@@ -212,8 +211,23 @@ def import_rows(db: Session, filename: str, rows: list[ParsedRow]) -> ImportBatc
 
         seen_in_file.add(key)
 
+        account = existing_accounts.get(row.account_number)
+
+        if account is None:
+            account = Account(
+                name=row.account_number,
+                institution=csv_format.institution,
+                bsb_number=row.bsb_number,
+                account_number=row.account_number,
+            )
+            db.add(account)
+            db.flush()
+            existing_accounts[row.account_number] = account
+            new_account_count += 1
+
         db.add(Transaction(
             import_batch_id=batch.id,
+            account_id=account.id,
             bsb_number=row.bsb_number,
             account_number=row.account_number,
             transaction_date=row.transaction_date,
@@ -232,4 +246,4 @@ def import_rows(db: Session, filename: str, rows: list[ParsedRow]) -> ImportBatc
     db.commit()
     db.refresh(batch)
 
-    return batch
+    return batch, new_account_count
