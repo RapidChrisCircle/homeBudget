@@ -86,11 +86,25 @@ function envelope(transactions, overrides = {}) {
   }
 }
 
+const emptyRecurring = {
+  series: [],
+  summary: {
+    series_count: 0,
+    total_annual_cost: '0.00',
+    due_soon_count: 0,
+    due_soon_total: '0.00',
+    changed_count: 0,
+    overdue_count: 0,
+  },
+  as_of: null,
+}
+
 function mockLoad({
   accounts = sampleAccounts,
   report = sampleReport,
   transactions = [sampleTransaction],
   listResponse = null,
+  recurring = emptyRecurring,
 } = {}) {
   const list = listResponse || envelope(transactions)
 
@@ -100,6 +114,9 @@ function mockLoad({
     }
     if (path.startsWith('/reports/monthly')) {
       return Promise.resolve({ data: report })
+    }
+    if (path === '/recurring') {
+      return Promise.resolve({ data: recurring })
     }
     if (path.startsWith('/transactions')) {
       return Promise.resolve({ data: list })
@@ -244,5 +261,77 @@ describe('DashboardPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/database unavailable/)).toBeInTheDocument()
     })
+  })
+
+  it('does not render the Recurring card when nothing recurs', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(screen.queryByText('Recurring')).not.toBeInTheDocument()
+  })
+
+  it('lists what is due soon with a total, and links to the recurring page', async () => {
+    mockLoad({
+      recurring: {
+        series: [
+          {
+            account_id: 1,
+            narration_key: 'NETFLIX.COM',
+            merchant: 'NETFLIX.COM',
+            next_due_date: '2026-08-01',
+            typical_amount: '15.99',
+            status: 'due_soon',
+          },
+        ],
+        summary: {
+          series_count: 1,
+          total_annual_cost: '191.88',
+          due_soon_count: 1,
+          due_soon_total: '15.99',
+          changed_count: 0,
+          overdue_count: 0,
+        },
+        as_of: '2026-07-24',
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Recurring')).toBeInTheDocument())
+
+    expect(screen.getByText('NETFLIX.COM')).toBeInTheDocument()
+    expect(screen.getByText(/Due in the next 14 days: 15.99/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'See all recurring payments' })).toHaveAttribute(
+      'href',
+      '/recurring'
+    )
+  })
+
+  it('shows price-change and missed-payment counts', async () => {
+    mockLoad({
+      recurring: {
+        series: [],
+        summary: {
+          series_count: 2,
+          total_annual_cost: '400.00',
+          due_soon_count: 0,
+          due_soon_total: '0.00',
+          changed_count: 1,
+          overdue_count: 1,
+        },
+        as_of: '2026-07-24',
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Recurring')).toBeInTheDocument())
+
+    expect(screen.getByText(/1 price change\(s\)/)).toBeInTheDocument()
+    expect(screen.getByText(/1 missed or stopped/)).toBeInTheDocument()
+    expect(screen.getByText('Nothing due in the next 14 days.')).toBeInTheDocument()
   })
 })

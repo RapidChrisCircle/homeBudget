@@ -14,10 +14,11 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 | `/categories` | Manage categories, their kind, and their monthly budget |
 | `/rules` | Auto-categorization rules |
 | `/reports` | Monthly summary, budget vs actual, category totals over time |
+| `/recurring` | Detected subscriptions and regular bills, next due dates, price changes |
 
 ## Importing
 
-Upload a bank export on `/transactions`. Two header layouts are recognised and auto-detected; the original is:
+Upload a bank export on `/transactions`. One header layout is currently recognised and auto-detected:
 
 ```
 BSB Number,Account Number,Transaction Date,Narration,Cheque Number,Debit,Credit,Balance,Transaction Type
@@ -58,6 +59,14 @@ An account's balance is the `balance` column of its most recent transaction — 
 `/reports` covers one month at a time: summary totals, budget vs actual per category, a category-by-month grid, and an uncategorized review that links straight into the filtered ledger.
 
 Note that reporting uses **half-open** month bounds (`[start, end)`) internally while the ledger's date filters are **inclusive** on both ends. Both are documented in their modules; they serve different callers and are not meant to match.
+
+## Recurring payments
+
+`/recurring` finds subscriptions and regular bills by grouping same-account transactions with matching narrations and checking whether the gaps between them are consistent enough to be weekly, fortnightly, monthly, quarterly, or yearly — at least 3 occurrences, ordinary irregular spending (groceries, coffee) doesn't qualify. See `services/recurring.py`'s module docstring for the exact thresholds.
+
+For each detected series it shows the next expected date (calendar-aware — a monthly bill on 31 January is next due 28 February, not "31 days later"), whether the latest amount changed from its established norm, and an estimated annual cost. "Missed or stopped" status is judged against **that account's own latest imported transaction**, never today's date — otherwise every series would look overdue the moment an import falls behind.
+
+A false positive can be **dismissed** from the list; dismissals persist (keyed on account + normalized narration) and can be restored from the page's collapsed Dismissed section. Nothing about detection itself is stored — it's recomputed from the ledger on every request, so there's nothing to keep in sync when transactions are imported or deleted.
 
 ## Local development
 

@@ -53,6 +53,16 @@ class Account(Base):
         back_populates="account"
     )
 
+    # ORM-level cascade (mirroring ImportBatch.transactions below), not just
+    # the FK's ondelete=CASCADE - delete_account only ever succeeds once an
+    # account has no transactions, but a dismissal has no such guard, so it
+    # must be cleaned up explicitly when the account goes.
+    recurring_dismissals = relationship(
+        "RecurringDismissal",
+        back_populates="account",
+        cascade="all, delete-orphan"
+    )
+
     __table_args__ = (
         UniqueConstraint(
             "account_number",
@@ -357,5 +367,52 @@ class Transaction(Base):
             "debit",
             "credit",
             "balance"
+        ),
+    )
+
+
+class RecurringDismissal(Base):
+    """A user's decision that a detected recurring series is not actually
+    recurring (a false positive). See services/recurring.py for how series
+    are detected - detection itself is never stored, only this opt-out.
+
+    Keyed on (account_id, narration_key) rather than a transaction or series
+    id, because there is no persisted series to point at - the same key a
+    future detection run produces is compared against this table to decide
+    whether to exclude it.
+    """
+
+    __tablename__ = "recurring_dismissals"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    account_id = Column(
+        Integer,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    narration_key = Column(
+        String,
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )
+
+    account = relationship("Account", back_populates="recurring_dismissals")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "account_id",
+            "narration_key",
+            name="uq_recurring_dismissals_account_narration_key"
         ),
     )

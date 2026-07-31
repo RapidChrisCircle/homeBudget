@@ -36,3 +36,12 @@ export function lastInclusiveDay(exclusiveEndDate) {
 export function uncategorizedLedgerLink(startDate, exclusiveEndDate) {
   return `/transactions?uncategorized=true&date_from=${startDate}&date_to=${lastInclusiveDay(exclusiveEndDate)}`
 }
+
+// The ledger URL a recurring series' "view in ledger" link should point at.
+// Deliberately searches on `merchant` (the text before the padding, e.g.
+// "RED ENERGY") rather than the series' narration_key - the key has digit
+// runs stripped out of the middle, which is not always a valid substring of
+// the real narration and would not reliably match.
+export function recurringLedgerLink(accountId, merchant) {
+  return `/transactions?account_id=${accountId}&search=${encodeURIComponent(merchant)}`
+}

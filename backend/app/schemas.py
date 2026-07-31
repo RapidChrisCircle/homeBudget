@@ -262,3 +262,67 @@ class MonthlyReportResponse(BaseModel):
     budgets: list[BudgetLineResponse]
     grid: CategoryGridResponse
     uncategorized: UncategorizedSummaryResponse
+
+
+class RecurringSeriesResponse(BaseModel):
+
+    account_id: int
+    account_name: Optional[str]
+    narration_key: str
+    merchant: str
+    sample_narration: str
+    cadence: str
+    interval_days: int
+    occurrence_count: int
+    first_date: date
+    last_date: date
+    typical_amount: Decimal
+    latest_amount: Decimal
+    amount_varies: bool
+    amount_changed: bool
+    next_due_date: date
+    status: str
+    annual_cost: Decimal
+    category_id: Optional[int]
+    category_name: Optional[str]
+    dismissed: bool
+    dismissal_id: Optional[int]
+
+    class Config:
+        from_attributes = True
+
+
+class RecurringSummaryResponse(BaseModel):
+
+    series_count: int
+    total_annual_cost: Decimal
+    due_soon_count: int
+    due_soon_total: Decimal
+    changed_count: int
+    overdue_count: int
+
+
+class RecurringResponse(BaseModel):
+
+    series: list[RecurringSeriesResponse]
+    summary: RecurringSummaryResponse
+    # The most recent transaction_date across the WHOLE ledger, for display
+    # only (an "as of" caption) - not the same as the per-account as_of used
+    # internally to judge each series' status. None when the ledger is empty.
+    as_of: Optional[date]
+
+
+class RecurringDismissalCreate(BaseModel):
+
+    account_id: int
+    narration_key: str
+
+
+class RecurringDismissalResponse(BaseModel):
+
+    id: int
+    account_id: int
+    narration_key: str
+
+    class Config:
+        from_attributes = True

@@ -10,6 +10,8 @@ export default function DashboardPage() {
   const [report, setReport] = useState(null)
   const [recent, setRecent] = useState([])
   const [transactionTotal, setTransactionTotal] = useState(0)
+  const [recurringSeries, setRecurringSeries] = useState([])
+  const [recurringSummary, setRecurringSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -26,13 +28,16 @@ export default function DashboardPage() {
       api.get('/accounts'),
       api.get('/reports/monthly?months=1'),
       api.get(`/transactions?page_size=${RECENT_LIMIT}`),
+      api.get('/recurring'),
     ])
-      .then(([accountsRes, reportRes, transactionsRes]) => {
+      .then(([accountsRes, reportRes, transactionsRes, recurringRes]) => {
         if (!cancelled) {
           setAccounts(accountsRes.data)
           setReport(reportRes.data)
           setRecent(transactionsRes.data.items)
           setTransactionTotal(transactionsRes.data.total)
+          setRecurringSeries(recurringRes.data.series)
+          setRecurringSummary(recurringRes.data.summary)
         }
       })
       .catch((err) => {
@@ -86,6 +91,10 @@ export default function DashboardPage() {
   const withBalances = accounts.filter((account) => account.balance !== null)
   const combined = withBalances.reduce((sum, account) => sum + Number(account.balance), 0)
   const overBudget = budgets.filter((line) => line.difference !== null && Number(line.difference) < 0)
+  const dueSoon = recurringSeries
+    .filter((item) => item.status === 'due_soon')
+    .sort((a, b) => a.next_due_date.localeCompare(b.next_due_date))
+    .slice(0, RECENT_LIMIT)
 
   return (
     <section className="card">
@@ -173,6 +182,44 @@ export default function DashboardPage() {
           </table>
         )}
       </div>
+
+      {recurringSummary && recurringSummary.series_count > 0 && (
+        <div className="card">
+          <h3>Recurring</h3>
+          {dueSoon.length > 0 && (
+            <>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Merchant</th>
+                    <th>Due</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dueSoon.map((item) => (
+                    <tr key={`${item.account_id}-${item.narration_key}`}>
+                      <td>{item.merchant}</td>
+                      <td>{item.next_due_date}</td>
+                      <td>{formatAmount(item.typical_amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p>Due in the next 14 days: {formatAmount(recurringSummary.due_soon_total)}</p>
+            </>
+          )}
+          {dueSoon.length === 0 && <p>Nothing due in the next 14 days.</p>}
+          {(recurringSummary.changed_count > 0 || recurringSummary.overdue_count > 0) && (
+            <p>
+              {recurringSummary.changed_count > 0 && `${recurringSummary.changed_count} price change(s)`}
+              {recurringSummary.changed_count > 0 && recurringSummary.overdue_count > 0 && ', '}
+              {recurringSummary.overdue_count > 0 && `${recurringSummary.overdue_count} missed or stopped`}
+            </p>
+          )}
+          <Link to="/recurring">See all recurring payments</Link>
+        </div>
+      )}
 
       <div className="card">
         <h3>Uncategorized</h3>
