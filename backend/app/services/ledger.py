@@ -49,12 +49,22 @@ from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import func
-from sqlalchemy.orm import Query, Session
+from sqlalchemy.orm import Query, Session, joinedload
 
 from ..models import Transaction
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
+
+# TransactionResponse serializes account_name and category_name, which are
+# plain Python properties reading through the lazy `account` / `category`
+# relationships - so without these, serializing a page emits one extra query
+# per DISTINCT account and category on it (the identity map dedupes the rest).
+# Measured on a 50-row page with 50 distinct categories: 53 queries without,
+# 2 with. Passed to paginate() rather than baked into build_transaction_query()
+# so the COUNT stays join-free: these joins cannot change the count (both
+# relationships are many-to-one), but the count has no reason to pay for them.
+LIST_LOADERS = (joinedload(Transaction.account), joinedload(Transaction.category))
 
 # Mirrors categorization._row_amount's positive-dollar/absolute-value
 # convention, expressed as a SQL expression instead of a Python function.
@@ -109,10 +119,19 @@ def build_transaction_query(db: Session, filters: TransactionFilters) -> Query:
     return query.order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
 
 
-def paginate(query: Query, page: int, page_size: int) -> tuple[list[Transaction], int]:
+def paginate(query: Query, page: int, page_size: int, options=()) -> tuple[list[Transaction], int]:
+    """(items, total) for one page. `options` are loader options applied only
+    to the item fetch - see LIST_LOADERS for why the count is left bare.
+    """
 
     total = query.order_by(None).count()
-    items = query.offset((page - 1) * page_size).limit(page_size).all()
+
+    items = (
+        query.options(*options)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
 
     return items, total
 

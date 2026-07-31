@@ -4,6 +4,7 @@ from decimal import Decimal
 from app.models import Account, Category, ImportBatch, Transaction
 from app.services.categorization import _row_amount
 from app.services.ledger import (
+    LIST_LOADERS,
     TransactionFilters,
     account_balance,
     account_balances,
@@ -234,6 +235,36 @@ def test_pagination_pages_through_results_without_gaps_or_duplicates(db_session)
     assert total == 5
     all_ids = [t.id for t in page1] + [t.id for t in page2] + [t.id for t in page3]
     assert len(all_ids) == len(set(all_ids)) == 5
+
+
+def test_pagination_loader_options_do_not_change_the_results(db_session):
+    """LIST_LOADERS is applied only to the item fetch, not the count. Both
+    relationships are many-to-one, so the joins cannot change what comes
+    back - this pins that down rather than assuming it.
+    """
+
+    account = make_account(db_session)
+    groceries = make_category(db_session)
+
+    for i in range(5):
+        make_transaction(
+            db_session,
+            transaction_date=date(2026, 7, 1),
+            narration=f"Row {i}",
+            account_id=account.id,
+            category_id=groceries.id if i % 2 == 0 else None,
+        )
+    db_session.commit()
+
+    query = build_transaction_query(db_session, TransactionFilters())
+
+    bare_items, bare_total = paginate(query, page=1, page_size=3)
+    eager_items, eager_total = paginate(query, page=1, page_size=3, options=LIST_LOADERS)
+
+    assert bare_total == eager_total == 5
+    assert [t.id for t in bare_items] == [t.id for t in eager_items]
+    # The properties the response schema serializes still resolve.
+    assert [t.account_name for t in eager_items] == [account.name] * 3
 
 
 def test_pagination_beyond_the_end_returns_empty(db_session):

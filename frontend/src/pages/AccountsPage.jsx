@@ -1,15 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../services/api'
-
-function formatBalance(account) {
-  // null (not 0.00) means no transactions yet - render that distinctly from
-  // a real zero balance rather than showing a misleading "0.00".
-  if (account.balance === null || account.balance === undefined) {
-    return 'No transactions yet'
-  }
-  return `${Number(account.balance).toFixed(2)} (as of ${account.balance_as_of})`
-}
+import { formatBalance } from '../utils/format.js'
 
 const EMPTY_FORM = {
   name: '',

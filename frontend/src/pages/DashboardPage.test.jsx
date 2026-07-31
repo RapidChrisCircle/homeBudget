@@ -1,0 +1,248 @@
+import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { api } from '../services/api'
+import DashboardPage from './DashboardPage.jsx'
+
+vi.mock('../services/api', () => ({
+  api: {
+    get: vi.fn(),
+  },
+}))
+
+const sampleAccounts = [
+  {
+    id: 1,
+    name: 'Joint Everyday',
+    balance: '1200.50',
+    balance_as_of: '2026-07-24',
+  },
+  {
+    id: 2,
+    name: 'Credit Card',
+    balance: '-300.50',
+    balance_as_of: '2026-07-20',
+  },
+]
+
+const sampleReport = {
+  year: 2026,
+  month: 7,
+  label: '2026-07',
+  start_date: '2026-07-01',
+  end_date: '2026-08-01',
+  summary: { total_income: '5000.00', total_spending: '3200.00', net_saved: '1800.00' },
+  budgets: [
+    {
+      category_id: 1,
+      category_name: 'Groceries',
+      budget_amount: '800.00',
+      actual: '912.34',
+      difference: '-112.34',
+      transaction_count: 21,
+    },
+    {
+      category_id: 2,
+      category_name: 'Fuel',
+      budget_amount: '300.00',
+      actual: '150.00',
+      difference: '150.00',
+      transaction_count: 4,
+    },
+  ],
+  grid: { periods: [], rows: [] },
+  uncategorized: {
+    transaction_count: 412,
+    uncategorized_count: 17,
+    total_in: '0.00',
+    total_out: '-845.10',
+    net_total: '-845.10',
+  },
+}
+
+const sampleTransaction = {
+  id: 1,
+  account_id: 1,
+  account_name: 'Joint Everyday',
+  account_number: '1111',
+  category_id: null,
+  category_name: null,
+  transaction_date: '2026-07-24',
+  narration: 'Coffee',
+  debit: '-5.00',
+  credit: null,
+  balance: '100.00',
+  transaction_type: 'WDL',
+}
+
+function envelope(transactions, overrides = {}) {
+  return {
+    items: transactions,
+    total: transactions.length,
+    page: 1,
+    page_size: 5,
+    total_pages: 1,
+    ...overrides,
+  }
+}
+
+function mockLoad({
+  accounts = sampleAccounts,
+  report = sampleReport,
+  transactions = [sampleTransaction],
+  listResponse = null,
+} = {}) {
+  const list = listResponse || envelope(transactions)
+
+  api.get.mockImplementation((path) => {
+    if (path === '/accounts') {
+      return Promise.resolve({ data: accounts })
+    }
+    if (path.startsWith('/reports/monthly')) {
+      return Promise.resolve({ data: report })
+    }
+    if (path.startsWith('/transactions')) {
+      return Promise.resolve({ data: list })
+    }
+    return Promise.reject(new Error(`unexpected path ${path}`))
+  })
+}
+
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <DashboardPage />
+    </MemoryRouter>
+  )
+}
+
+describe('DashboardPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders loading then the dashboard once data resolves', async () => {
+    mockLoad()
+
+    renderPage()
+
+    expect(screen.getByText('Loading dashboard...')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument()
+    })
+  })
+
+  it('lists each account with its balance and links to its detail page', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/1200.50 \(as of 2026-07-24\)/)).toBeInTheDocument())
+
+    expect(screen.getByRole('link', { name: 'Credit Card' })).toHaveAttribute('href', '/accounts/2')
+  })
+
+  it('shows a combined balance summing the account balances', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/Combined balance: 900.00/)).toBeInTheDocument())
+  })
+
+  it('omits accounts with no balance from the combined total', async () => {
+    mockLoad({
+      accounts: [sampleAccounts[0], { id: 3, name: 'New Account', balance: null, balance_as_of: null }],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/Combined balance: 1200.50/)).toBeInTheDocument())
+    expect(screen.getByText('No transactions yet')).toBeInTheDocument()
+  })
+
+  it('shows the month summary labelled with the month it covers', async () => {
+    mockLoad()
+
+    renderPage()
+
+    // The heading must name the month, since it is the most recent month
+    // WITH data, not necessarily the current calendar month.
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /Summary — 2026-07/ })).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('5000.00')).toBeInTheDocument()
+    expect(screen.getByText('1800.00')).toBeInTheDocument()
+  })
+
+  it('lists only the over-budget categories under Needs Attention', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Needs Attention')).toBeInTheDocument())
+
+    expect(screen.getByText('Groceries')).toBeInTheDocument()
+    // Fuel is under budget, so it must not appear.
+    expect(screen.queryByText('Fuel')).not.toBeInTheDocument()
+    // Shown as a positive "over by" figure rather than a negative difference.
+    expect(screen.getByText('112.34')).toBeInTheDocument()
+  })
+
+  it('says nothing is over budget when every category is within its budget', async () => {
+    mockLoad({ report: { ...sampleReport, budgets: [sampleReport.budgets[1]] } })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Nothing over budget this month.')).toBeInTheDocument()
+    })
+  })
+
+  it('deep-links uncategorized review to the ledger filtered to this month', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/17 of 412 transaction\(s\)/)).toBeInTheDocument())
+
+    // end_date (2026-08-01) is exclusive, so date_to must be 2026-07-31.
+    expect(screen.getByRole('link', { name: 'Review uncategorized transactions' })).toHaveAttribute(
+      'href',
+      '/transactions?uncategorized=true&date_from=2026-07-01&date_to=2026-07-31'
+    )
+  })
+
+  it('shows recent activity and requests only a short page of it', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(api.get).toHaveBeenCalledWith('/transactions?page_size=5')
+  })
+
+  it('shows an empty state when nothing has been imported', async () => {
+    mockLoad({ transactions: [], listResponse: envelope([], { total: 0 }) })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('No transactions imported yet.')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('link', { name: /Import a bank statement/ })).toBeInTheDocument()
+  })
+
+  it('shows an error message when a request fails', async () => {
+    api.get.mockRejectedValue({ response: { data: { detail: 'database unavailable' } } })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/database unavailable/)).toBeInTheDocument()
+    })
+  })
+})

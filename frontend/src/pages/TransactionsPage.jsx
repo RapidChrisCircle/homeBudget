@@ -1,72 +1,20 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import LedgerFilters from '../components/LedgerFilters.jsx'
+import Pagination from '../components/Pagination.jsx'
+import {
+  EMPTY_FILTERS,
+  filtersFromSearchParams,
+  searchParamsFromFilters,
+} from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
+import { formatAmount } from '../utils/format.js'
 
 function formatAccount(transaction) {
   if (transaction.bsb_number) {
     return `${transaction.bsb_number} / ${transaction.account_number}`
   }
   return transaction.account_number
-}
-
-function formatAmount(value) {
-  if (value === null || value === undefined) {
-    return ''
-  }
-  return Number(value).toFixed(2)
-}
-
-const EMPTY_FILTERS = {
-  account_id: '',
-  category: '', // '' = all, 'uncategorized' = uncategorized only, else a category id
-  date_from: '',
-  date_to: '',
-  search: '',
-  transaction_type: '',
-  min_amount: '',
-  max_amount: '',
-}
-
-// Reads the filter values a search-params object carries, in the shape the
-// filter form uses (a single "category" field standing in for the two
-// distinct query params category_id / uncategorized).
-function filtersFromSearchParams(searchParams) {
-  return {
-    account_id: searchParams.get('account_id') || '',
-    category: searchParams.get('uncategorized') === 'true'
-      ? 'uncategorized'
-      : searchParams.get('category_id') || '',
-    date_from: searchParams.get('date_from') || '',
-    date_to: searchParams.get('date_to') || '',
-    search: searchParams.get('search') || '',
-    transaction_type: searchParams.get('transaction_type') || '',
-    min_amount: searchParams.get('min_amount') || '',
-    max_amount: searchParams.get('max_amount') || '',
-  }
-}
-
-// The inverse: turns filter form values into the query params /transactions
-// actually understands. Resets to page 1 - a new filter invalidates whatever
-// page you were on.
-function searchParamsFromFilters(filters) {
-  const params = new URLSearchParams()
-
-  if (filters.account_id) params.set('account_id', filters.account_id)
-
-  if (filters.category === 'uncategorized') {
-    params.set('uncategorized', 'true')
-  } else if (filters.category) {
-    params.set('category_id', filters.category)
-  }
-
-  if (filters.date_from) params.set('date_from', filters.date_from)
-  if (filters.date_to) params.set('date_to', filters.date_to)
-  if (filters.search) params.set('search', filters.search)
-  if (filters.transaction_type) params.set('transaction_type', filters.transaction_type)
-  if (filters.min_amount) params.set('min_amount', filters.min_amount)
-  if (filters.max_amount) params.set('max_amount', filters.max_amount)
-
-  return params
 }
 
 export default function TransactionsPage() {
@@ -90,9 +38,12 @@ export default function TransactionsPage() {
   const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
   const navigate = useNavigate()
 
-  const fetchData = async (cancelledRef) => {
-    const [transactionsRes, batchesRes, categoriesRes, accountsRes, typesRes] = await Promise.all([
-      api.get(`/transactions?${searchParams.toString()}`),
+  // The lookups that populate the filter dropdowns and the import history.
+  // None of them depend on the current filters, so they are deliberately NOT
+  // refetched when a filter changes - only when something that can actually
+  // change them happens (an import can create both accounts and batches).
+  const fetchLookups = async (cancelledRef) => {
+    const [batchesRes, categoriesRes, accountsRes, typesRes] = await Promise.all([
       api.get('/import-batches'),
       api.get('/categories'),
       api.get('/accounts'),
@@ -100,13 +51,6 @@ export default function TransactionsPage() {
     ])
 
     if (!cancelledRef?.current) {
-      setTransactions(transactionsRes.data.items)
-      setPageInfo({
-        total: transactionsRes.data.total,
-        page: transactionsRes.data.page,
-        page_size: transactionsRes.data.page_size,
-        total_pages: transactionsRes.data.total_pages,
-      })
       setBatches(batchesRes.data)
       setCategories(categoriesRes.data)
       setAccounts(accountsRes.data)
@@ -114,16 +58,48 @@ export default function TransactionsPage() {
     }
   }
 
-  // Refreshes data after a mutation (delete/wipe/import) without dropping
-  // back to the loading state, so the tables don't flicker away mid-action.
-  const refresh = async () => {
+  const fetchTransactions = async (cancelledRef) => {
+    const response = await api.get(`/transactions?${searchParams.toString()}`)
+
+    if (!cancelledRef?.current) {
+      setTransactions(response.data.items)
+      setPageInfo({
+        total: response.data.total,
+        page: response.data.page,
+        page_size: response.data.page_size,
+        total_pages: response.data.total_pages,
+      })
+    }
+  }
+
+  // Refreshes after a mutation without dropping back to the loading state, so
+  // the tables don't flicker away mid-action. `withLookups` is for mutations
+  // that can change accounts/batches (import, wipe, batch delete); row-level
+  // edits leave the lookups untouched and skip them.
+  const refresh = async ({ withLookups = false } = {}) => {
     try {
-      await fetchData()
+      await Promise.all([fetchTransactions(), withLookups ? fetchLookups() : null])
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Unknown error'
       setError(String(message))
     }
   }
+
+  useEffect(() => {
+    const cancelledRef = { current: false }
+
+    fetchLookups(cancelledRef).catch((err) => {
+      if (!cancelledRef.current) {
+        const message = err?.response?.data?.detail || err?.message || 'Unknown error'
+        setError(String(message))
+      }
+    })
+
+    return () => {
+      cancelledRef.current = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Filters (and the current page) live in the URL - this is what makes a
   // filtered view reloadable, shareable, and lets other pages (e.g. Reports'
@@ -137,7 +113,7 @@ export default function TransactionsPage() {
     setError('')
     setFilterForm(filtersFromSearchParams(searchParams))
 
-    fetchData(cancelledRef)
+    fetchTransactions(cancelledRef)
       .catch((err) => {
         if (!cancelledRef.current) {
           const message = err?.response?.data?.detail || err?.message || 'Unknown error'
@@ -195,7 +171,8 @@ export default function TransactionsPage() {
     try {
       const response = await api.post('/transactions/import', formData)
       setUploadResult(response.data)
-      await refresh()
+      // An import adds a batch and can auto-create accounts.
+      await refresh({ withLookups: true })
     } catch (err) {
       const detail = err?.response?.data?.detail
 
@@ -228,6 +205,15 @@ export default function TransactionsPage() {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((selectedId) => selectedId !== id) : [...prev, id]
     )
+  }
+
+  // Selects exactly the rows on this page - which is all selection can mean
+  // here, since it already clears whenever the page changes. A cross-page
+  // "select all" would act on rows the user can't see.
+  const allOnPageSelected = transactions.length > 0 && selectedIds.length === transactions.length
+
+  const toggleSelectAllOnPage = () => {
+    setSelectedIds(allOnPageSelected ? [] : transactions.map((transaction) => transaction.id))
   }
 
   const handleBulkAssign = async () => {
@@ -286,7 +272,7 @@ export default function TransactionsPage() {
     setActionError('')
     try {
       await api.delete(`/import-batches/${id}`)
-      await refresh()
+      await refresh({ withLookups: true })
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Delete failed'
       setActionError(String(message))
@@ -302,7 +288,7 @@ export default function TransactionsPage() {
       await api.delete('/transactions')
       setUploadResult(null)
       setUploadErrors(null)
-      await refresh()
+      await refresh({ withLookups: true })
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Wipe failed'
       setActionError(String(message))
@@ -390,100 +376,15 @@ export default function TransactionsPage() {
         </table>
       </div>
 
-      <div className="card">
-        <h3>Filters</h3>
-        <form onSubmit={handleApplyFilters}>
-          <div>
-            <label>
-              Account
-              <select value={filterForm.account_id} onChange={handleFilterFieldChange('account_id')}>
-                <option value="">All accounts</option>
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div>
-            <label>
-              Category
-              <select value={filterForm.category} onChange={handleFilterFieldChange('category')}>
-                <option value="">All categories</option>
-                <option value="uncategorized">Uncategorized only</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div>
-            <label>
-              From date
-              <input type="date" value={filterForm.date_from} onChange={handleFilterFieldChange('date_from')} />
-            </label>
-          </div>
-          <div>
-            <label>
-              To date
-              <input type="date" value={filterForm.date_to} onChange={handleFilterFieldChange('date_to')} />
-            </label>
-          </div>
-          <div>
-            <label>
-              Narration contains
-              <input type="text" value={filterForm.search} onChange={handleFilterFieldChange('search')} />
-            </label>
-          </div>
-          <div>
-            <label>
-              Type
-              <select
-                value={filterForm.transaction_type}
-                onChange={handleFilterFieldChange('transaction_type')}
-              >
-                <option value="">Any type</option>
-                {transactionTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div>
-            <label>
-              Min amount
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={filterForm.min_amount}
-                onChange={handleFilterFieldChange('min_amount')}
-              />
-            </label>
-          </div>
-          <div>
-            <label>
-              Max amount
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={filterForm.max_amount}
-                onChange={handleFilterFieldChange('max_amount')}
-              />
-            </label>
-          </div>
-          <button type="submit">Apply filters</button>
-          <button type="button" onClick={handleClearFilters}>
-            Clear filters
-          </button>
-        </form>
-      </div>
+      <LedgerFilters
+        values={filterForm}
+        onFieldChange={handleFilterFieldChange}
+        onApply={handleApplyFilters}
+        onClear={handleClearFilters}
+        categories={categories}
+        transactionTypes={transactionTypes}
+        accounts={accounts}
+      />
 
       <div className="card">
         <h3>Ledger</h3>
@@ -518,7 +419,21 @@ export default function TransactionsPage() {
             <table>
               <thead>
                 <tr>
-                  <th></th>
+                  <th>
+                    <input
+                      type="checkbox"
+                      aria-label="Select all on this page"
+                      checked={allOnPageSelected}
+                      ref={(node) => {
+                        if (node) {
+                          node.indeterminate =
+                            selectedIds.length > 0 && selectedIds.length < transactions.length
+                        }
+                      }}
+                      onChange={toggleSelectAllOnPage}
+                      disabled={transactions.length === 0}
+                    />
+                  </th>
                   <th>Date</th>
                   <th>Account</th>
                   <th>Narration</th>
@@ -582,25 +497,7 @@ export default function TransactionsPage() {
               </tbody>
             </table>
 
-            <div>
-              <button
-                type="button"
-                onClick={() => handlePageChange(pageInfo.page - 1)}
-                disabled={pageInfo.page <= 1}
-              >
-                Previous
-              </button>
-              <span>
-                {' '}Page {pageInfo.page} of {pageInfo.total_pages} ({pageInfo.total} total){' '}
-              </span>
-              <button
-                type="button"
-                onClick={() => handlePageChange(pageInfo.page + 1)}
-                disabled={pageInfo.page >= pageInfo.total_pages}
-              >
-                Next
-              </button>
-            </div>
+            <Pagination pageInfo={pageInfo} onPageChange={handlePageChange} />
           </>
         )}
       </div>

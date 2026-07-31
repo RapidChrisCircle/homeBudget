@@ -1,5 +1,6 @@
 import { Link, Route, Routes } from 'react-router-dom'
 import './App.css'
+import DashboardPage from './pages/DashboardPage.jsx'
 import { pages } from './pageRegistry.jsx'
 
 function PageLink({ page }) {
@@ -25,21 +26,9 @@ function App() {
       </header>
 
       <Routes>
-        <Route
-          path="/"
-          element={
-            <section className="card">
-              <h2>Features</h2>
-              <ul>
-                {visiblePages.map((page) => (
-                  <li key={page.path}>
-                    <PageLink page={page} />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          }
-        />
+        {/* The dashboard is deliberately not in pageRegistry: the registry
+            drives the nav bar, and Home already has its own link there. */}
+        <Route path="/" element={<DashboardPage />} />
         {pages.map((page) => (
           <Route key={page.path} path={page.path} element={page.element} />
         ))}

@@ -7,6 +7,7 @@ import AccountDetailPage from './AccountDetailPage.jsx'
 vi.mock('../services/api', () => ({
   api: {
     get: vi.fn(),
+    patch: vi.fn(),
   },
 }))
 
@@ -130,6 +131,55 @@ describe('AccountDetailPage', () => {
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/account_id=1.*search=woolworths|search=woolworths.*account_id=1/))
+    })
+  })
+
+  it('still renders pagination when the current page has no rows', async () => {
+    // A page can go out of range from a stale bookmark or rows deleted
+    // elsewhere. Hiding the controls when the page is empty leaves no way back.
+    mockLoad({
+      transactions: [],
+      listResponse: envelope([], { total: 120, page: 3, page_size: 50, total_pages: 3 }),
+    })
+
+    renderPage('/accounts/1?page=3')
+
+    await waitFor(() => {
+      expect(screen.getByText(/No transactions match these filters/)).toBeInTheDocument()
+    })
+
+    const previous = screen.getByRole('button', { name: 'Previous' })
+    expect(previous).toBeInTheDocument()
+    expect(previous).not.toBeDisabled()
+  })
+
+  it('changes a row category and refreshes', async () => {
+    mockLoad({ categories: [{ id: 9, name: 'Groceries' }] })
+    api.patch.mockResolvedValue({})
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Category for Coffee'), { target: { value: '9' } })
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/transactions/1/category', { category_id: 9 })
+    })
+  })
+
+  it('surfaces a failed category change', async () => {
+    mockLoad({ categories: [{ id: 9, name: 'Groceries' }] })
+    api.patch.mockRejectedValue({ response: { data: { detail: 'Category not found' } } })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Category for Coffee'), { target: { value: '9' } })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Category not found/)).toBeInTheDocument()
     })
   })
 

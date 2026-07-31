@@ -341,14 +341,100 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    const checkbox = screen.getByRole('checkbox')
-    fireEvent.click(checkbox)
+    // The header now also has a select-all checkbox, so target the row's.
+    const rowCheckbox = within(screen.getByText('Coffee').closest('tr')).getByRole('checkbox')
+    fireEvent.click(rowCheckbox)
     expect(screen.getByText('Set category for selected (1)')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
 
     await waitFor(() => {
       expect(screen.getByText('Set category for selected (0)')).toBeInTheDocument()
+    })
+  })
+
+  it('selects and deselects every row on the page with the header checkbox', async () => {
+    const second = { ...sampleTransaction, id: 2, narration: 'Woolworths' }
+    mockLoad({ transactions: [sampleTransaction, second] })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Woolworths')).toBeInTheDocument())
+
+    const selectAll = screen.getByLabelText('Select all on this page')
+
+    fireEvent.click(selectAll)
+    expect(screen.getByText('Set category for selected (2)')).toBeInTheDocument()
+
+    fireEvent.click(selectAll)
+    expect(screen.getByText('Set category for selected (0)')).toBeInTheDocument()
+  })
+
+  it('shows the select-all checkbox as indeterminate when only some rows are selected', async () => {
+    const second = { ...sampleTransaction, id: 2, narration: 'Woolworths' }
+    mockLoad({ transactions: [sampleTransaction, second] })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Woolworths')).toBeInTheDocument())
+
+    const rowCheckbox = within(screen.getByText('Coffee').closest('tr')).getByRole('checkbox')
+    fireEvent.click(rowCheckbox)
+
+    const selectAll = screen.getByLabelText('Select all on this page')
+    expect(selectAll.indeterminate).toBe(true)
+    expect(selectAll.checked).toBe(false)
+  })
+
+  it('does not refetch the filter lookups when a filter changes', async () => {
+    // The lookups don't depend on the filters. Refetching all four on every
+    // Apply click and page turn was four wasted requests per interaction.
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const lookupCallsAfterMount = api.get.mock.calls.filter(
+      ([path]) => !path.startsWith('/transactions?')
+    ).length
+    expect(lookupCallsAfterMount).toBe(4)
+
+    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/search=coffee/))
+    })
+
+    const lookupCallsAfterFilter = api.get.mock.calls.filter(
+      ([path]) => !path.startsWith('/transactions?')
+    ).length
+    expect(lookupCallsAfterFilter).toBe(4)
+  })
+
+  it('does refetch the lookups after an import, which can create accounts and batches', async () => {
+    mockLoad()
+    api.post.mockResolvedValue({
+      data: {
+        imported_count: 1,
+        skipped_duplicate_count: 0,
+        new_account_count: 1,
+        auto_categorized_count: 0,
+        batch: sampleBatch,
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const file = new File(['a'], 'transactions.csv', { type: 'text/csv' })
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [file] } })
+
+    await waitFor(() => {
+      const lookupCalls = api.get.mock.calls.filter(([path]) => path === '/accounts').length
+      expect(lookupCalls).toBe(2)
     })
   })
 })

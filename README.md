@@ -1,22 +1,63 @@
 # homeBudget
 
-A household budget tool. Import bank transactions from a CSV export, view them in a ledger, and clean up mistakes — delete a single transaction, delete an entire import, or wipe everything and start over.
+A household budget tool. Import bank transactions from a CSV export, categorize them (by hand or automatically), set budgets, and see where the money went.
 
 Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: React + Vite, served by nginx in production.
 
-## Transactions feature
+## Pages
 
-The `/transactions` page is the app. It has three parts:
+| Page | What it does |
+|---|---|
+| `/` | Dashboard — account balances, this month's totals, over-budget categories, uncategorized count, recent activity |
+| `/transactions` | Import CSVs, and the filterable, paginated ledger |
+| `/accounts` | Manage accounts; `/accounts/:id` is one account's balance and transactions |
+| `/categories` | Manage categories, their kind, and their monthly budget |
+| `/rules` | Auto-categorization rules |
+| `/reports` | Monthly summary, budget vs actual, category totals over time |
 
-- **Import CSV** — upload a bank export. The importer expects an exact header row:
+## Importing
 
-  ```
-  BSB Number,Account Number,Transaction Date,Narration,Cheque Number,Debit,Credit,Balance,Transaction Type
-  ```
+Upload a bank export on `/transactions`. Two header layouts are recognised and auto-detected; the original is:
 
-  `Transaction Date` must be `DD/MM/YYYY`. Each row needs exactly one of `Debit`/`Credit` populated (not both, not neither). If **any** row in the file fails validation, the whole file is rejected with a per-row error list — nothing is imported until the file is clean. Rows that exactly match an already-imported transaction (same account, date, narration, debit, credit, and balance) are silently skipped as duplicates and counted separately from what actually got imported.
-- **Import History** — every upload is recorded as a batch (filename, timestamp, rows imported, duplicates skipped). Deleting a batch cascades to delete all of its transactions.
-- **Ledger** — every imported transaction, newest first, with a per-row delete. **Wipe all** clears every transaction and every batch — there's no undo.
+```
+BSB Number,Account Number,Transaction Date,Narration,Cheque Number,Debit,Credit,Balance,Transaction Type
+```
+
+`Transaction Date` must be `DD/MM/YYYY`. Each row needs exactly one of `Debit`/`Credit` populated (not both, not neither), and `Balance` is required — the app never sums debits and credits to derive a balance, it reads the bank's own running balance.
+
+If **any** row fails validation the whole file is rejected with a per-row error list — nothing is imported until the file is clean. Rows exactly matching an already-imported transaction (same account, date, narration, debit, credit, and balance) are skipped as duplicates and counted separately.
+
+Accounts are created automatically from the account numbers in the file. Every upload is recorded as a batch; deleting a batch cascades to its transactions. **Wipe all** clears every transaction and batch — there's no undo.
+
+## The ledger
+
+`/transactions` shows transactions newest first (`transaction_date DESC, id DESC`), paginated at 50 per page (max 200). Filters live in the URL, so a filtered view is reloadable and shareable, and other pages deep-link into it:
+
+| Filter | Semantics |
+|---|---|
+| Account, Category | exact match; **Uncategorized only** is a distinct mode from "all categories" |
+| From / To date | **inclusive on both ends** |
+| Narration contains | case-insensitive; `%` and `_` are literal, not wildcards |
+| Type | case-insensitive exact match |
+| Min / Max amount | **positive dollars** compared against the absolute value of the debit or credit |
+
+Contradictory combinations are rejected with a 422 rather than quietly returning nothing — `uncategorized` with a `category_id`, an inverted date range, or an inverted amount range.
+
+Rows can be categorized individually or in bulk. Selection applies to the current page only and clears when you change pages, so a bulk assign can never touch rows you can't see.
+
+## Categorization
+
+Categories have a **kind** (`expense`, `income`, or `transfer`) and expense categories may carry a **monthly budget**. Transfers are excluded from spending and income totals so moving money between your own accounts doesn't register as either.
+
+Rules on `/rules` auto-categorize on import and can be re-run over existing transactions from the ledger's **Apply rules now**. A rule matches on narration, transaction type, and/or an amount range; rows it categorizes are marked `auto`. Setting a category by hand clears that marker, so a later rule run won't overwrite your decision.
+
+## Balances and reports
+
+An account's balance is the `balance` column of its most recent transaction — **most recent by date, not by id**, so importing an older statement after a newer one doesn't rewrite the current balance. An account with no transactions has a balance of `null`, which renders as "No transactions yet"; that is deliberately distinct from a real `0.00`.
+
+`/reports` covers one month at a time: summary totals, budget vs actual per category, a category-by-month grid, and an uncategorized review that links straight into the filtered ledger.
+
+Note that reporting uses **half-open** month bounds (`[start, end)`) internally while the ledger's date filters are **inclusive** on both ends. Both are documented in their modules; they serve different callers and are not meant to match.
 
 ## Local development
 

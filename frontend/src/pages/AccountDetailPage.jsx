@@ -1,56 +1,20 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
+import LedgerFilters from '../components/LedgerFilters.jsx'
+import Pagination from '../components/Pagination.jsx'
+import {
+  EMPTY_FILTERS,
+  filtersFromSearchParams,
+  searchParamsFromFilters,
+} from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
+import { formatAmount, formatBalance } from '../utils/format.js'
 
-function formatAmount(value) {
-  if (value === null || value === undefined) {
-    return ''
-  }
-  return Number(value).toFixed(2)
-}
-
-const EMPTY_FILTERS = {
-  category: '', // '' = all, 'uncategorized' = uncategorized only, else a category id
-  date_from: '',
-  date_to: '',
-  search: '',
-  transaction_type: '',
-  min_amount: '',
-  max_amount: '',
-}
-
-function filtersFromSearchParams(searchParams) {
-  return {
-    category: searchParams.get('uncategorized') === 'true'
-      ? 'uncategorized'
-      : searchParams.get('category_id') || '',
-    date_from: searchParams.get('date_from') || '',
-    date_to: searchParams.get('date_to') || '',
-    search: searchParams.get('search') || '',
-    transaction_type: searchParams.get('transaction_type') || '',
-    min_amount: searchParams.get('min_amount') || '',
-    max_amount: searchParams.get('max_amount') || '',
-  }
-}
-
-// account_id is implicit from the route, not a form field here.
+// account_id is implicit from the route here, so it is never a form field and
+// never carried in this page's own URL - it is added only when calling the API.
 function queryParamsFromFilters(accountId, filters) {
-  const params = new URLSearchParams()
+  const params = searchParamsFromFilters(filters)
   params.set('account_id', accountId)
-
-  if (filters.category === 'uncategorized') {
-    params.set('uncategorized', 'true')
-  } else if (filters.category) {
-    params.set('category_id', filters.category)
-  }
-
-  if (filters.date_from) params.set('date_from', filters.date_from)
-  if (filters.date_to) params.set('date_to', filters.date_to)
-  if (filters.search) params.set('search', filters.search)
-  if (filters.transaction_type) params.set('transaction_type', filters.transaction_type)
-  if (filters.min_amount) params.set('min_amount', filters.min_amount)
-  if (filters.max_amount) params.set('max_amount', filters.max_amount)
-
   return params
 }
 
@@ -63,59 +27,91 @@ export default function AccountDetailPage() {
   const [transactionTypes, setTransactionTypes] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [actionError, setActionError] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
   const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
 
-  useEffect(() => {
-    let cancelled = false
-
-    setLoading(true)
-    setError('')
-    setFilterForm(filtersFromSearchParams(searchParams))
-
+  const fetchData = async (cancelledRef) => {
     const query = queryParamsFromFilters(accountId, filtersFromSearchParams(searchParams))
     // Page carries over from the URL if present (pagination links set it).
     if (searchParams.get('page')) {
       query.set('page', searchParams.get('page'))
     }
 
-    Promise.all([
+    const [accountRes, transactionsRes, categoriesRes, typesRes] = await Promise.all([
       api.get(`/accounts/${accountId}`),
       api.get(`/transactions?${query.toString()}`),
       api.get('/categories'),
       api.get('/transactions/types'),
     ])
-      .then(([accountRes, transactionsRes, categoriesRes, typesRes]) => {
-        if (!cancelled) {
-          setAccount(accountRes.data)
-          setTransactions(transactionsRes.data.items)
-          setPageInfo({
-            total: transactionsRes.data.total,
-            page: transactionsRes.data.page,
-            page_size: transactionsRes.data.page_size,
-            total_pages: transactionsRes.data.total_pages,
-          })
-          setCategories(categoriesRes.data)
-          setTransactionTypes(typesRes.data)
-        }
+
+    if (!cancelledRef?.current) {
+      setAccount(accountRes.data)
+      setTransactions(transactionsRes.data.items)
+      setPageInfo({
+        total: transactionsRes.data.total,
+        page: transactionsRes.data.page,
+        page_size: transactionsRes.data.page_size,
+        total_pages: transactionsRes.data.total_pages,
       })
+      setCategories(categoriesRes.data)
+      setTransactionTypes(typesRes.data)
+    }
+  }
+
+  // Refetches after a category change without dropping back to the loading
+  // state, so the table doesn't flicker away mid-edit.
+  const refresh = async () => {
+    try {
+      await fetchData()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Unknown error'
+      setActionError(String(message))
+    }
+  }
+
+  useEffect(() => {
+    const cancelledRef = { current: false }
+
+    setLoading(true)
+    setError('')
+    setFilterForm(filtersFromSearchParams(searchParams))
+
+    fetchData(cancelledRef)
       .catch((err) => {
-        if (!cancelled) {
+        if (!cancelledRef.current) {
           const message = err?.response?.data?.detail || err?.message || 'Unknown error'
           setError(String(message))
         }
       })
       .finally(() => {
-        if (!cancelled) {
+        if (!cancelledRef.current) {
           setLoading(false)
         }
       })
 
     return () => {
-      cancelled = true
+      cancelledRef.current = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, searchParams.toString()])
+
+  // Categorizing from here uses the same endpoint as the main ledger. This
+  // page stays review-oriented otherwise - no delete, make-rule or bulk bar -
+  // but spotting a miscategorized row and being unable to fix it made the
+  // page a dead end.
+  const handleCategoryChange = async (transactionId, categoryId) => {
+    setActionError('')
+    try {
+      await api.patch(`/transactions/${transactionId}/category`, {
+        category_id: categoryId ? Number(categoryId) : null,
+      })
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Category update failed'
+      setActionError(String(message))
+    }
+  }
 
   const handleFilterFieldChange = (field) => (event) => {
     setFilterForm((prev) => ({ ...prev, [field]: event.target.value }))
@@ -167,151 +163,77 @@ export default function AccountDetailPage() {
         <p>Institution: {account.institution || '—'}</p>
         <p>Type: {account.account_type || '—'}</p>
         <p>Account Number: {account.account_number}</p>
-        <p>
-          Balance:{' '}
-          {account.balance === null
-            ? 'No transactions yet'
-            : `${formatAmount(account.balance)} (as of ${account.balance_as_of})`}
-        </p>
+        <p>Balance: {formatBalance(account)}</p>
       </div>
 
-      <div className="card">
-        <h3>Filters</h3>
-        <form onSubmit={handleApplyFilters}>
-          <div>
-            <label>
-              Category
-              <select value={filterForm.category} onChange={handleFilterFieldChange('category')}>
-                <option value="">All categories</option>
-                <option value="uncategorized">Uncategorized only</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div>
-            <label>
-              From date
-              <input type="date" value={filterForm.date_from} onChange={handleFilterFieldChange('date_from')} />
-            </label>
-          </div>
-          <div>
-            <label>
-              To date
-              <input type="date" value={filterForm.date_to} onChange={handleFilterFieldChange('date_to')} />
-            </label>
-          </div>
-          <div>
-            <label>
-              Narration contains
-              <input type="text" value={filterForm.search} onChange={handleFilterFieldChange('search')} />
-            </label>
-          </div>
-          <div>
-            <label>
-              Type
-              <select
-                value={filterForm.transaction_type}
-                onChange={handleFilterFieldChange('transaction_type')}
-              >
-                <option value="">Any type</option>
-                {transactionTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div>
-            <label>
-              Min amount
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={filterForm.min_amount}
-                onChange={handleFilterFieldChange('min_amount')}
-              />
-            </label>
-          </div>
-          <div>
-            <label>
-              Max amount
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={filterForm.max_amount}
-                onChange={handleFilterFieldChange('max_amount')}
-              />
-            </label>
-          </div>
-          <button type="submit">Apply filters</button>
-          <button type="button" onClick={handleClearFilters}>
-            Clear filters
-          </button>
-        </form>
-      </div>
+      <LedgerFilters
+        values={filterForm}
+        onFieldChange={handleFilterFieldChange}
+        onApply={handleApplyFilters}
+        onClear={handleClearFilters}
+        categories={categories}
+        transactionTypes={transactionTypes}
+      />
 
       <div className="card">
         <h3>Transactions</h3>
 
+        {actionError && (
+          <p>
+            <strong>Action failed:</strong> {actionError}
+          </p>
+        )}
+
         {transactions.length === 0 && <p>No transactions match these filters.</p>}
 
         {transactions.length > 0 && (
-          <>
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Narration</th>
-                  <th>Debit</th>
-                  <th>Credit</th>
-                  <th>Balance</th>
-                  <th>Type</th>
-                  <th>Category</th>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Narration</th>
+                <th>Debit</th>
+                <th>Credit</th>
+                <th>Balance</th>
+                <th>Type</th>
+                <th>Category</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map((transaction) => (
+                <tr key={transaction.id}>
+                  <td>{transaction.transaction_date}</td>
+                  <td>{transaction.narration}</td>
+                  <td>{formatAmount(transaction.debit)}</td>
+                  <td>{formatAmount(transaction.credit)}</td>
+                  <td>{formatAmount(transaction.balance)}</td>
+                  <td>{transaction.transaction_type}</td>
+                  <td>
+                    <select
+                      aria-label={`Category for ${transaction.narration}`}
+                      value={transaction.category_id ?? ''}
+                      onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
+                    >
+                      <option value="">Uncategorized</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                    {transaction.categorized_by_rule_id && (
+                      <span title="Set automatically by a rule"> auto</span>
+                    )}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {transactions.map((transaction) => (
-                  <tr key={transaction.id}>
-                    <td>{transaction.transaction_date}</td>
-                    <td>{transaction.narration}</td>
-                    <td>{formatAmount(transaction.debit)}</td>
-                    <td>{formatAmount(transaction.credit)}</td>
-                    <td>{formatAmount(transaction.balance)}</td>
-                    <td>{transaction.transaction_type}</td>
-                    <td>{transaction.category_name || 'Uncategorized'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div>
-              <button
-                type="button"
-                onClick={() => handlePageChange(pageInfo.page - 1)}
-                disabled={pageInfo.page <= 1}
-              >
-                Previous
-              </button>
-              <span>
-                {' '}Page {pageInfo.page} of {pageInfo.total_pages} ({pageInfo.total} total){' '}
-              </span>
-              <button
-                type="button"
-                onClick={() => handlePageChange(pageInfo.page + 1)}
-                disabled={pageInfo.page >= pageInfo.total_pages}
-              >
-                Next
-              </button>
-            </div>
-          </>
+              ))}
+            </tbody>
+          </table>
         )}
+
+        {/* Rendered even with zero rows: a page that has gone out of range is
+            exactly when you most need a way back. */}
+        <Pagination pageInfo={pageInfo} onPageChange={handlePageChange} />
       </div>
     </section>
   )

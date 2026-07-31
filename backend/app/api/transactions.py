@@ -15,7 +15,14 @@ from ..schemas import (
     TransactionResponse,
 )
 from ..services.csv_import import CsvValidationError, import_rows, parse_and_validate
-from ..services.ledger import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, TransactionFilters, build_transaction_query, paginate
+from ..services.ledger import (
+    DEFAULT_PAGE_SIZE,
+    LIST_LOADERS,
+    MAX_PAGE_SIZE,
+    TransactionFilters,
+    build_transaction_query,
+    paginate,
+)
 
 router = APIRouter()
 
@@ -65,17 +72,34 @@ def list_transactions(
     date_to: date | None = None,
     search: str | None = None,
     transaction_type: str | None = None,
-    min_amount: Decimal | None = None,
-    max_amount: Decimal | None = None,
+    # Amounts are POSITIVE dollars compared against an absolute value (see
+    # services/ledger.py) - a negative bound is a client bug, not a query.
+    min_amount: Decimal | None = Query(None, ge=0),
+    max_amount: Decimal | None = Query(None, ge=0),
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db)
 ):
 
+    # Contradictory combinations are rejected rather than silently returning
+    # nothing - an empty ledger looks like "no matching transactions", which
+    # hides the mistake instead of surfacing it.
     if uncategorized and category_id is not None:
         raise HTTPException(
             status_code=422,
             detail="uncategorized and category_id are contradictory - use one or the other",
+        )
+
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(
+            status_code=422,
+            detail="date_from must not be after date_to",
+        )
+
+    if min_amount is not None and max_amount is not None and min_amount > max_amount:
+        raise HTTPException(
+            status_code=422,
+            detail="min_amount must not be greater than max_amount",
         )
 
     filters = TransactionFilters(
@@ -91,7 +115,7 @@ def list_transactions(
     )
 
     query = build_transaction_query(db, filters)
-    items, total = paginate(query, page=page, page_size=page_size)
+    items, total = paginate(query, page=page, page_size=page_size, options=LIST_LOADERS)
 
     return TransactionListResponse(
         items=items,

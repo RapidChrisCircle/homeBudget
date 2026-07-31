@@ -324,6 +324,47 @@ def test_list_transactions_rejects_out_of_range_page(client):
     assert client.get("/api/transactions?page=0").status_code == 422
 
 
+def test_list_transactions_rejects_negative_amount_bounds(client):
+    """Amounts are positive dollars compared against an absolute value, so a
+    negative bound would silently match everything.
+    """
+
+    assert client.get("/api/transactions?min_amount=-5").status_code == 422
+    assert client.get("/api/transactions?max_amount=-5").status_code == 422
+
+
+def test_list_transactions_rejects_inverted_date_range(client):
+
+    response = client.get("/api/transactions?date_from=2026-07-31&date_to=2026-07-01")
+
+    assert response.status_code == 422
+    assert "date_from" in response.json()["detail"]
+
+
+def test_list_transactions_rejects_inverted_amount_range(client):
+
+    response = client.get("/api/transactions?min_amount=150&max_amount=50")
+
+    assert response.status_code == 422
+    assert "min_amount" in response.json()["detail"]
+
+
+def test_list_transactions_still_serializes_related_names(client):
+    """The eager loading added for the N+1 fix must not change the payload -
+    account_name and category_name are relationship-backed properties.
+    """
+
+    upload(client, SAMPLE_CSV)
+    transactions = list_transactions(client)
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+    client.patch(f"/api/transactions/{transactions[0]['id']}/category", json={"category_id": category_id})
+
+    items = list_transactions(client)
+
+    assert all(t["account_name"] for t in items)
+    assert [t["category_name"] for t in items if t["category_id"] is not None] == ["Groceries"]
+
+
 def test_list_transactions_filters_by_account_id(client):
 
     upload(client, SAMPLE_CSV)
