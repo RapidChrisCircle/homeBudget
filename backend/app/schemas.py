@@ -171,6 +171,28 @@ class TransactionListResponse(BaseModel):
     total_pages: int
 
 
+class TransactionGroupResponse(BaseModel):
+
+    narration_key: str
+    merchant: str
+    sample_narration: str
+    transaction_count: int
+    total_amount: Decimal
+    direction: str
+    first_date: date
+    last_date: date
+    account_names: list[str]
+    transaction_ids: list[int]
+
+    class Config:
+        from_attributes = True
+
+
+class TransactionGroupListResponse(BaseModel):
+
+    groups: list[TransactionGroupResponse]
+
+
 class ImportBatchResponse(BaseModel):
 
     id: int

@@ -78,6 +78,9 @@ function mockLoad({
     if (path === '/accounts') {
       return Promise.resolve({ data: accounts })
     }
+    if (path.startsWith('/transactions/groups')) {
+      return Promise.resolve({ data: { groups: [] } })
+    }
     return Promise.reject(new Error(`unexpected path ${path}`))
   })
 }
@@ -291,6 +294,22 @@ describe('TransactionsPage', () => {
     })
   })
 
+  it('scopes the similar-transactions groups request to the applied filters', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    expect(api.get).toHaveBeenCalledWith('/transactions/groups?')
+
+    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/transactions/groups?search=coffee')
+    })
+  })
+
   it('clears filters back to an unfiltered request', async () => {
     mockLoad()
 
@@ -332,6 +351,21 @@ describe('TransactionsPage', () => {
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/page=2/))
     })
+  })
+
+  it('changing rows per page requests the new size and resets to page 1', async () => {
+    mockLoad({ listResponse: envelope([sampleTransaction], { total: 120, page: 2, page_size: 50, total_pages: 3 }) })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/Page 2 of 3/)).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '100' } })
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/page_size=100/))
+    })
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/page=1/))
   })
 
   it('clears row selection when the page changes', async () => {
@@ -395,9 +429,13 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    const lookupCallsAfterMount = api.get.mock.calls.filter(
-      ([path]) => !path.startsWith('/transactions?')
-    ).length
+    // The groups card's own request (/transactions/groups) is deliberately
+    // excluded here - unlike the four true lookups, it's SUPPOSED to
+    // refetch when a filter changes, since it's scoped to the same filters
+    // as the ledger itself (see groupsQueryFromSearchParams).
+    const isLookupCall = ([path]) => !path.startsWith('/transactions?') && !path.startsWith('/transactions/groups')
+
+    const lookupCallsAfterMount = api.get.mock.calls.filter(isLookupCall).length
     expect(lookupCallsAfterMount).toBe(4)
 
     fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
@@ -407,9 +445,7 @@ describe('TransactionsPage', () => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/search=coffee/))
     })
 
-    const lookupCallsAfterFilter = api.get.mock.calls.filter(
-      ([path]) => !path.startsWith('/transactions?')
-    ).length
+    const lookupCallsAfterFilter = api.get.mock.calls.filter(isLookupCall).length
     expect(lookupCallsAfterFilter).toBe(4)
   })
 
@@ -436,5 +472,27 @@ describe('TransactionsPage', () => {
       const lookupCalls = api.get.mock.calls.filter(([path]) => path === '/accounts').length
       expect(lookupCalls).toBe(2)
     })
+  })
+
+  it('makes a category created from the toolbar available in every row select immediately', async () => {
+    mockLoad()
+    api.post.mockResolvedValue({ data: { id: 9, name: 'Subscriptions', kind: 'expense' } })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: '+ New category' }))
+    fireEvent.change(screen.getByLabelText('New category name'), { target: { value: 'Subscriptions' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Bulk category')).toHaveValue('9')
+    })
+
+    // No reload/refetch needed - the row's own select already has it too.
+    const row = screen.getByText('Coffee').closest('tr')
+    const rowOptions = Array.from(within(row).getByRole('combobox').options).map((o) => o.textContent)
+    expect(rowOptions).toContain('Subscriptions')
   })
 })

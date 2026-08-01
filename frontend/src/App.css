@@ -231,6 +231,125 @@ input[type='checkbox'] {
   height: 16px;
 }
 
+/* Filter forms (LedgerFilters) - a handful of short fields were stacking
+   into full-width rows under the generic form rules above, reading as a
+   long form when it's really eight small controls. Reflows to fewer
+   columns as the viewport narrows, down to one. The field <div>s and their
+   <label> structure are untouched, so every existing getByLabelText query
+   still matches - only their container changed. */
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+}
+
+.filter-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* The global `input { min-width: 220px }` below would force a field wider
+   than its grid cell, breaking the reflow - scoped to width 100% here
+   instead of loosened globally. */
+.filter-grid input,
+.filter-grid select {
+  min-width: 0;
+  width: 100%;
+}
+
+/* CategoryQuickAdd - a category <select> plus an inline create form. The
+   outer wrapper and its own <label> sit outside any <form>, so they need
+   their own row layout rather than relying on the generic form rules above;
+   the create form itself IS a <form> and gets the standard column-label
+   treatment for free, just laid out as a row of fields instead of a stack. */
+.category-quick-add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.category-quick-add > label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.category-quick-add-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  width: 100%;
+  margin-top: var(--space-1);
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.category-quick-add-form > div {
+  margin-bottom: 0;
+}
+
+/* Ledger toolbar (TransactionsPage) - the bulk-assign CategoryQuickAdd
+   plus its neighbouring buttons, kept as one aligned row. */
+.ledger-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+/* TransactionGroups ("Similar Uncategorized") - each group is its own
+   nested .card, so it already gets the standard card-in-card treatment;
+   these only lay out what's inside one. */
+.transaction-group-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.transaction-group-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.transaction-group-actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Ledger row meta (TransactionsPage) - the import filename, the auto badge,
+   and the Make rule / Delete actions, all folded under the Category select
+   instead of their own columns. Low-frequency and text-heavy, they were
+   what pushed the table into horizontal scroll on every viewport. */
+.ledger-row-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: 0.75rem;
+}
+
+.ledger-row-meta .button-ghost,
+.ledger-row-meta .button-danger {
+  font-size: 0.75rem;
+  padding: 2px var(--space-2);
+}
+
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
@@ -346,10 +465,24 @@ th .amount {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: var(--space-3);
   margin-top: var(--space-4);
   font-size: 0.85rem;
   color: var(--text-secondary);
+}
+
+/* Overrides the global column-stacking form label trick (App.css's `form
+   label` rule) - this label lives outside a form, in the pagination row,
+   and its text and select belong side by side, not stacked. */
+.pagination .page-size-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.pagination .page-size-select select {
+  min-width: 0;
 }
 
 /* State messages (loading / error / empty) */

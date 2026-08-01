@@ -8,6 +8,21 @@
 // maps to category_id. The API rejects the two being sent together, so they
 // can never both be set from here.
 
+// Mirrors services/ledger.py's DEFAULT_PAGE_SIZE/MAX_PAGE_SIZE - kept as a
+// small, fixed set of choices rather than free entry, so a value can never
+// slip past the backend's 1-200 bound.
+export const DEFAULT_PAGE_SIZE = 50
+export const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200]
+
+// Page size lives in the URL alongside the filters, so a resized view is
+// reloadable and shareable the same way a filtered one already is. Read
+// straight from the URL (like the page number already is) rather than kept
+// in its own state, so there is exactly one source of truth for it.
+export function pageSizeFromSearchParams(searchParams) {
+  const raw = Number(searchParams.get('page_size'))
+  return PAGE_SIZE_OPTIONS.includes(raw) ? raw : DEFAULT_PAGE_SIZE
+}
+
 export const EMPTY_FILTERS = {
   account_id: '',
   category: '', // '' = all, 'uncategorized' = uncategorized only, else a category id
@@ -37,7 +52,13 @@ export function filtersFromSearchParams(searchParams) {
 // Builds a fresh params object - deliberately without `page`, so applying a
 // filter resets to page 1. Staying on page 7 of a result set you just
 // replaced shows an empty table for no visible reason.
-export function searchParamsFromFilters(filters) {
+//
+// `pageSize` is optional and orthogonal to the filters themselves - passing
+// the caller's current choice through is what makes it survive Apply/Clear
+// instead of silently dropping back to the default. Omitted from the URL
+// when it's the default, so an unsized view's URL stays exactly as clean as
+// it already was.
+export function searchParamsFromFilters(filters, pageSize) {
   const params = new URLSearchParams()
 
   if (filters.account_id) params.set('account_id', filters.account_id)
@@ -55,5 +76,28 @@ export function searchParamsFromFilters(filters) {
   if (filters.min_amount) params.set('min_amount', filters.min_amount)
   if (filters.max_amount) params.set('max_amount', filters.max_amount)
 
+  if (pageSize && pageSize !== DEFAULT_PAGE_SIZE) params.set('page_size', String(pageSize))
+
   return params
+}
+
+// The subset of ledger filters GET /transactions/groups accepts - excludes
+// category_id/uncategorized (a group is always uncategorized, forced
+// server-side regardless of what's asked for - see
+// services/ledger.transaction_groups) and page/page_size (groups aren't
+// paginated). Kept separate from searchParamsFromFilters so changing pages
+// or the category filter doesn't needlessly refetch the groups card.
+const GROUPS_FILTER_KEYS = [
+  'account_id', 'date_from', 'date_to', 'search', 'transaction_type', 'min_amount', 'max_amount',
+]
+
+export function groupsQueryFromSearchParams(searchParams) {
+  const params = new URLSearchParams()
+
+  for (const key of GROUPS_FILTER_KEYS) {
+    const value = searchParams.get(key)
+    if (value) params.set(key, value)
+  }
+
+  return params.toString()
 }

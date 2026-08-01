@@ -92,6 +92,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Account, Category, RecurringDismissal, Transaction
 from .categorization import _row_amount
+from .narration import merchant_label, narration_key
 
 MIN_OCCURRENCES = 3
 INTERVAL_TOLERANCE = 0.25
@@ -147,28 +148,6 @@ class RecurringSeries:
     # is keyed on (account_id, narration_key), not on anything a series
     # itself carries.
     dismissal_id: int | None
-
-
-def narration_key(narration: str) -> str:
-    """Groups occurrences of "the same" payment despite bank-side per-row
-    noise: fixed-width whitespace padding and varying receipt/reference
-    numbers embedded in the narration.
-    """
-
-    text = " ".join((narration or "").upper().split())
-    words = [w for w in text.split(" ") if not (len(w) >= 4 and w.isdigit())]
-    return " ".join(words)
-
-
-def merchant_label(narration: str) -> str:
-    """The human-readable merchant name: the text before the first run of
-    2+ spaces (this bank pads narration/location into one fixed-width
-    field), or the whole trimmed narration when there is no such run.
-    """
-
-    text = (narration or "").strip()
-    head = text.split("  ")[0]
-    return " ".join(head.split())
 
 
 def _row_query(db: Session, account_id: int | None = None):

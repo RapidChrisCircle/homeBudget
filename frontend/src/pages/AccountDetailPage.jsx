@@ -10,6 +10,7 @@ import Pagination from '../components/Pagination.jsx'
 import {
   EMPTY_FILTERS,
   filtersFromSearchParams,
+  pageSizeFromSearchParams,
   searchParamsFromFilters,
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
@@ -17,8 +18,8 @@ import { formatAmount, formatBalance } from '../utils/format.js'
 
 // account_id is implicit from the route here, so it is never a form field and
 // never carried in this page's own URL - it is added only when calling the API.
-function queryParamsFromFilters(accountId, filters) {
-  const params = searchParamsFromFilters(filters)
+function queryParamsFromFilters(accountId, filters, pageSize) {
+  const params = searchParamsFromFilters(filters, pageSize)
   params.set('account_id', accountId)
   return params
 }
@@ -36,6 +37,10 @@ export default function AccountDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
   const [balanceHistory, setBalanceHistory] = useState(null)
+
+  // Read straight from the URL, like the page number already is - see
+  // ledgerFilterParams.pageSizeFromSearchParams.
+  const pageSize = pageSizeFromSearchParams(searchParams)
 
   // Independent of the ledger filters/page below - it only needs to refetch
   // when the account itself changes, not on every filter click.
@@ -59,7 +64,7 @@ export default function AccountDetailPage() {
   }, [accountId])
 
   const fetchData = async (cancelledRef) => {
-    const query = queryParamsFromFilters(accountId, filtersFromSearchParams(searchParams))
+    const query = queryParamsFromFilters(accountId, filtersFromSearchParams(searchParams), pageSize)
     // Page carries over from the URL if present (pagination links set it).
     if (searchParams.get('page')) {
       query.set('page', searchParams.get('page'))
@@ -146,19 +151,27 @@ export default function AccountDetailPage() {
 
   const handleApplyFilters = (event) => {
     event.preventDefault()
-    const params = queryParamsFromFilters(accountId, filterForm)
+    const params = queryParamsFromFilters(accountId, filterForm, pageSize)
     params.delete('account_id') // implicit from the route, not carried in the URL here
     setSearchParams(params)
   }
 
   const handleClearFilters = () => {
     setFilterForm(EMPTY_FILTERS)
-    setSearchParams({})
+    setSearchParams(searchParamsFromFilters(EMPTY_FILTERS, pageSize))
   }
 
   const handlePageChange = (newPage) => {
     const next = new URLSearchParams(searchParams)
     next.set('page', String(newPage))
+    setSearchParams(next)
+  }
+
+  // Resets to page 1 - page 7 at 50/page doesn't exist at 200/page.
+  const handlePageSizeChange = (newSize) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('page_size', String(newSize))
+    next.set('page', '1')
     setSearchParams(next)
   }
 
@@ -272,7 +285,12 @@ export default function AccountDetailPage() {
 
         {/* Rendered even with zero rows: a page that has gone out of range is
             exactly when you most need a way back. */}
-        <Pagination pageInfo={pageInfo} onPageChange={handlePageChange} />
+        <Pagination
+          pageInfo={pageInfo}
+          onPageChange={handlePageChange}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
+        />
       </div>
     </section>
   )

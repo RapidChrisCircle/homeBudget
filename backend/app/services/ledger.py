@@ -44,14 +44,16 @@ balance - None, not 0.00, since zero is a real balance and the two must
 render differently.
 """
 
-from dataclasses import dataclass
+from collections import Counter, defaultdict
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import func
 from sqlalchemy.orm import Query, Session, joinedload
 
-from ..models import Transaction
+from ..models import Account, Transaction
+from .narration import merchant_label, narration_key
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
@@ -199,3 +201,107 @@ def account_balance(db: Session, account_id: int) -> tuple[Decimal | None, date 
         return None, None
 
     return Decimal(row.balance), row.transaction_date
+
+
+MIN_GROUP_SIZE = 2
+
+
+@dataclass
+class TransactionGroup:
+
+    narration_key: str
+    merchant: str
+    sample_narration: str
+    transaction_count: int
+    total_amount: Decimal
+    # "inflow" or "outflow", by majority across the group - see
+    # services/recurring.py's module docstring for the same convention
+    # (amounts stay ABSOLUTE; direction is what says which way they go).
+    direction: str
+    first_date: date
+    last_date: date
+    account_names: list[str]
+    transaction_ids: list[int]
+
+
+def transaction_groups(db: Session, filters: TransactionFilters) -> list[TransactionGroup]:
+    """Uncategorized rows grouped by narration_key - "similar transactions"
+    for bulk categorization from whatever the caller's ledger view is
+    currently scoped to.
+
+    Deliberately grouped by narration_key ALONE, not (account_id,
+    narration_key) as recurring detection groups (services/recurring.py).
+    Recurring detection is per-account because the same subscription on two
+    cards is two separate commitments; categorization wants the opposite -
+    the same merchant means the same category regardless of which account
+    paid. Sharing narration_key/merchant_label with recurring detection (not
+    a second, diverging definition of "same merchant") is what matters here;
+    grouping across accounts is a deliberate, different choice about what
+    "same" means for this caller.
+
+    `uncategorized` is forced to True regardless of what the caller passed -
+    a group only makes sense for rows that still need a category - and any
+    incoming category_id/uncategorized filter is dropped for the same
+    reason. Every other filter (date range, search, account, ...) passes
+    through untouched, which is what keeps a group's transaction_ids scoped
+    to exactly the caller's current view: "categorise all N" can never reach
+    a row the caller couldn't already see.
+    """
+
+    grouped_filters = replace(filters, uncategorized=True, category_id=None)
+
+    rows = (
+        build_transaction_query(db, grouped_filters)
+        .outerjoin(Account, Transaction.account_id == Account.id)
+        .with_entities(
+            Transaction.id,
+            Transaction.narration,
+            Transaction.transaction_date,
+            Transaction.debit,
+            Transaction.credit,
+            Account.name,
+        )
+        .all()
+    )
+
+    buckets: dict[str, list] = defaultdict(list)
+    for row in rows:
+        buckets[narration_key(row.narration)].append(row)
+
+    groups = []
+
+    for key, bucket_rows in buckets.items():
+
+        if len(bucket_rows) < MIN_GROUP_SIZE:
+            continue
+
+        amounts = [abs((row.debit or Decimal(0)) + (row.credit or Decimal(0))) for row in bucket_rows]
+        direction_counts = Counter(
+            "inflow" if row.debit is None else "outflow" for row in bucket_rows
+        )
+        # A tie is called "outflow" - the far more common shape for a
+        # recurring or repeated charge, mirroring recurring detection.
+        direction = "inflow" if direction_counts["inflow"] > direction_counts["outflow"] else "outflow"
+
+        dates = [row.transaction_date for row in bucket_rows]
+
+        groups.append(
+            TransactionGroup(
+                narration_key=key,
+                # bucket_rows[0] is the newest occurrence - build_transaction_query
+                # orders (transaction_date DESC, id DESC), preserved through grouping.
+                merchant=merchant_label(bucket_rows[0].narration),
+                sample_narration=bucket_rows[0].narration,
+                transaction_count=len(bucket_rows),
+                total_amount=sum(amounts, Decimal("0")),
+                direction=direction,
+                first_date=min(dates),
+                last_date=max(dates),
+                account_names=sorted({row.name for row in bucket_rows if row.name}),
+                transaction_ids=[row.id for row in bucket_rows],
+            )
+        )
+
+    groups.sort(key=lambda g: (-g.transaction_count, -g.total_amount))
+
+    return groups

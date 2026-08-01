@@ -2,13 +2,17 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
+import CategoryQuickAdd from '../components/CategoryQuickAdd.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LedgerFilters from '../components/LedgerFilters.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import Pagination from '../components/Pagination.jsx'
+import TransactionGroups from '../components/TransactionGroups.jsx'
 import {
   EMPTY_FILTERS,
   filtersFromSearchParams,
+  groupsQueryFromSearchParams,
+  pageSizeFromSearchParams,
   searchParamsFromFilters,
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
@@ -40,6 +44,11 @@ export default function TransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
   const navigate = useNavigate()
+
+  // Read straight from the URL, like the page number already is - see
+  // ledgerFilterParams.pageSizeFromSearchParams / groupsQueryFromSearchParams.
+  const pageSize = pageSizeFromSearchParams(searchParams)
+  const groupsQuery = groupsQueryFromSearchParams(searchParams)
 
   // The lookups that populate the filter dropdowns and the import history.
   // None of them depend on the current filters, so they are deliberately NOT
@@ -142,19 +151,28 @@ export default function TransactionsPage() {
   const handleApplyFilters = (event) => {
     event.preventDefault()
     setSelectedIds([])
-    setSearchParams(searchParamsFromFilters(filterForm))
+    setSearchParams(searchParamsFromFilters(filterForm, pageSize))
   }
 
   const handleClearFilters = () => {
     setSelectedIds([])
     setFilterForm(EMPTY_FILTERS)
-    setSearchParams({})
+    setSearchParams(searchParamsFromFilters(EMPTY_FILTERS, pageSize))
   }
 
   const handlePageChange = (newPage) => {
     setSelectedIds([])
     const next = new URLSearchParams(searchParams)
     next.set('page', String(newPage))
+    setSearchParams(next)
+  }
+
+  // Resets to page 1 - page 7 at 50/page doesn't exist at 200/page.
+  const handlePageSizeChange = (newSize) => {
+    setSelectedIds([])
+    const next = new URLSearchParams(searchParams)
+    next.set('page_size', String(newSize))
+    next.set('page', '1')
     setSearchParams(next)
   }
 
@@ -235,6 +253,17 @@ export default function TransactionsPage() {
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Bulk category update failed'
       setActionError(String(message))
+    }
+  }
+
+  // Shared by every place on this page a category can be created inline
+  // (the bulk-assign toolbar and the similar-transactions groups card) -
+  // every select on the page sees the new category immediately, and the
+  // caller's own selection (bulk or per-group) adopts it right away.
+  const handleCategoryCreated = (category, selectAfter) => {
+    setCategories((prev) => [...prev, category].sort((a, b) => a.name.localeCompare(b.name)))
+    if (selectAfter) {
+      selectAfter(String(category.id))
     }
   }
 
@@ -385,6 +414,13 @@ export default function TransactionsPage() {
         accounts={accounts}
       />
 
+      <TransactionGroups
+        groupsQuery={groupsQuery}
+        categories={categories}
+        onCategoryCreated={handleCategoryCreated}
+        onAssigned={refresh}
+      />
+
       <div className="card">
         <h3>Ledger</h3>
 
@@ -393,15 +429,14 @@ export default function TransactionsPage() {
 
         {!loading && !error && (
           <>
-            <div>
-              <select value={bulkCategoryId} onChange={(e) => setBulkCategoryId(e.target.value)}>
-                <option value="">Uncategorized</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
+            <div className="ledger-toolbar">
+              <CategoryQuickAdd
+                categories={categories}
+                value={bulkCategoryId}
+                onChange={setBulkCategoryId}
+                onCategoryCreated={(category) => handleCategoryCreated(category, setBulkCategoryId)}
+                label="Bulk category"
+              />
               <button type="button" className="button-primary" onClick={handleBulkAssign} disabled={selectedIds.length === 0}>
                 Set category for selected ({selectedIds.length})
               </button>
@@ -411,89 +446,99 @@ export default function TransactionsPage() {
               {applyMessage && <span>{applyMessage}</span>}
             </div>
 
-            <table>
-              <thead>
-                <tr>
-                  <th>
-                    <input
-                      type="checkbox"
-                      aria-label="Select all on this page"
-                      checked={allOnPageSelected}
-                      ref={(node) => {
-                        if (node) {
-                          node.indeterminate =
-                            selectedIds.length > 0 && selectedIds.length < transactions.length
-                        }
-                      }}
-                      onChange={toggleSelectAllOnPage}
-                      disabled={transactions.length === 0}
-                    />
-                  </th>
-                  <th>Date</th>
-                  <th>Account</th>
-                  <th>Narration</th>
-                  <th>Debit</th>
-                  <th>Credit</th>
-                  <th>Balance</th>
-                  <th>Type</th>
-                  <th>Category</th>
-                  <th>Import</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map((transaction) => (
-                  <tr key={transaction.id}>
-                    <td>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
                       <input
                         type="checkbox"
-                        checked={selectedIds.includes(transaction.id)}
-                        onChange={() => toggleSelected(transaction.id)}
+                        aria-label="Select all on this page"
+                        checked={allOnPageSelected}
+                        ref={(node) => {
+                          if (node) {
+                            node.indeterminate =
+                              selectedIds.length > 0 && selectedIds.length < transactions.length
+                          }
+                        }}
+                        onChange={toggleSelectAllOnPage}
+                        disabled={transactions.length === 0}
                       />
-                    </td>
-                    <td>{transaction.transaction_date}</td>
-                    <td>{transaction.account_name || formatAccount(transaction)}</td>
-                    <td>{transaction.narration}</td>
-                    <td><Amount value={transaction.debit} /></td>
-                    <td><Amount value={transaction.credit} /></td>
-                    <td><Amount value={transaction.balance} neutral /></td>
-                    <td>{transaction.transaction_type}</td>
-                    <td>
-                      <select
-                        value={transaction.category_id ?? ''}
-                        onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
-                      >
-                        <option value="">Uncategorized</option>
-                        {categories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
-                        ))}
-                      </select>
-                      {transaction.categorized_by_rule_id && (
-                        <Badge tone="info" title="Set automatically by a rule">auto</Badge>
-                      )}
-                    </td>
-                    <td>{batchFilename(transaction.import_batch_id)}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="button-ghost"
-                        aria-label={`Make rule from ${transaction.narration}`}
-                        onClick={() => handleMakeRule(transaction.narration)}
-                      >
-                        Make rule
-                      </button>
-                      <button type="button" className="button-danger" onClick={() => handleDeleteTransaction(transaction.id)}>
-                        Delete
-                      </button>
-                    </td>
+                    </th>
+                    <th>Date</th>
+                    <th>Account</th>
+                    <th>Narration</th>
+                    <th>Debit</th>
+                    <th>Credit</th>
+                    <th>Balance</th>
+                    <th>Type</th>
+                    <th>Category</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {transactions.map((transaction) => (
+                    <tr key={transaction.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(transaction.id)}
+                          onChange={() => toggleSelected(transaction.id)}
+                        />
+                      </td>
+                      <td>{transaction.transaction_date}</td>
+                      <td>{transaction.account_name || formatAccount(transaction)}</td>
+                      <td>{transaction.narration}</td>
+                      <td><Amount value={transaction.debit} /></td>
+                      <td><Amount value={transaction.credit} /></td>
+                      <td><Amount value={transaction.balance} neutral /></td>
+                      <td>{transaction.transaction_type}</td>
+                      <td>
+                        <select
+                          aria-label={`Category for ${transaction.narration}`}
+                          value={transaction.category_id ?? ''}
+                          onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
+                        >
+                          <option value="">Uncategorized</option>
+                          {categories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                              {category.name}
+                            </option>
+                          ))}
+                        </select>
+                        {/* Import filename and row actions live here rather
+                            than as their own columns - both are low-frequency
+                            and text-heavy, and were what pushed the table
+                            into horizontal scroll on every viewport. */}
+                        <div className="ledger-row-meta">
+                          {transaction.categorized_by_rule_id && (
+                            <Badge tone="info" title="Set automatically by a rule">auto</Badge>
+                          )}
+                          <span className="text-muted">{batchFilename(transaction.import_batch_id)}</span>
+                          <button
+                            type="button"
+                            className="button-ghost"
+                            aria-label={`Make rule from ${transaction.narration}`}
+                            onClick={() => handleMakeRule(transaction.narration)}
+                          >
+                            Make rule
+                          </button>
+                          <button type="button" className="button-danger" onClick={() => handleDeleteTransaction(transaction.id)}>
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-            <Pagination pageInfo={pageInfo} onPageChange={handlePageChange} />
+            <Pagination
+              pageInfo={pageInfo}
+              onPageChange={handlePageChange}
+              pageSize={pageSize}
+              onPageSizeChange={handlePageSizeChange}
+            />
           </>
         )}
       </div>

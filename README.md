@@ -41,7 +41,7 @@ Accounts are created automatically from the account numbers in the file. Every u
 
 ## The ledger
 
-`/transactions` shows transactions newest first (`transaction_date DESC, id DESC`), paginated at 50 per page (max 200). Filters live in the URL, so a filtered view is reloadable and shareable, and other pages deep-link into it:
+`/transactions` shows transactions newest first (`transaction_date DESC, id DESC`), paginated at 50 per page by default (10/20/100/200 also selectable, max 200 either way). Filters and the chosen page size both live in the URL, so a filtered, sized view is reloadable and shareable, and other pages deep-link into it:
 
 | Filter | Semantics |
 |---|---|
@@ -55,9 +55,15 @@ Contradictory combinations are rejected with a 422 rather than quietly returning
 
 Rows can be categorized individually or in bulk. Selection applies to the current page only and clears when you change pages, so a bulk assign can never touch rows you can't see.
 
+**Similar Uncategorized**, above the ledger table, groups still-uncategorized rows by merchant (`GET /api/transactions/groups`, `services/ledger.transaction_groups`) so a batch of the same recurring charge can be cleared in one action instead of row by row. A group is scoped to whatever the ledger's own filters currently show — narrowing the date range or account shrinks the group counts to match, and "Categorize all N" can only ever touch rows that were actually visible. Optionally also creates a rule from the group's merchant name, so the same charge is auto-categorized on the next import.
+
+A category that doesn't exist yet can be created inline from either the ledger toolbar or a group's own row (**+ New category**) — it's available in every category dropdown on the page immediately, no reload or trip to `/categories` required.
+
 ## Categorization
 
 Categories have a **kind** (`expense`, `income`, or `transfer`) and expense categories may carry a **budget**. Transfers are excluded from spending and income totals so moving money between your own accounts doesn't register as either.
+
+**On auto-categorization from an external source:** nothing is integrated, and nothing free is worth integrating. The commercial merchant-enrichment APIs (Basiq, Plaid Enrich, Ntropy, Yodlee) are all paid per-transaction and require sending narration text — effectively your spending history — to a third party; there's no credible free or offline equivalent, since the value in those services is a proprietary merchant-name dataset that can't be self-hosted. The strongest no-cost option — suggesting a category from your own past categorizations of the same merchant — is not built, but the merchant-key logic it would need (`services/narration.py`) already exists and is shared with both recurring detection and the ledger's own transaction grouping above.
 
 Rules on `/rules` auto-categorize on import and can be re-run over existing transactions from the ledger's **Apply rules now**. A rule matches on narration, transaction type, and/or an amount range; rows it categorizes are marked `auto`. Setting a category by hand clears that marker, so a later rule run won't overwrite your decision.
 

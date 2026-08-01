@@ -11,6 +11,7 @@ from ..schemas import (
     ImportBatchResponse,
     ImportResultResponse,
     TransactionCategoryUpdate,
+    TransactionGroupListResponse,
     TransactionListResponse,
     TransactionResponse,
 )
@@ -22,6 +23,7 @@ from ..services.ledger import (
     TransactionFilters,
     build_transaction_query,
     paginate,
+    transaction_groups,
 )
 
 router = APIRouter()
@@ -142,6 +144,48 @@ def list_transaction_types(db: Session = Depends(get_db)):
     )
 
     return [row[0] for row in rows]
+
+
+@router.get("/transactions/groups", response_model=TransactionGroupListResponse)
+def list_transaction_groups(
+    account_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    search: str | None = None,
+    transaction_type: str | None = None,
+    min_amount: Decimal | None = Query(None, ge=0),
+    max_amount: Decimal | None = Query(None, ge=0),
+    db: Session = Depends(get_db)
+):
+    """Uncategorized rows grouped by merchant, scoped to the same filters the
+    ledger itself accepts (see services/ledger.transaction_groups) - no
+    category_id/uncategorized params here, since a group is always
+    uncategorized by definition.
+    """
+
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(
+            status_code=422,
+            detail="date_from must not be after date_to",
+        )
+
+    if min_amount is not None and max_amount is not None and min_amount > max_amount:
+        raise HTTPException(
+            status_code=422,
+            detail="min_amount must not be greater than max_amount",
+        )
+
+    filters = TransactionFilters(
+        account_id=account_id,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        transaction_type=transaction_type,
+        min_amount=min_amount,
+        max_amount=max_amount,
+    )
+
+    return TransactionGroupListResponse(groups=transaction_groups(db, filters))
 
 
 @router.patch("/transactions/{transaction_id}/category", response_model=TransactionResponse)

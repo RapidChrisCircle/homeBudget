@@ -210,6 +210,21 @@ describe('AccountDetailPage', () => {
     })
   })
 
+  it('changing rows per page requests the new size while staying scoped to the account', async () => {
+    mockLoad({ listResponse: envelope([sampleTransaction], { total: 120, page: 1, page_size: 50, total_pages: 3 }) })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/Page 1 of 3/)).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '20' } })
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/page_size=20/))
+    })
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/account_id=1/))
+  })
+
   it('renders the balance history chart', async () => {
     mockLoad()
 
