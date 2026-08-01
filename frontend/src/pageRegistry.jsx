@@ -5,6 +5,7 @@ import RecurringPage from './pages/RecurringPage.jsx'
 import ReportsPage from './pages/ReportsPage.jsx'
 import RulesPage from './pages/RulesPage.jsx'
 import TransactionsPage from './pages/TransactionsPage.jsx'
+import TrendsPage from './pages/TrendsPage.jsx'
 
 // Single source of truth for browsable pages. Add an entry here and it
 // automatically shows up in the header nav, the home page list, and gets
@@ -45,5 +46,10 @@ export const pages = [
     path: '/recurring',
     label: 'Recurring',
     element: <RecurringPage />,
+  },
+  {
+    path: '/trends',
+    label: 'Trends',
+    element: <TrendsPage />,
   },
 ]

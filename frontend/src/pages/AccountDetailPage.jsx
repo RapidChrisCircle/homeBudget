@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
+import LineChart from '../components/charts/LineChart.jsx'
 import LedgerFilters from '../components/LedgerFilters.jsx'
 import Pagination from '../components/Pagination.jsx'
 import {
@@ -30,6 +31,28 @@ export default function AccountDetailPage() {
   const [actionError, setActionError] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
   const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
+  const [balanceHistory, setBalanceHistory] = useState(null)
+
+  // Independent of the ledger filters/page below - it only needs to refetch
+  // when the account itself changes, not on every filter click.
+  useEffect(() => {
+    let cancelled = false
+
+    api.get(`/accounts/${accountId}/balance-history`)
+      .then((response) => {
+        if (!cancelled) {
+          setBalanceHistory(response.data)
+        }
+      })
+      .catch(() => {
+        // The chart is supplementary - a failed fetch just means it doesn't
+        // render, it shouldn't take down the rest of the page.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [accountId])
 
   const fetchData = async (cancelledRef) => {
     const query = queryParamsFromFilters(accountId, filtersFromSearchParams(searchParams))
@@ -165,6 +188,24 @@ export default function AccountDetailPage() {
         <p>Account Number: {account.account_number}</p>
         <p>Balance: {formatBalance(account)}</p>
       </div>
+
+      {balanceHistory && (
+        <div className="card">
+          <h3>Balance History</h3>
+          <LineChart
+            periods={balanceHistory.periods.map((p) => p.label)}
+            series={[{
+              label: 'Balance',
+              values: balanceHistory.periods.map((p) => {
+                const value = balanceHistory.balances[p.label]
+                return value === null || value === undefined ? null : Number(value)
+              }),
+            }]}
+            formatValue={formatAmount}
+            title="Balance history"
+          />
+        </div>
+      )}
 
       <LedgerFilters
         values={filterForm}

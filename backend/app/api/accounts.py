@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
 from ..models import Account, Transaction
-from ..schemas import AccountCreate, AccountResponse, AccountUpdate
+from ..schemas import AccountCreate, AccountResponse, AccountUpdate, BalanceHistoryResponse, CategoryGridPeriodResponse
 from ..services.ledger import account_balance, account_balances
+from ..services.reporting import DEFAULT_GRID_MONTHS, MAX_GRID_MONTHS, contiguous_periods, default_period
+from ..services.trends import account_balance_history
 
 router = APIRouter()
+
+
+def _label(year: int, month: int) -> str:
+
+    return f"{year:04d}-{month:02d}"
 
 
 def _serialize_account(account: Account, balance, balance_as_of) -> AccountResponse:
@@ -121,3 +128,32 @@ def delete_account(
 
     db.delete(account)
     db.commit()
+
+
+@router.get("/accounts/{account_id}/balance-history", response_model=BalanceHistoryResponse)
+def get_account_balance_history(
+    account_id: int,
+    months: int = Query(DEFAULT_GRID_MONTHS, ge=1, le=MAX_GRID_MONTHS),
+    db: Session = Depends(get_db)
+):
+    """Closing balance per month for one account, ending at the ledger's
+    default period (the most recent month with any transactions). Computed
+    across every account in one query (services.trends.account_balance_history),
+    then this endpoint reads off just the requested account - see that
+    function's docstring for why a month with no transactions carries the
+    previous month's balance forward rather than showing a gap or a zero.
+    """
+
+    if db.get(Account, account_id) is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    year, month = default_period(db)
+    periods = contiguous_periods(year, month, months)
+
+    history = account_balance_history(db, periods)
+    balances = history.get(account_id, {})
+
+    return BalanceHistoryResponse(
+        periods=[CategoryGridPeriodResponse(year=y, month=m, label=_label(y, m)) for y, m in periods],
+        balances={_label(y, m): balances.get((y, m)) for y, m in periods},
+    )

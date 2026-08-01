@@ -253,6 +253,36 @@ def test_grid_covers_contiguous_months_including_empty_ones(db_session):
     assert row["amounts"][(2026, 7)] == Decimal("20.00")
 
 
+def test_grid_includes_a_budgeted_category_with_zero_activity_in_the_whole_window(db_session):
+    # Mirrors test_budgeted_expense_category_with_no_activity_still_appears
+    # at the grid level: a budgeted category must not silently vanish from
+    # a "total budgeted" figure derived from these rows just because it saw
+    # no matching transactions anywhere in the window.
+    category = make_category(db_session, budget_amount="100.00")
+    db_session.commit()
+
+    periods, rows = category_grid(db_session, 2026, 7, months=3)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["category_id"] == category.id
+    assert row["budget_amount"] == Decimal("100.00")
+    assert all(row["amounts"][p] == Decimal("0") for p in periods)
+    assert row["total"] == Decimal("0")
+
+
+def test_grid_omits_an_unbudgeted_category_with_zero_activity_in_the_whole_window(db_session):
+    # The outer join exists to catch budgeted-but-idle categories, not to
+    # flood the grid with every category ever created - an unbudgeted,
+    # never-used category has nothing to show across a multi-month window.
+    make_category(db_session, name="Unused", budget_amount=None)
+    db_session.commit()
+
+    _, rows = category_grid(db_session, 2026, 7, months=3)
+
+    assert rows == []
+
+
 def test_grid_cell_matches_budget_actual_for_selected_month(db_session):
 
     category = make_category(db_session, budget_amount="100.00")

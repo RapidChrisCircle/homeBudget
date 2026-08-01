@@ -12,6 +12,7 @@ export default function DashboardPage() {
   const [transactionTotal, setTransactionTotal] = useState(0)
   const [recurringSeries, setRecurringSeries] = useState([])
   const [recurringSummary, setRecurringSummary] = useState(null)
+  const [recurringAsOf, setRecurringAsOf] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -38,6 +39,7 @@ export default function DashboardPage() {
           setTransactionTotal(transactionsRes.data.total)
           setRecurringSeries(recurringRes.data.series)
           setRecurringSummary(recurringRes.data.summary)
+          setRecurringAsOf(recurringRes.data.as_of)
         }
       })
       .catch((err) => {
@@ -186,6 +188,11 @@ export default function DashboardPage() {
       {recurringSummary && recurringSummary.series_count > 0 && (
         <div className="card">
           <h3>Recurring</h3>
+          {/* "Due in the next 14 days" is measured from the ledger's own
+              latest transaction, not today - see services/recurring.py. This
+              caption is what stops that being misread as "14 days from now"
+              once imports have fallen behind. */}
+          {recurringAsOf && <p>Based on transactions imported up to {recurringAsOf}.</p>}
           {dueSoon.length > 0 && (
             <>
               <table>

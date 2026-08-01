@@ -46,16 +46,29 @@ function envelope(transactions, overrides = {}) {
   }
 }
 
+const sampleBalanceHistory = {
+  periods: [
+    { year: 2026, month: 5, label: '2026-05' },
+    { year: 2026, month: 6, label: '2026-06' },
+    { year: 2026, month: 7, label: '2026-07' },
+  ],
+  balances: { '2026-05': null, '2026-06': '-4700.00', '2026-07': '-4838.18' },
+}
+
 function mockLoad({
   account = sampleAccount,
   transactions = [sampleTransaction],
   categories = [],
   transactionTypes = ['WDL'],
   listResponse = envelope(transactions),
+  balanceHistory = sampleBalanceHistory,
 } = {}) {
   api.get.mockImplementation((path) => {
     if (path === `/accounts/${account.id}`) {
       return Promise.resolve({ data: account })
+    }
+    if (path === `/accounts/${account.id}/balance-history`) {
+      return Promise.resolve({ data: balanceHistory })
     }
     if (path.startsWith('/transactions?')) {
       return Promise.resolve({ data: listResponse })
@@ -195,5 +208,63 @@ describe('AccountDetailPage', () => {
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/account_id=1.*page=2|page=2.*account_id=1/))
     })
+  })
+
+  it('renders the balance history chart', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Balance History')).toBeInTheDocument())
+
+    expect(screen.getByRole('img', { name: 'Balance history' })).toBeInTheDocument()
+    expect(screen.getByText('Balance — 2026-07: -4838.18')).toBeInTheDocument()
+  })
+
+  it('does not fetch the balance history again when the ledger filters change', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Balance History')).toBeInTheDocument())
+
+    const callsAfterMount = api.get.mock.calls.filter(([path]) => path.endsWith('/balance-history')).length
+    expect(callsAfterMount).toBe(1)
+
+    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/search=woolworths/)))
+
+    const callsAfterFilter = api.get.mock.calls.filter(([path]) => path.endsWith('/balance-history')).length
+    expect(callsAfterFilter).toBe(1)
+  })
+
+  it('does not render the chart section when the balance history request fails', async () => {
+    mockLoad()
+    api.get.mockImplementation((path) => {
+      if (path === '/accounts/1/balance-history') {
+        return Promise.reject(new Error('boom'))
+      }
+      if (path === '/accounts/1') {
+        return Promise.resolve({ data: sampleAccount })
+      }
+      if (path.startsWith('/transactions?')) {
+        return Promise.resolve({ data: envelope([sampleTransaction]) })
+      }
+      if (path === '/categories') {
+        return Promise.resolve({ data: [] })
+      }
+      if (path === '/transactions/types') {
+        return Promise.resolve({ data: ['WDL'] })
+      }
+      return Promise.reject(new Error(`unexpected path ${path}`))
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(screen.queryByText('Balance History')).not.toBeInTheDocument()
   })
 })

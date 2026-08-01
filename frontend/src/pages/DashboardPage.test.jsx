@@ -310,6 +310,32 @@ describe('DashboardPage', () => {
     )
   })
 
+  it('captions the recurring card with the data it is based on', async () => {
+    // "Due in the next 14 days" is measured from the ledger's own latest
+    // transaction, not today - this caption is what stops that being
+    // misread once imports have fallen behind.
+    mockLoad({
+      recurring: {
+        series: [],
+        summary: {
+          series_count: 1,
+          total_annual_cost: '191.88',
+          due_soon_count: 0,
+          due_soon_total: '0.00',
+          changed_count: 0,
+          overdue_count: 0,
+        },
+        as_of: '2026-07-24',
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Recurring')).toBeInTheDocument())
+
+    expect(screen.getByText('Based on transactions imported up to 2026-07-24.')).toBeInTheDocument()
+  })
+
   it('shows price-change and missed-payment counts', async () => {
     mockLoad({
       recurring: {

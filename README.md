@@ -15,6 +15,7 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 | `/rules` | Auto-categorization rules |
 | `/reports` | Monthly summary, budget vs actual, category totals over time |
 | `/recurring` | Detected subscriptions and regular bills, next due dates, price changes |
+| `/trends` | Multi-month charts: spending by category, income vs spending, budget vs actual |
 
 ## Importing
 
@@ -59,6 +60,14 @@ An account's balance is the `balance` column of its most recent transaction — 
 `/reports` covers one month at a time: summary totals, budget vs actual per category, a category-by-month grid, and an uncategorized review that links straight into the filtered ledger.
 
 Note that reporting uses **half-open** month bounds (`[start, end)`) internally while the ledger's date filters are **inclusive** on both ends. Both are documented in their modules; they serve different callers and are not meant to match.
+
+## Trends
+
+`/trends` charts the same data `/reports` shows for one month, across many: spending by category (the top 6 categories by total, everything else summed as "Other" — the Reports grid remains the complete, un-summarized view), income vs spending vs net, and budget vs actual. An account's balance-history chart lives on its own detail page (`/accounts/:id`) instead, since it's the only place that needs it.
+
+The multi-month numbers are derived from the **same** query the single-month Reports grid uses (`services/reporting.category_grid`), not a second independent query — so `/trends` and `/reports` can never quietly disagree about the same month. Budget vs actual is scoped to only the categories that actually have a budget set, on both sides of the comparison; comparing total spending against total budgeted would always look "over" the moment any unbudgeted category has activity, which isn't a useful signal.
+
+Charts are hand-rolled SVG (`src/components/charts/`), not a library — this keeps the frontend at four runtime dependencies. Two things worth knowing if you're extending them: a `null` value in a series is a genuine gap (no data for that period) and breaks the line rather than drawing through it as zero — this is how an account's balance history renders the months before its first transaction; and bar charts always include zero in their scale so a negative month (a refund, a loss) draws sensibly below the baseline instead of needing special-case handling.
 
 ## Recurring payments
 
@@ -122,6 +131,8 @@ python3 -m alembic revision --autogenerate -m "describe the change"
 ```
 
 Review the generated file in `backend/alembic/versions/` before committing — autogenerate is a starting point, not always correct as-is.
+
+**The full migration chain cannot be run against SQLite from scratch** — an early migration (`cee3a8016863`) `ALTER`s a table to add a foreign key constraint, which SQLite refuses without batch-mode rewriting. This only matters if you're testing migrations somewhere without Postgres: a single new migration can still be checked in isolation by building the schema up to its parent revision directly from the models (`Base.metadata.create_all`, excluding the new table), stamping Alembic at that revision, then letting `upgrade`/`downgrade` run just the one new migration. That proves the DDL is syntactically valid and reversible — it does not prove Postgres-specific behaviour (e.g. `server_default=sa.text('now()')` is accepted by SQLite's `CREATE TABLE` but isn't the same guarantee). Always confirm against real Postgres before relying on a new migration in production.
 
 ## QNAP Deployment
 

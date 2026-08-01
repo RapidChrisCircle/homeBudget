@@ -239,6 +239,17 @@ def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
     return zero_based // 12, zero_based % 12 + 1
 
 
+def contiguous_periods(year: int, month: int, months: int) -> list[tuple[int, int]]:
+    """The `months` (year, month) periods ending at (year, month) inclusive,
+    oldest first. Pulled out of category_grid() as its own function because
+    trends.account_balance_history() needs the identical contiguous-window
+    list without needing category data - two independent implementations of
+    "walk back N months" would risk misaligning against each other.
+    """
+
+    return [_shift_month(year, month, -offset) for offset in range(months - 1, -1, -1)]
+
+
 def category_grid(
     db: Session,
     year: int,
@@ -251,9 +262,23 @@ def category_grid(
     the selected month, never derived from query results, since a month with
     no transactions anywhere would otherwise silently vanish and misalign the
     grid.
+
+    Outer-joined, mirroring category_totals_for_period()'s documented reason:
+    a budgeted category with zero activity across the ENTIRE window must
+    still be reachable, not silently dropped - an inner join would drop it,
+    which would understate a "total budgeted" figure derived from these rows
+    (see trends.budget_totals()). But unlike category_totals_for_period,
+    which returns literally every non-transfer category for a single month,
+    a grid spans many months, so an unbudgeted category that has never once
+    been used across the WHOLE window is still omitted - showing every
+    category ever created, most of them all-zero, would bury the ones with
+    real activity. "Worth showing" here is: budgeted, or used at least once
+    somewhere in the window. Each row's own kind decides which case applies -
+    budget_amount is only ever non-null on an expense category (enforced in
+    api/categories.py), so this reduces to "has activity" for income rows.
     """
 
-    periods = [_shift_month(year, month, -offset) for offset in range(months - 1, -1, -1)]
+    periods = contiguous_periods(year, month, months)
     window_start, _ = month_bounds(*periods[0])
     _, window_end = month_bounds(*periods[-1])
 
@@ -264,17 +289,22 @@ def category_grid(
             Category.id,
             Category.name,
             Category.kind,
+            Category.budget_amount,
             year_col,
             month_col,
             func.coalesce(func.sum(_NET_EXPR), 0).label("net"),
         )
-        .join(Transaction, Transaction.category_id == Category.id)
-        .filter(
-            Transaction.transaction_date >= window_start,
-            Transaction.transaction_date < window_end,
-            Category.kind != "transfer",
+        .select_from(Category)
+        .outerjoin(
+            Transaction,
+            and_(
+                Transaction.category_id == Category.id,
+                Transaction.transaction_date >= window_start,
+                Transaction.transaction_date < window_end,
+            ),
         )
-        .group_by(Category.id, Category.name, Category.kind, year_col, month_col)
+        .filter(Category.kind != "transfer")
+        .group_by(Category.id, Category.name, Category.kind, Category.budget_amount, year_col, month_col)
         .all()
     )
 
@@ -286,8 +316,16 @@ def category_grid(
             "category_id": row.id,
             "category_name": row.name,
             "kind": row.kind,
+            "budget_amount": row.budget_amount,
             "amounts": {},
         })
+
+        # An outer-joined category with no matching transaction anywhere in
+        # the window still produces exactly one row, with year/month NULL -
+        # there is no real period to record here, so skip it. The zero-fill
+        # below covers every period in `periods` regardless.
+        if row.year is None:
+            continue
 
         net = Decimal(row.net)
         actual = -net if row.kind == "expense" else net
@@ -298,8 +336,13 @@ def category_grid(
     for entry in by_category.values():
 
         amounts = entry.pop("amounts")
+        has_activity = len(amounts) > 0
+
+        if not has_activity and entry["budget_amount"] is None:
+            continue
+
         entry["amounts"] = {p: amounts.get(p, Decimal("0")) for p in periods}
-        entry["total"] = sum(amounts.values(), Decimal("0"))
+        entry["total"] = sum(entry["amounts"].values(), Decimal("0"))
         grid_rows.append(entry)
 
     grid_rows.sort(key=lambda r: r["category_name"])

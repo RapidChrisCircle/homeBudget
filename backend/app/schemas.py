@@ -326,3 +326,38 @@ class RecurringDismissalResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TrendMonthlySummaryResponse(BaseModel):
+
+    label: str
+    total_income: Decimal
+    total_spending: Decimal
+    net_saved: Decimal
+
+
+class TrendBudgetResponse(BaseModel):
+
+    label: str
+    budgeted: Decimal
+    actual: Decimal
+
+
+class TrendsResponse(BaseModel):
+
+    periods: list[CategoryGridPeriodResponse]
+    # Reuses the Reports grid's own row shape - a trend category and a
+    # report-grid category are the same data, just viewed over more months.
+    categories: list[CategoryGridRowResponse]
+    monthly: list[TrendMonthlySummaryResponse]
+    budget: list[TrendBudgetResponse]
+
+
+class BalanceHistoryResponse(BaseModel):
+
+    periods: list[CategoryGridPeriodResponse]
+    # Keyed by period label ("2026-01") rather than a parallel array, so the
+    # frontend can look up a period without needing to zip two lists in
+    # lockstep. None (not 0.00) means no data yet for that month - the same
+    # "no transactions" distinction AccountResponse.balance already makes.
+    balances: dict[str, Optional[Decimal]]
