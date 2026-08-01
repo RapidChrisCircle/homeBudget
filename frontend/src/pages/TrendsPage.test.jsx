@@ -124,6 +124,33 @@ describe('TrendsPage', () => {
     })
   })
 
+  it('shows the empty state on a fresh ledger even when a budgeted-but-idle category is present', async () => {
+    // category_grid() outer-joins so a budgeted category with zero activity
+    // anywhere in the window still appears - `categories` is non-empty here
+    // even though nothing has ever been imported. hasHistory must not be
+    // fooled by that; it needs the actual monthly activity to be zero too.
+    mockLoad({
+      categories: [
+        {
+          category_id: 99,
+          category_name: 'Rent',
+          kind: 'expense',
+          amounts: { '2026-05': '0.00', '2026-06': '0.00', '2026-07': '0.00' },
+          total: '0.00',
+        },
+      ],
+      monthly: monthly.map((m) => ({ ...m, total_income: '0.00', total_spending: '0.00', net_saved: '0.00' })),
+      budget: budget.map((b) => ({ ...b, budgeted: '1500.00', actual: '0.00' })),
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Not enough history yet/)).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Spending by Category Over Time')).not.toBeInTheDocument()
+  })
+
   it('shows a message instead of a chart when no category has a budget', async () => {
     mockLoad({ budget: budget.map((b) => ({ ...b, budgeted: '0.00' })) })
 

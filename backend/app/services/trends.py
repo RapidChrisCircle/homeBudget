@@ -11,14 +11,16 @@ monthly_summaries() agrees with reporting.monthly_summary() for the same
 month.
 
 budget_totals() scopes BOTH its budgeted and actual figures to expense
-categories that have a budget_amount set - not every expense category. This
-answers "are we tracking to the budgets we've actually set", not "how does
-total spending compare to total budgeted" - the latter would always show
-"way over" the moment any spending exists in an unbudgeted category, which
-isn't a meaningful signal. budget_amount only applies to every month
-identically (see models.Category's docstring - there is no per-month
-override yet), so `budgeted` is the same figure repeated across every period;
-it's still returned per-period so the chart can plot it as a matching series.
+categories that have a budget in that specific period - not every expense
+category, and not "budgeted anywhere in the window". This answers "are we
+tracking to the budgets we've actually set", not "how does total spending
+compare to total budgeted" - the latter would always show "way over" the
+moment any spending exists in an unbudgeted category, which isn't a
+meaningful signal. Since a budget can now be overridden per month (see
+services.budgets), `budgeted` is genuinely PER-PERIOD, not one figure
+repeated across the window - an override in one month steps the chart's
+budgeted line for that month only, and a category that only has a budget in
+some periods contributes to "actual" only in those same periods.
 
 account_balance_history() is the one genuinely new query here. It reuses the
 window-function "latest row per group" pattern from
@@ -46,13 +48,6 @@ from sqlalchemy.orm import Session
 
 from ..models import Transaction
 from .reporting import _year_month_columns, month_bounds
-
-def _is_budgeted_expense(row: dict) -> bool:
-    """Expense categories only, and only those with a budget set - see
-    module docstring for why "actual" is scoped the same way as "budgeted".
-    """
-
-    return row["kind"] == "expense" and row["budget_amount"] is not None
 
 
 def monthly_summaries(periods: list[tuple[int, int]], grid_rows: list[dict]) -> list[dict]:
@@ -88,22 +83,34 @@ def monthly_summaries(periods: list[tuple[int, int]], grid_rows: list[dict]) -> 
 
 
 def budget_totals(periods: list[tuple[int, int]], grid_rows: list[dict]) -> list[dict]:
-    """[{period, budgeted, actual}] across every budgeted expense category -
-    see module docstring for why unbudgeted spending is excluded from both
-    sides of this comparison.
+    """[{period, budgeted, actual}] for each period - see module docstring
+    for why unbudgeted spending is excluded from both sides, and why this is
+    resolved independently per period rather than one figure repeated across
+    the window.
     """
 
-    budgeted_rows = [row for row in grid_rows if _is_budgeted_expense(row)]
-    total_budgeted = sum((row["budget_amount"] for row in budgeted_rows), Decimal("0"))
+    expense_rows = [row for row in grid_rows if row["kind"] == "expense"]
 
-    return [
-        {
-            "period": period,
-            "budgeted": total_budgeted,
-            "actual": sum((row["amounts"][period] for row in budgeted_rows), Decimal("0")),
-        }
-        for period in periods
-    ]
+    totals = []
+
+    for period in periods:
+
+        budgeted_amount = Decimal("0")
+        actual = Decimal("0")
+
+        for row in expense_rows:
+
+            budget = row["budgets"][period]
+
+            if budget is None:
+                continue
+
+            budgeted_amount += budget
+            actual += row["amounts"][period]
+
+        totals.append({"period": period, "budgeted": budgeted_amount, "actual": actual})
+
+    return totals
 
 
 def account_balance_history(

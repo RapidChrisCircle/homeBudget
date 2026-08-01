@@ -2,7 +2,7 @@ import io
 from datetime import date
 from decimal import Decimal
 
-from app.models import Category, ImportBatch, Transaction
+from app.models import Category, CategoryBudget, ImportBatch, Transaction
 from app.services.reporting import (
     category_grid,
     category_totals_for_period,
@@ -111,9 +111,10 @@ def test_budget_totals_counts_only_budgeted_expense_categories(db_session):
     assert totals[0]["actual"] == Decimal("300.00")
 
 
-def test_budget_totals_repeats_the_same_budgeted_figure_across_every_period(db_session):
-    # budget_amount is one flat monthly figure with no per-month override -
-    # the trend line should be flat, not a per-month sum of something else.
+def test_budget_totals_repeats_the_standing_figure_when_no_override_exists(db_session):
+    # No override anywhere in the window - every period resolves to the same
+    # standing amount, so the line is flat (not because it can't step, but
+    # because nothing told it to).
     make_category(db_session, name="Groceries", kind="expense", budget_amount="500.00")
     make_transaction(db_session, transaction_date=date(2026, 5, 1), debit="-10.00")
     db_session.commit()
@@ -122,6 +123,43 @@ def test_budget_totals_repeats_the_same_budgeted_figure_across_every_period(db_s
     totals = budget_totals(periods, grid_rows)
 
     assert [t["budgeted"] for t in totals] == [Decimal("500.00")] * 3
+
+
+def test_budget_totals_steps_when_an_override_changes_mid_window(db_session):
+    # This is the test that would fail against the old flat implementation:
+    # an override on one month must change ONLY that month's budgeted figure
+    # and actual-scope, not the whole window.
+    category = make_category(db_session, name="Groceries", kind="expense", budget_amount="500.00")
+    db_session.add(CategoryBudget(category_id=category.id, year=2026, month=6, amount=Decimal("800.00")))
+    make_transaction(db_session, transaction_date=date(2026, 6, 5), debit="-600.00", category_id=category.id)
+    make_transaction(db_session, transaction_date=date(2026, 7, 5), debit="-450.00", category_id=category.id)
+    db_session.commit()
+
+    periods, grid_rows = category_grid(db_session, 2026, 7, months=3)  # May, June, July
+    totals = budget_totals(periods, grid_rows)
+
+    assert [t["budgeted"] for t in totals] == [Decimal("500.00"), Decimal("800.00"), Decimal("500.00")]
+    assert [t["actual"] for t in totals] == [Decimal("0"), Decimal("600.00"), Decimal("450.00")]
+
+
+def test_budget_totals_actual_only_counts_categories_budgeted_in_that_specific_period(db_session):
+    # A category with a budget in only SOME periods of the window must
+    # contribute to "actual" only in those periods, not the whole window -
+    # this is what makes budget_totals genuinely per-period rather than
+    # "budgeted anywhere in the window, applied everywhere".
+    category = make_category(db_session, name="Once-off", kind="expense", budget_amount=None)
+    db_session.add(CategoryBudget(category_id=category.id, year=2026, month=6, amount=Decimal("200.00")))
+    make_transaction(db_session, transaction_date=date(2026, 5, 5), debit="-50.00", category_id=category.id)
+    make_transaction(db_session, transaction_date=date(2026, 6, 5), debit="-150.00", category_id=category.id)
+    db_session.commit()
+
+    periods, grid_rows = category_grid(db_session, 2026, 7, months=3)  # May, June, July
+    totals = budget_totals(periods, grid_rows)
+
+    may, june, july = totals
+    assert may["budgeted"] == Decimal("0") and may["actual"] == Decimal("0")
+    assert june["budgeted"] == Decimal("200.00") and june["actual"] == Decimal("150.00")
+    assert july["budgeted"] == Decimal("0") and july["actual"] == Decimal("0")
 
 
 def test_periods_stay_contiguous_when_a_middle_month_has_no_transactions_at_all(db_session):

@@ -11,7 +11,7 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 | `/` | Dashboard — account balances, this month's totals, over-budget categories, uncategorized count, recent activity |
 | `/transactions` | Import CSVs, and the filterable, paginated ledger |
 | `/accounts` | Manage accounts; `/accounts/:id` is one account's balance and transactions |
-| `/categories` | Manage categories, their kind, and their monthly budget |
+| `/categories` | Manage categories, their kind, and their monthly budgets (standing + per-month overrides) |
 | `/rules` | Auto-categorization rules |
 | `/reports` | Monthly summary, budget vs actual, category totals over time |
 | `/recurring` | Detected subscriptions and regular bills, next due dates, price changes |
@@ -49,9 +49,23 @@ Rows can be categorized individually or in bulk. Selection applies to the curren
 
 ## Categorization
 
-Categories have a **kind** (`expense`, `income`, or `transfer`) and expense categories may carry a **monthly budget**. Transfers are excluded from spending and income totals so moving money between your own accounts doesn't register as either.
+Categories have a **kind** (`expense`, `income`, or `transfer`) and expense categories may carry a **budget**. Transfers are excluded from spending and income totals so moving money between your own accounts doesn't register as either.
 
 Rules on `/rules` auto-categorize on import and can be re-run over existing transactions from the ledger's **Apply rules now**. A rule matches on narration, transaction type, and/or an amount range; rows it categorizes are marked `auto`. Setting a category by hand clears that marker, so a later rule run won't overwrite your decision.
+
+## Budgets
+
+A category's budget has two parts, both edited in the **Monthly Budgets** card on `/categories`:
+
+- A **standing** amount (`Category.budget_amount`) that applies to every month by default.
+- An optional **override** for one specific month, stored as its own row rather than as an edit to the standing amount. December being different from every other month doesn't change what February sees.
+
+Resolving "the budget for month X" is override-if-present-else-standing-else-none, and that resolution happens in exactly one function (`services/budgets.effective_budget`) that every caller — `/reports`, `/trends`, `/budgets` itself — routes through, so the same month can never resolve two different ways in two different places.
+
+Two things worth knowing:
+
+- **An override of `0.00` is a real budget of zero**, not "no override" — spending against it reads as over budget. There is no separate "no budget this month" state; clearing an override reverts to the standing amount, and to have no budget at all the standing amount itself has to be cleared.
+- **Copy from previous month** writes the source month's *resolved* figures as explicit overrides on the target month, not a reference back to the standing amount — so a later change to the standing amount doesn't reach back and silently change a month that was already copied and is being edited independently.
 
 ## Balances and reports
 
@@ -65,7 +79,7 @@ Note that reporting uses **half-open** month bounds (`[start, end)`) internally 
 
 `/trends` charts the same data `/reports` shows for one month, across many: spending by category (the top 6 categories by total, everything else summed as "Other" — the Reports grid remains the complete, un-summarized view), income vs spending vs net, and budget vs actual. An account's balance-history chart lives on its own detail page (`/accounts/:id`) instead, since it's the only place that needs it.
 
-The multi-month numbers are derived from the **same** query the single-month Reports grid uses (`services/reporting.category_grid`), not a second independent query — so `/trends` and `/reports` can never quietly disagree about the same month. Budget vs actual is scoped to only the categories that actually have a budget set, on both sides of the comparison; comparing total spending against total budgeted would always look "over" the moment any unbudgeted category has activity, which isn't a useful signal.
+The multi-month numbers are derived from the **same** query the single-month Reports grid uses (`services/reporting.category_grid`), not a second independent query — so `/trends` and `/reports` can never quietly disagree about the same month. Budget vs actual is scoped to only the categories that actually have a budget set, on both sides of the comparison; comparing total spending against total budgeted would always look "over" the moment any unbudgeted category has activity, which isn't a useful signal. The budgeted line is genuinely per-period, not one figure repeated across the window — a [monthly override](#budgets) steps the line for that month only.
 
 Charts are hand-rolled SVG (`src/components/charts/`), not a library — this keeps the frontend at four runtime dependencies. Two things worth knowing if you're extending them: a `null` value in a series is a genuine gap (no data for that period) and breaks the line rather than drawing through it as zero — this is how an account's balance history renders the months before its first transaction; and bar charts always include zero in their scale so a negative month (a refund, a loss) draws sensibly below the baseline instead of needing special-case handling.
 

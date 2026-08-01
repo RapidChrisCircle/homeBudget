@@ -53,6 +53,16 @@ database), reporting has no such constraint, and this scans the whole
 ledger. category_totals_for_period() is queried once and reused to derive
 both the summary and the budget table - two separate aggregate queries would
 be two chances for those two views to disagree.
+
+Budgets: every "budget_amount" this module hands back is already RESOLVED -
+override-for-that-month if one exists, else the category's standing amount,
+via services.budgets.effective_budget(). That resolution happens in exactly
+one place; this module never reads Category.budget_amount or a
+CategoryBudget row and combines them itself, because two independent
+combinations would risk disagreeing about which month's override applies.
+category_totals_for_period() resolves one month; category_grid() resolves
+every period in its window independently, since an override can make one
+month's budget differ from the next.
 """
 
 from dataclasses import dataclass
@@ -63,6 +73,7 @@ from sqlalchemy import Integer, and_, cast, extract, func
 from sqlalchemy.orm import Session
 
 from ..models import Category, Transaction
+from .budgets import effective_budget, overrides_for_period, overrides_for_periods
 
 DEFAULT_GRID_MONTHS = 6
 MAX_GRID_MONTHS = 24
@@ -169,7 +180,18 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
     spent nothing in, which are exactly the rows they want to see.
     count(Transaction.id) rather than count(*) so outer-joined rows with no
     matching transaction count 0, not 1.
+
+    start must be the first day of a calendar month. budget_amount below is
+    resolved (override-if-present-else-standing) for the ONE month start
+    falls in - a range that isn't month-aligned would silently resolve
+    against the wrong month's override, so this raises instead of guessing.
+    Every current caller already passes month_bounds() output.
     """
+
+    if start.day != 1:
+        raise ValueError(f"category_totals_for_period requires a month-aligned start date, got {start!r}")
+
+    overrides = overrides_for_period(db, start.year, start.month)
 
     rows = (
         db.query(
@@ -200,7 +222,7 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
             category_id=row.id,
             category_name=row.name,
             kind=row.kind,
-            budget_amount=row.budget_amount,
+            budget_amount=effective_budget(row.budget_amount, overrides.get(row.id)),
             net=Decimal(row.net),
             transaction_count=row.transaction_count,
         )
@@ -272,10 +294,15 @@ def category_grid(
     a grid spans many months, so an unbudgeted category that has never once
     been used across the WHOLE window is still omitted - showing every
     category ever created, most of them all-zero, would bury the ones with
-    real activity. "Worth showing" here is: budgeted, or used at least once
-    somewhere in the window. Each row's own kind decides which case applies -
-    budget_amount is only ever non-null on an expense category (enforced in
-    api/categories.py), so this reduces to "has activity" for income rows.
+    real activity. "Worth showing" here is: budgeted (in ANY period of the
+    window), or used at least once somewhere in the window. Each row's own
+    kind decides which case applies - budget_amount is only ever non-null on
+    an expense category (enforced in api/categories.py), so this reduces to
+    "has activity" for income rows.
+
+    Each row's "budgets" is {period: resolved amount | None} - one figure
+    PER PERIOD, not one figure repeated across the whole window, since an
+    override can make one month's budget differ from the next.
     """
 
     periods = contiguous_periods(year, month, months)
@@ -308,6 +335,8 @@ def category_grid(
         .all()
     )
 
+    overrides = overrides_for_periods(db, periods)
+
     by_category: dict[int, dict] = {}
 
     for row in rows:
@@ -316,7 +345,7 @@ def category_grid(
             "category_id": row.id,
             "category_name": row.name,
             "kind": row.kind,
-            "budget_amount": row.budget_amount,
+            "_standing": row.budget_amount,
             "amounts": {},
         })
 
@@ -337,11 +366,19 @@ def category_grid(
 
         amounts = entry.pop("amounts")
         has_activity = len(amounts) > 0
+        standing = entry.pop("_standing")
 
-        if not has_activity and entry["budget_amount"] is None:
+        budgets = {
+            period: effective_budget(standing, overrides.get((entry["category_id"], period)))
+            for period in periods
+        }
+        has_budget = any(amount is not None for amount in budgets.values())
+
+        if not has_activity and not has_budget:
             continue
 
         entry["amounts"] = {p: amounts.get(p, Decimal("0")) for p in periods}
+        entry["budgets"] = budgets
         entry["total"] = sum(entry["amounts"].values(), Decimal("0"))
         grid_rows.append(entry)
 

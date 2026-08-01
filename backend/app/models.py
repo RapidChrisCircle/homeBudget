@@ -81,9 +81,13 @@ class Category(Base):
       between the user's own accounts (e.g. a credit card payment) so it
       doesn't inflate both income and spending.
 
-    budget_amount is a single recurring MONTHLY figure (positive dollars,
-    NULL = no budget set) that applies to every month - there is no
-    per-month override. Only meaningful when kind == "expense".
+    budget_amount is the STANDING monthly budget (positive dollars, NULL = no
+    budget set) - it applies to every month that has no CategoryBudget row of
+    its own. A CategoryBudget row is an override for one specific month;
+    resolving "the budget for month X" always means override-if-present-else-
+    standing, and that resolution happens in exactly one place
+    (services/budgets.effective_budget) so it cannot drift between callers.
+    Only meaningful when kind == "expense".
     """
 
     __tablename__ = "categories"
@@ -118,6 +122,17 @@ class Category(Base):
     rules = relationship(
         "CategoryRule",
         back_populates="category"
+    )
+
+    # ORM-level cascade, not just the FK's ondelete=CASCADE - mirrors
+    # Account.recurring_dismissals. delete_category already does its other
+    # cascades explicitly in Python because SQLite ignores ondelete without
+    # PRAGMA foreign_keys=ON, so an FK-only cascade here would pass every
+    # test while behaving differently against Postgres.
+    budgets = relationship(
+        "CategoryBudget",
+        back_populates="category",
+        cascade="all, delete-orphan"
     )
 
     __table_args__ = (
@@ -414,5 +429,57 @@ class RecurringDismissal(Base):
             "account_id",
             "narration_key",
             name="uq_recurring_dismissals_account_narration_key"
+        ),
+    )
+
+
+class CategoryBudget(Base):
+    """A per-month override of a category's standing budget_amount.
+
+    Only a ROW HERE means "this month is different" - the absence of a row
+    means "use the standing amount", not "no budget this month". amount is
+    NOT NULL specifically so an override of 0.00 (a real budget of zero,
+    spending against it reads as over budget) can never be confused with "no
+    override" - see services/budgets.effective_budget for the resolution
+    rule every caller must go through rather than re-deriving.
+    """
+
+    __tablename__ = "category_budgets"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    category_id = Column(
+        Integer,
+        ForeignKey("categories.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    year = Column(
+        Integer,
+        nullable=False
+    )
+
+    month = Column(
+        Integer,
+        nullable=False
+    )
+
+    amount = Column(
+        Numeric(12, 2),
+        nullable=False
+    )
+
+    category = relationship("Category", back_populates="budgets")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "category_id",
+            "year",
+            "month",
+            name="uq_category_budgets_category_year_month"
         ),
     )

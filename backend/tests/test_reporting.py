@@ -1,7 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
-from app.models import Category, ImportBatch, Transaction
+import pytest
+from app.models import Category, CategoryBudget, ImportBatch, Transaction
 from app.services.reporting import (
     available_periods,
     build_monthly_report,
@@ -224,6 +225,39 @@ def test_budgeted_expense_category_with_no_activity_still_appears(db_session):
     assert totals[0].actual == Decimal("0")
 
 
+def test_an_override_for_the_month_wins_over_the_standing_budget(db_session):
+
+    category = make_category(db_session, kind="expense", budget_amount="100.00")
+    db_session.add(CategoryBudget(category_id=category.id, year=2026, month=7, amount=Decimal("250.00")))
+    db_session.commit()
+
+    start, end = month_bounds(2026, 7)
+    totals = category_totals_for_period(db_session, start, end)
+
+    assert totals[0].budget_amount == Decimal("250.00")
+
+
+def test_an_override_on_a_different_month_does_not_apply(db_session):
+
+    category = make_category(db_session, kind="expense", budget_amount="100.00")
+    db_session.add(CategoryBudget(category_id=category.id, year=2026, month=8, amount=Decimal("250.00")))
+    db_session.commit()
+
+    start, end = month_bounds(2026, 7)
+    totals = category_totals_for_period(db_session, start, end)
+
+    assert totals[0].budget_amount == Decimal("100.00")
+
+
+def test_category_totals_for_period_rejects_a_non_month_aligned_start(db_session):
+
+    make_category(db_session, kind="expense", budget_amount="100.00")
+    db_session.commit()
+
+    with pytest.raises(ValueError):
+        category_totals_for_period(db_session, date(2026, 7, 15), date(2026, 8, 1))
+
+
 def test_expense_category_with_no_budget_and_no_activity_is_omitted(db_session):
 
     make_category(db_session, kind="expense", budget_amount=None)
@@ -266,9 +300,25 @@ def test_grid_includes_a_budgeted_category_with_zero_activity_in_the_whole_windo
     assert len(rows) == 1
     row = rows[0]
     assert row["category_id"] == category.id
-    assert row["budget_amount"] == Decimal("100.00")
+    assert all(row["budgets"][p] == Decimal("100.00") for p in periods)
     assert all(row["amounts"][p] == Decimal("0") for p in periods)
     assert row["total"] == Decimal("0")
+
+
+def test_grid_steps_between_the_standing_amount_and_a_mid_window_override(db_session):
+    # An override on one month must not leak into its neighbours - the grid
+    # is what the /trends budget-vs-actual chart is built from, and a leak
+    # here would make the chart's "step" silently disappear.
+    category = make_category(db_session, budget_amount="100.00")
+    db_session.add(CategoryBudget(category_id=category.id, year=2026, month=6, amount=Decimal("250.00")))
+    db_session.commit()
+
+    periods, rows = category_grid(db_session, 2026, 7, months=3)  # May, June, July
+    row = rows[0]
+
+    assert row["budgets"][(2026, 5)] == Decimal("100.00")
+    assert row["budgets"][(2026, 6)] == Decimal("250.00")
+    assert row["budgets"][(2026, 7)] == Decimal("100.00")
 
 
 def test_grid_omits_an_unbudgeted_category_with_zero_activity_in_the_whole_window(db_session):

@@ -361,3 +361,54 @@ class BalanceHistoryResponse(BaseModel):
     # lockstep. None (not 0.00) means no data yet for that month - the same
     # "no transactions" distinction AccountResponse.balance already makes.
     balances: dict[str, Optional[Decimal]]
+
+
+class BudgetPeriodCategoryResponse(BaseModel):
+
+    category_id: int
+    category_name: str
+    # standing_amount and override_amount are the two RAW inputs;
+    # effective_amount is services.budgets.effective_budget()'s already-
+    # resolved output - never re-derive it from the other two on the
+    # frontend, it exists so the UI doesn't have to.
+    standing_amount: Optional[Decimal]
+    override_amount: Optional[Decimal]
+    effective_amount: Optional[Decimal]
+    is_overridden: bool
+    actual: Decimal
+    difference: Optional[Decimal]
+
+
+class BudgetPeriodTotalsResponse(BaseModel):
+
+    budgeted: Decimal
+    actual: Decimal
+    difference: Decimal
+
+
+class BudgetPeriodResponse(BaseModel):
+
+    year: int
+    month: int
+    categories: list[BudgetPeriodCategoryResponse]
+    totals: BudgetPeriodTotalsResponse
+
+
+class BudgetOverrideUpdate(BaseModel):
+
+    year: int
+    month: int
+    amount: Decimal
+
+
+class BudgetCopyRequest(BaseModel):
+
+    from_year: int
+    from_month: int
+    to_year: int
+    to_month: int
+
+
+class BudgetCopyResponse(BaseModel):
+
+    copied_count: int

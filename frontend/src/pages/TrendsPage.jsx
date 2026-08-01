@@ -105,9 +105,12 @@ export default function TrendsPage() {
   const { periods, categories, monthly, budget } = trends
   const periodLabels = periods.map((p) => p.label)
 
-  const hasHistory =
-    categories.length > 0 ||
-    monthly.some((m) => Number(m.total_income) !== 0 || Number(m.total_spending) !== 0)
+  // Deliberately NOT `categories.length > 0`: category_grid() outer-joins so
+  // a budgeted-but-idle category appears even on a completely empty ledger
+  // (see reporting.category_grid's docstring) - keying off it here would
+  // show three flat-zero charts captioned as trends on a fresh install with
+  // nothing imported yet. Real monthly activity is the only honest signal.
+  const hasHistory = monthly.some((m) => Number(m.total_income) !== 0 || Number(m.total_spending) !== 0)
 
   const monthLabel = (
     <label>
