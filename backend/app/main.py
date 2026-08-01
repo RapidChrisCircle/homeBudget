@@ -6,7 +6,7 @@ from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import accounts, budgets, categories, category_rules, recurring, reports, transactions, trends
+from .api import accounts, budgets, categories, category_rules, forecast, recurring, reports, transactions, trends
 from .database import settings
 
 app = FastAPI(
@@ -85,6 +85,11 @@ app.include_router(
 
 app.include_router(
     budgets.router,
+    prefix="/api"
+)
+
+app.include_router(
+    forecast.router,
     prefix="/api"
 )
 

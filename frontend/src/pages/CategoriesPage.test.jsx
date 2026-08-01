@@ -164,6 +164,82 @@ describe('CategoriesPage', () => {
     })
   })
 
+  // --- Stale budgets table remediation --------------------------------------
+  // Regression tests: creating/editing/deleting a category on this page must
+  // refresh the Monthly Budgets table below it, not just the category list.
+
+  it('updates the Standing column in the budgets table after editing a standing budget', async () => {
+    let edited = false
+    api.get.mockImplementation((path) => {
+      if (path === '/categories') {
+        return Promise.resolve({ data: [sampleCategory] })
+      }
+      if (path.startsWith('/budgets')) {
+        const standing = edited ? '900.00' : '250.00'
+        return Promise.resolve({
+          data: {
+            ...sampleBudgetData,
+            categories: [{ ...sampleBudgetData.categories[0], standing_amount: standing, effective_amount: standing }],
+          },
+        })
+      }
+      return Promise.reject(new Error(`unexpected path ${path}`))
+    })
+    api.put.mockImplementation(() => {
+      edited = true
+      return Promise.resolve({ data: sampleCategory })
+    })
+
+    render(<CategoriesPage />)
+
+    await waitForBudgetsLoaded()
+    // Scoped to the row, not the totals footer, which coincidentally shows
+    // the same figure here.
+    let row = within(budgetsSection()).getByText('Groceries').closest('tr')
+    expect(within(row).getByText('250.00')).toBeInTheDocument()
+
+    fireEvent.click(within(categoriesSection()).getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Standing monthly budget'), { target: { value: '900' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => {
+      row = within(budgetsSection()).getByText('Groceries').closest('tr')
+      expect(within(row).getByText('900.00')).toBeInTheDocument()
+    })
+    expect(within(row).queryByText('250.00')).not.toBeInTheDocument()
+  })
+
+  it('removes a deleted category from the budgets table rather than leaving a phantom row', async () => {
+    let deleted = false
+    api.get.mockImplementation((path) => {
+      if (path === '/categories') {
+        return Promise.resolve({ data: deleted ? [] : [sampleCategory] })
+      }
+      if (path.startsWith('/budgets')) {
+        return Promise.resolve({
+          data: { ...sampleBudgetData, categories: deleted ? [] : sampleBudgetData.categories },
+        })
+      }
+      return Promise.reject(new Error(`unexpected path ${path}`))
+    })
+    api.delete.mockImplementation(() => {
+      deleted = true
+      return Promise.resolve({})
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<CategoriesPage />)
+
+    await waitForBudgetsLoaded()
+    expect(within(budgetsSection()).getByText('Groceries')).toBeInTheDocument()
+
+    fireEvent.click(within(categoriesSection()).getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('No expense categories yet.')).toBeInTheDocument()
+    })
+  })
+
   // --- Monthly Budgets card -------------------------------------------------
 
   it('renders the budget table with standing, this month and actual figures', async () => {

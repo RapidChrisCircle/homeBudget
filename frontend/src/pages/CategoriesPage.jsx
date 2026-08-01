@@ -225,7 +225,10 @@ export default function CategoriesPage() {
         await api.post('/categories', buildPayload(form))
       }
       cancelEdit()
-      await refresh()
+      // The budgets table below lists standing amounts and rows per
+      // category - creating, renaming, or changing a standing budget must
+      // not leave it showing a stale figure or a phantom row.
+      await Promise.all([refresh(), refreshBudgets()])
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Save failed'
       setActionError(String(message))
@@ -244,7 +247,9 @@ export default function CategoriesPage() {
       if (editingId === id) {
         cancelEdit()
       }
-      await refresh()
+      // A deleted category must not leave a phantom row in the budgets
+      // table whose Save/Revert buttons would 404.
+      await Promise.all([refresh(), refreshBudgets()])
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Delete failed'
       setActionError(String(message))

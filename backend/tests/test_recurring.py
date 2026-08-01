@@ -206,6 +206,46 @@ def test_yearly_series_detected(db_session):
     assert series.cadence == "yearly"
 
 
+# --- direction -----------------------------------------------------------------
+
+def test_all_debit_series_is_outflow(db_session):
+
+    seed_series(db_session, monthly_dates(date(2026, 1, 15), 3), [15.99] * 3)
+
+    series = only_series(db_session)
+
+    assert series.direction == "outflow"
+
+
+def test_all_credit_series_is_inflow(db_session):
+
+    account_id = make_account(db_session).id
+    for occurrence_date in monthly_dates(date(2026, 1, 15), 3):
+        make_transaction(db_session, account_id, occurrence_date, "SALARY", amount=5000.00, credit=True)
+    db_session.commit()
+
+    series = only_series(db_session)
+
+    assert series.direction == "inflow"
+
+
+def test_mixed_series_takes_the_majority_direction(db_session):
+    # A rare refund landing among an otherwise all-debit series must not
+    # un-detect it, and the direction should follow the majority (outflow).
+    account_id = make_account(db_session).id
+    dates = monthly_dates(date(2026, 1, 15), 4)
+    for i, occurrence_date in enumerate(dates):
+        make_transaction(
+            db_session, account_id, occurrence_date, "GYM MEMBERSHIP",
+            amount=15.99, credit=(i == 0),
+        )
+    db_session.commit()
+
+    series = only_series(db_session)
+
+    assert series.direction == "outflow"
+
+
 # --- noise rejection ----------------------------------------------------------
 
 def test_irregular_grocery_visits_are_not_recurring(db_session):

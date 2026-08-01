@@ -1,6 +1,7 @@
 import AccountDetailPage from './pages/AccountDetailPage.jsx'
 import AccountsPage from './pages/AccountsPage.jsx'
 import CategoriesPage from './pages/CategoriesPage.jsx'
+import ForecastPage from './pages/ForecastPage.jsx'
 import RecurringPage from './pages/RecurringPage.jsx'
 import ReportsPage from './pages/ReportsPage.jsx'
 import RulesPage from './pages/RulesPage.jsx'
@@ -51,5 +52,10 @@ export const pages = [
     path: '/trends',
     label: 'Trends',
     element: <TrendsPage />,
+  },
+  {
+    path: '/forecast',
+    label: 'Forecast',
+    element: <ForecastPage />,
   },
 ]

@@ -69,6 +69,15 @@ series are persisted, so there is nothing to keep in sync when transactions
 are imported or deleted. The only persisted state is RecurringDismissal, a
 user's explicit "this is not recurring" opt-out keyed on the same
 (account_id, narration_key) grouping.
+
+direction is "inflow" or "outflow", from whether a series' occurrences are
+credits or debits - typical_amount/latest_amount/annual_cost stay ABSOLUTE
+values (categorization._row_amount's convention), so direction is what a
+caller needs to know whether to add or subtract them. Decided by majority
+across occurrences rather than requiring every leg to agree, since a rare
+mixed series (e.g. a refund landing among an otherwise all-debit series)
+should not be un-detected over one exception; a tie is called "outflow" -
+the far more common shape for a recurring series (bills, subscriptions).
 """
 
 import calendar
@@ -120,6 +129,9 @@ class RecurringSeries:
     occurrence_count: int
     first_date: date
     last_date: date
+    # "inflow" or "outflow" - see module docstring. Every amount field below
+    # stays an ABSOLUTE value; this is what tells a caller which way it goes.
+    direction: str
     typical_amount: Decimal
     latest_amount: Decimal
     amount_varies: bool
@@ -262,6 +274,17 @@ def _classify_cadence(gaps: list[int]) -> tuple[str, float, int] | None:
     return None
 
 
+def _direction(occurrences: list) -> str:
+    """"inflow" or "outflow" for a series - see module docstring for the
+    majority-wins tie-break.
+    """
+
+    credit_count = sum(1 for o in occurrences if o.credit is not None)
+    debit_count = len(occurrences) - credit_count
+
+    return "inflow" if credit_count > debit_count else "outflow"
+
+
 def _classify_status(next_due_date: date, as_of: date, nominal_interval: float) -> str:
 
     overdue_days = (as_of - next_due_date).days
@@ -374,6 +397,7 @@ def detect_series(db: Session, include_dismissed: bool = False) -> list[Recurrin
             occurrence_count=len(occurrences),
             first_date=dates[0],
             last_date=last_date,
+            direction=_direction(occurrences),
             typical_amount=typical_amount,
             latest_amount=latest_amount,
             amount_varies=amount_varies,

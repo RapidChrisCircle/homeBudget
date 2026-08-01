@@ -276,6 +276,7 @@ class RecurringSeriesResponse(BaseModel):
     occurrence_count: int
     first_date: date
     last_date: date
+    direction: str
     typical_amount: Decimal
     latest_amount: Decimal
     amount_varies: bool
@@ -412,3 +413,57 @@ class BudgetCopyRequest(BaseModel):
 class BudgetCopyResponse(BaseModel):
 
     copied_count: int
+
+
+class ForecastPeriodResponse(BaseModel):
+
+    year: int
+    month: int
+    label: str
+    is_partial: bool
+
+
+class ForecastMonthResponse(BaseModel):
+
+    label: str
+    is_partial: bool
+    opening: Decimal
+    recurring_in: Decimal
+    recurring_out: Decimal
+    estimated_other: Decimal
+    closing: Decimal
+
+
+class ForecastAccountResponse(BaseModel):
+
+    account_id: int
+    account_name: Optional[str]
+    opening_balance: Decimal
+    daily_run_rate: Decimal
+    months: list[ForecastMonthResponse]
+
+
+class ForecastCombinedResponse(BaseModel):
+
+    opening_balance: Decimal
+    months: list[ForecastMonthResponse]
+
+
+class ForecastUpcomingResponse(BaseModel):
+
+    due_date: date
+    account_id: int
+    merchant: str
+    amount: Decimal
+    direction: str
+
+
+class ForecastResponse(BaseModel):
+
+    # None on a completely empty ledger - there is nothing to anchor a
+    # projection to, not a projection starting from zero.
+    as_of: Optional[date]
+    periods: list[ForecastPeriodResponse]
+    accounts: list[ForecastAccountResponse]
+    combined: Optional[ForecastCombinedResponse]
+    upcoming: list[ForecastUpcomingResponse]

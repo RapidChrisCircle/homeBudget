@@ -16,6 +16,7 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 | `/reports` | Monthly summary, budget vs actual, category totals over time |
 | `/recurring` | Detected subscriptions and regular bills, next due dates, price changes |
 | `/trends` | Multi-month charts: spending by category, income vs spending, budget vs actual |
+| `/forecast` | Projected account balances for the next few months |
 
 ## Importing
 
@@ -90,6 +91,21 @@ Charts are hand-rolled SVG (`src/components/charts/`), not a library — this ke
 For each detected series it shows the next expected date (calendar-aware — a monthly bill on 31 January is next due 28 February, not "31 days later"), whether the latest amount changed from its established norm, and an estimated annual cost. "Missed or stopped" status is judged against **that account's own latest imported transaction**, never today's date — otherwise every series would look overdue the moment an import falls behind.
 
 A false positive can be **dismissed** from the list; dismissals persist (keyed on account + normalized narration) and can be restored from the page's collapsed Dismissed section. Nothing about detection itself is stored — it's recomputed from the ledger on every request, so there's nothing to keep in sync when transactions are imported or deleted.
+
+Each series also has a **direction** (`inflow`/`outflow`), decided by majority across its occurrences — every amount elsewhere on this page stays an absolute value, and direction is what says which way it goes. This is what the forecast (below) needs to add income and subtract bills correctly.
+
+## Forecast
+
+`/forecast` projects each account's balance forward in monthly buckets: the remainder of the current month (marked partial, pro-rated over the days actually remaining), then the next few whole months. Projection is anchored to **the ledger's own latest transaction date**, never today — the same reasoning recurring detection already applies to "overdue", so a stale import doesn't silently invent weeks of activity nobody recorded.
+
+Each bucket has two components, shown separately rather than as one number so a wrong figure is traceable to which part is wrong:
+
+- **Recurring commitments** — every active/due-soon/overdue detected series (not `ended`, not dismissed) walked forward from its next due date. An overdue series contributes its next real occurrence, not the already-passed one.
+- **Estimated everyday spending** — a per-account daily run rate from the 3 complete months before the current one, **excluding anything already counted as a recurring commitment** (matched by the same narration key detection uses). Skipping that exclusion would subtract every subscription twice and make the forecast systematically too pessimistic — it's the single most load-bearing correctness property in `services/forecast.py`, and it's covered by a dedicated test. A **dismissed** series' transactions land back in the run rate automatically, since dismissing it is the user's own declaration that it isn't actually recurring.
+
+Cash flow deliberately counts what `/reports` deliberately excludes — **uncategorized transactions** and **transfers** both represent real money moving, which is exactly what a balance projection needs, even though neither belongs in a categorized spending report. This is a real, intentional divergence from every other money query in the app; see `services/forecast.py`'s docstring before "fixing" it to match `reporting.py`.
+
+The page also lists the specific **upcoming commitments** behind the numbers, so the projection is checkable rather than opaque. Monthly resolution means the forecast cannot show an intra-month dip — a month that closes comfortably can still run short on the 20th.
 
 ## Local development
 
