@@ -103,7 +103,7 @@ export default function LedgerFilters({
             />
           </label>
         </div>
-        <button type="submit">Apply filters</button>
+        <button type="submit" className="button-primary">Apply filters</button>
         <button type="button" onClick={onClear}>
           Clear filters
         </button>

@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import Amount from '../components/Amount.jsx'
+import Badge from '../components/Badge.jsx'
+import ErrorState from '../components/ErrorState.jsx'
 import LedgerFilters from '../components/LedgerFilters.jsx'
+import LoadingState from '../components/LoadingState.jsx'
 import Pagination from '../components/Pagination.jsx'
 import {
   EMPTY_FILTERS,
@@ -8,7 +12,6 @@ import {
   searchParamsFromFilters,
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
-import { formatAmount } from '../utils/format.js'
 
 function formatAccount(transaction) {
   if (transaction.bsb_number) {
@@ -304,11 +307,7 @@ export default function TransactionsPage() {
     <section className="card">
       <h2>Transactions</h2>
 
-      {actionError && (
-        <p>
-          <strong>Action failed:</strong> {actionError}
-        </p>
-      )}
+      {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
       <div className="card">
         <h3>Import CSV</h3>
@@ -344,7 +343,7 @@ export default function TransactionsPage() {
 
       <div className="card">
         <h3>Import History</h3>
-        <button type="button" onClick={handleWipeAll} disabled={loading}>
+        <button type="button" className="button-danger" onClick={handleWipeAll} disabled={loading}>
           Wipe all
         </button>
 
@@ -366,7 +365,7 @@ export default function TransactionsPage() {
                 <td>{batch.row_count}</td>
                 <td>{batch.skipped_duplicate_count}</td>
                 <td>
-                  <button type="button" onClick={() => handleDeleteBatch(batch.id)}>
+                  <button type="button" className="button-danger" onClick={() => handleDeleteBatch(batch.id)}>
                     Delete
                   </button>
                 </td>
@@ -389,12 +388,8 @@ export default function TransactionsPage() {
       <div className="card">
         <h3>Ledger</h3>
 
-        {loading && <p>Loading transactions...</p>}
-        {!loading && error && (
-          <p>
-            <strong>Failed to load transactions:</strong> {error}
-          </p>
-        )}
+        {loading && <LoadingState message="Loading transactions..." />}
+        {!loading && error && <ErrorState label="Failed to load transactions:" message={error} />}
 
         {!loading && !error && (
           <>
@@ -407,7 +402,7 @@ export default function TransactionsPage() {
                   </option>
                 ))}
               </select>
-              <button type="button" onClick={handleBulkAssign} disabled={selectedIds.length === 0}>
+              <button type="button" className="button-primary" onClick={handleBulkAssign} disabled={selectedIds.length === 0}>
                 Set category for selected ({selectedIds.length})
               </button>
               <button type="button" onClick={handleApplyRules} disabled={applying}>
@@ -459,9 +454,9 @@ export default function TransactionsPage() {
                     <td>{transaction.transaction_date}</td>
                     <td>{transaction.account_name || formatAccount(transaction)}</td>
                     <td>{transaction.narration}</td>
-                    <td>{formatAmount(transaction.debit)}</td>
-                    <td>{formatAmount(transaction.credit)}</td>
-                    <td>{formatAmount(transaction.balance)}</td>
+                    <td><Amount value={transaction.debit} /></td>
+                    <td><Amount value={transaction.credit} /></td>
+                    <td><Amount value={transaction.balance} neutral /></td>
                     <td>{transaction.transaction_type}</td>
                     <td>
                       <select
@@ -476,19 +471,20 @@ export default function TransactionsPage() {
                         ))}
                       </select>
                       {transaction.categorized_by_rule_id && (
-                        <span title="Set automatically by a rule"> auto</span>
+                        <Badge tone="info" title="Set automatically by a rule">auto</Badge>
                       )}
                     </td>
                     <td>{batchFilename(transaction.import_batch_id)}</td>
                     <td>
                       <button
                         type="button"
+                        className="button-ghost"
                         aria-label={`Make rule from ${transaction.narration}`}
                         onClick={() => handleMakeRule(transaction.narration)}
                       >
                         Make rule
                       </button>
-                      <button type="button" onClick={() => handleDeleteTransaction(transaction.id)}>
+                      <button type="button" className="button-danger" onClick={() => handleDeleteTransaction(transaction.id)}>
                         Delete
                       </button>
                     </td>

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
+import Amount from '../components/Amount.jsx'
+import Badge from '../components/Badge.jsx'
+import ErrorState from '../components/ErrorState.jsx'
+import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
-import { formatAmount } from '../utils/format.js'
 
 const EMPTY_FORM = {
   name: '',
@@ -260,11 +263,7 @@ export default function CategoriesPage() {
     <section className="card">
       <h2>Categories</h2>
 
-      {actionError && (
-        <p>
-          <strong>Action failed:</strong> {actionError}
-        </p>
-      )}
+      {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
       <div className="card">
         <h3>{editingId ? 'Edit Category' : 'Add Category'}</h3>
@@ -307,7 +306,7 @@ export default function CategoriesPage() {
               </p>
             </div>
           )}
-          <button type="submit" disabled={saving}>
+          <button type="submit" className="button-primary" disabled={saving}>
             {editingId ? 'Save Changes' : 'Add Category'}
           </button>
           {editingId && (
@@ -321,12 +320,8 @@ export default function CategoriesPage() {
       <div className="card">
         <h3>All Categories</h3>
 
-        {loading && <p>Loading categories...</p>}
-        {!loading && error && (
-          <p>
-            <strong>Failed to load categories:</strong> {error}
-          </p>
-        )}
+        {loading && <LoadingState message="Loading categories..." />}
+        {!loading && error && <ErrorState label="Failed to load categories:" message={error} />}
 
         {!loading && !error && (
           <table>
@@ -343,12 +338,12 @@ export default function CategoriesPage() {
                 <tr key={category.id}>
                   <td>{category.name}</td>
                   <td>{category.kind}</td>
-                  <td>{category.budget_amount}</td>
+                  <td><Amount value={category.budget_amount} neutral /></td>
                   <td>
                     <button type="button" onClick={() => startEdit(category)}>
                       Edit
                     </button>
-                    <button type="button" onClick={() => handleDelete(category.id)}>
+                    <button type="button" className="button-danger" onClick={() => handleDelete(category.id)}>
                       Delete
                     </button>
                   </td>
@@ -362,11 +357,7 @@ export default function CategoriesPage() {
       <div className="card">
         <h3>Monthly Budgets</h3>
 
-        {budgetActionError && (
-          <p>
-            <strong>Action failed:</strong> {budgetActionError}
-          </p>
-        )}
+        {budgetActionError && <ErrorState label="Action failed:" message={budgetActionError} />}
 
         <label>
           Month
@@ -380,12 +371,8 @@ export default function CategoriesPage() {
           Copy from previous month
         </button>
 
-        {budgetLoading && <p>Loading budgets...</p>}
-        {!budgetLoading && budgetError && (
-          <p>
-            <strong>Failed to load budgets:</strong> {budgetError}
-          </p>
-        )}
+        {budgetLoading && <LoadingState message="Loading budgets..." />}
+        {!budgetLoading && budgetError && <ErrorState label="Failed to load budgets:" message={budgetError} />}
 
         {!budgetLoading && !budgetError && budgetData && (
           <>
@@ -406,7 +393,7 @@ export default function CategoriesPage() {
                   {budgetData.categories.map((row) => (
                     <tr key={row.category_id}>
                       <td>{row.category_name}</td>
-                      <td>{formatAmount(row.standing_amount)}</td>
+                      <td><Amount value={row.standing_amount} neutral /></td>
                       <td>
                         <input
                           type="number"
@@ -416,18 +403,21 @@ export default function CategoriesPage() {
                           value={budgetEdits[row.category_id] ?? ''}
                           onChange={handleBudgetEditChange(row.category_id)}
                         />
-                        {row.is_overridden && <span title="Overridden for this month specifically"> (overridden)</span>}
+                        {row.is_overridden && (
+                          <Badge tone="info" title="Overridden for this month specifically"> (overridden)</Badge>
+                        )}
                       </td>
-                      <td>{formatAmount(row.actual)}</td>
+                      <td><Amount value={row.actual} neutral /></td>
                       <td>
-                        {formatAmount(row.difference)}
+                        <Amount value={row.difference} />
                         {row.difference !== null && Number(row.difference) < 0 && (
-                          <span title="Over budget"> (over)</span>
+                          <Badge tone="danger" title="Over budget"> (over)</Badge>
                         )}
                       </td>
                       <td>
                         <button
                           type="button"
+                          className="button-primary"
                           onClick={() => handleSaveBudget(row.category_id)}
                           disabled={!isBudgetEditValid(row.category_id)}
                         >
@@ -446,11 +436,11 @@ export default function CategoriesPage() {
                   <tr>
                     <td>Total</td>
                     <td></td>
-                    <td>{formatAmount(budgetData.totals.budgeted)}</td>
-                    <td>{formatAmount(budgetData.totals.actual)}</td>
+                    <td><Amount value={budgetData.totals.budgeted} neutral /></td>
+                    <td><Amount value={budgetData.totals.actual} neutral /></td>
                     <td>
-                      {formatAmount(budgetData.totals.difference)}
-                      {Number(budgetData.totals.difference) < 0 && <span title="Over budget"> (over)</span>}
+                      <Amount value={budgetData.totals.difference} />
+                      {Number(budgetData.totals.difference) < 0 && <Badge tone="danger" title="Over budget"> (over)</Badge>}
                     </td>
                     <td></td>
                   </tr>

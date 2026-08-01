@@ -467,3 +467,9 @@ class ForecastResponse(BaseModel):
     accounts: list[ForecastAccountResponse]
     combined: Optional[ForecastCombinedResponse]
     upcoming: list[ForecastUpcomingResponse]
+
+
+class VersionResponse(BaseModel):
+
+    version: str
+    commit: str

@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import Amount from '../components/Amount.jsx'
+import Badge from '../components/Badge.jsx'
+import EmptyState from '../components/EmptyState.jsx'
+import ErrorState from '../components/ErrorState.jsx'
+import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
-import { formatAmount, uncategorizedLedgerLink } from '../utils/format.js'
+import { uncategorizedLedgerLink } from '../utils/format.js'
 
 export default function ReportsPage() {
   const [report, setReport] = useState(null)
@@ -57,7 +62,7 @@ export default function ReportsPage() {
     return (
       <section className="card">
         <h2>Reports</h2>
-        <p>Loading report...</p>
+        <LoadingState message="Loading report..." />
       </section>
     )
   }
@@ -66,9 +71,7 @@ export default function ReportsPage() {
     return (
       <section className="card">
         <h2>Reports</h2>
-        <p>
-          <strong>Failed to load report:</strong> {error}
-        </p>
+        <ErrorState label="Failed to load report:" message={error} />
       </section>
     )
   }
@@ -77,7 +80,7 @@ export default function ReportsPage() {
     return (
       <section className="card">
         <h2>Reports</h2>
-        <p>No transactions imported yet.</p>
+        <EmptyState message="No transactions imported yet." />
       </section>
     )
   }
@@ -88,11 +91,7 @@ export default function ReportsPage() {
     <section className="card">
       <h2>Reports</h2>
 
-      {actionError && (
-        <p>
-          <strong>Action failed:</strong> {actionError}
-        </p>
-      )}
+      {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
       <p>
         Budgets apply to every month. Transfer categories are excluded from these totals &mdash; if
@@ -121,15 +120,15 @@ export default function ReportsPage() {
           <tbody>
             <tr>
               <td>Total income</td>
-              <td>{formatAmount(summary.total_income)}</td>
+              <td><Amount value={summary.total_income} neutral /></td>
             </tr>
             <tr>
               <td>Total spending</td>
-              <td>{formatAmount(summary.total_spending)}</td>
+              <td><Amount value={summary.total_spending} neutral /></td>
             </tr>
             <tr>
               <td>Net saved</td>
-              <td>{formatAmount(summary.net_saved)}</td>
+              <td><Amount value={summary.net_saved} /></td>
             </tr>
           </tbody>
         </table>
@@ -139,7 +138,7 @@ export default function ReportsPage() {
         <h3>Uncategorized Review</h3>
         <p>
           {uncategorized.uncategorized_count} of {uncategorized.transaction_count} transaction(s) this
-          month are uncategorized (net {formatAmount(uncategorized.net_total)}). The summary above only
+          month are uncategorized (net <Amount value={uncategorized.net_total} />). The summary above only
           covers categorized, non-transfer transactions.
         </p>
         <Link to={uncategorizedLedgerLink(report.start_date, report.end_date)}>
@@ -164,17 +163,17 @@ export default function ReportsPage() {
               {budgets.map((line) => (
                 <tr key={line.category_id}>
                   <td>{line.category_name}</td>
-                  <td>{formatAmount(line.budget_amount)}</td>
+                  <td><Amount value={line.budget_amount} neutral /></td>
                   <td>
-                    {formatAmount(line.actual)}
+                    <Amount value={line.actual} neutral />
                     {Number(line.actual) < 0 && (
-                      <span title="Net refund — refunds exceeded spending this month"> (refund)</span>
+                      <Badge tone="warning" title="Net refund — refunds exceeded spending this month"> (refund)</Badge>
                     )}
                   </td>
                   <td>
-                    {formatAmount(line.difference)}
+                    <Amount value={line.difference} />
                     {line.difference !== null && Number(line.difference) < 0 && (
-                      <span title="Over budget"> (over)</span>
+                      <Badge tone="danger" title="Over budget"> (over)</Badge>
                     )}
                   </td>
                 </tr>
@@ -203,9 +202,9 @@ export default function ReportsPage() {
                 <tr key={row.category_id}>
                   <td>{row.category_name}</td>
                   {grid.periods.map((period) => (
-                    <td key={period.label}>{formatAmount(row.amounts[period.label])}</td>
+                    <td key={period.label}><Amount value={row.amounts[period.label]} /></td>
                   ))}
-                  <td>{formatAmount(row.total)}</td>
+                  <td><Amount value={row.total} /></td>
                 </tr>
               ))}
             </tbody>

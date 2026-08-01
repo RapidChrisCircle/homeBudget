@@ -1,10 +1,27 @@
-import { Link, Route, Routes } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Route, Routes } from 'react-router-dom'
 import './App.css'
 import DashboardPage from './pages/DashboardPage.jsx'
 import { pages } from './pageRegistry.jsx'
+import { api } from './services/api'
+import { getAppVersion, getGitSha } from './version.js'
+
+function navLinkClassName({ isActive }) {
+  return isActive ? 'active' : undefined
+}
 
 function PageLink({ page }) {
-  return <Link to={page.path}>{page.label}</Link>
+  return (
+    <NavLink to={page.path} className={navLinkClassName}>
+      {page.label}
+    </NavLink>
+  )
+}
+
+// Truncated to 7 characters for display, matching the short form `git`
+// itself shows - the full value is still available in the title tooltip.
+function shortSha(sha) {
+  return sha === 'unknown' ? sha : sha.slice(0, 7)
 }
 
 function App() {
@@ -13,12 +30,63 @@ function App() {
   // literal ":id" link in the nav or the home page list.
   const visiblePages = pages.filter((page) => !page.hidden)
 
+  const appVersion = getAppVersion()
+  const gitSha = getGitSha()
+
+  // `apiVersion` starts out `null` (still checking / not yet resolved)
+  // rather than an object with blank fields, so "unreachable" and "haven't
+  // heard back yet" don't have to be told apart by inspecting empty strings.
+  const [apiVersion, setApiVersion] = useState(null)
+  const [apiUnreachable, setApiUnreachable] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    api.get('/version')
+      .then((response) => {
+        if (!cancelled) {
+          setApiVersion(response.data)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setApiUnreachable(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    document.title = `homeBudget v${appVersion}`
+  }, [appVersion])
+
+  // A mismatch is only meaningful when both sides actually know their own
+  // commit - two builds that both legitimately report "unknown" (e.g. local
+  // dev, where neither the frontend nor the backend has GIT_SHA set) must
+  // never be flagged as mismatched.
+  const mismatch = Boolean(
+    apiVersion
+    && gitSha !== 'unknown'
+    && apiVersion.commit !== 'unknown'
+    && apiVersion.commit !== gitSha
+  )
+
   return (
     <main className="app-shell">
       <header className="header">
-        <h1>homeBudget</h1>
+        <div className="header-brand">
+          <h1>homeBudget</h1>
+          <span className="version-badge" title={`commit ${gitSha}`}>
+            v{appVersion} &middot; {shortSha(gitSha)}
+          </span>
+        </div>
         <nav className="nav-links">
-          <Link to="/">Home</Link>
+          <NavLink to="/" end className={navLinkClassName}>
+            Home
+          </NavLink>
           {visiblePages.map((page) => (
             <PageLink key={page.path} page={page} />
           ))}
@@ -33,6 +101,19 @@ function App() {
           <Route key={page.path} path={page.path} element={page.element} />
         ))}
       </Routes>
+
+      <footer className="footer">
+        <span>
+          {apiUnreachable && 'API version unknown'}
+          {!apiUnreachable && !apiVersion && 'Checking API version...'}
+          {!apiUnreachable && apiVersion && `API v${apiVersion.version} · ${shortSha(apiVersion.commit)}`}
+        </span>
+        {mismatch && (
+          <span className="version-mismatch">
+            Frontend and API are on different builds - one may be stale.
+          </span>
+        )}
+      </footer>
     </main>
   )
 }

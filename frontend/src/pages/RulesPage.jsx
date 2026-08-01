@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import Amount from '../components/Amount.jsx'
+import ErrorState from '../components/ErrorState.jsx'
+import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
 
 const EMPTY_FORM = {
@@ -198,11 +201,7 @@ export default function RulesPage() {
     <section className="card">
       <h2>Rules</h2>
 
-      {actionError && (
-        <p>
-          <strong>Action failed:</strong> {actionError}
-        </p>
-      )}
+      {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
       <div className="card">
         <h3>Apply Rules</h3>
@@ -288,7 +287,7 @@ export default function RulesPage() {
             </label>
           </div>
 
-          <button type="submit" disabled={saving}>
+          <button type="submit" className="button-primary" disabled={saving}>
             {editingId ? 'Save Changes' : 'Add Rule'}
           </button>
           <button type="button" onClick={handlePreview} disabled={previewing}>
@@ -312,12 +311,8 @@ export default function RulesPage() {
       <div className="card">
         <h3>All Rules</h3>
 
-        {loading && <p>Loading rules...</p>}
-        {!loading && error && (
-          <p>
-            <strong>Failed to load rules:</strong> {error}
-          </p>
-        )}
+        {loading && <LoadingState message="Loading rules..." />}
+        {!loading && error && <ErrorState label="Failed to load rules:" message={error} />}
 
         {!loading && !error && (
           <table>
@@ -355,14 +350,14 @@ export default function RulesPage() {
                   </td>
                   <td>{rule.narration_pattern}</td>
                   <td>{rule.transaction_type}</td>
-                  <td>{rule.min_amount}</td>
-                  <td>{rule.max_amount}</td>
+                  <td><Amount value={rule.min_amount} neutral /></td>
+                  <td><Amount value={rule.max_amount} neutral /></td>
                   <td>{rule.category_name}</td>
                   <td>
                     <button type="button" onClick={() => startEdit(rule)}>
                       Edit
                     </button>
-                    <button type="button" onClick={() => handleDelete(rule.id)}>
+                    <button type="button" className="button-danger" onClick={() => handleDelete(rule.id)}>
                       Delete
                     </button>
                   </td>

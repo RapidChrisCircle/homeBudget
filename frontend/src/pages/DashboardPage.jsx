@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import Amount from '../components/Amount.jsx'
+import EmptyState from '../components/EmptyState.jsx'
+import ErrorState from '../components/ErrorState.jsx'
+import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
-import { formatAmount, formatBalance, uncategorizedLedgerLink } from '../utils/format.js'
+import { formatBalance, uncategorizedLedgerLink } from '../utils/format.js'
 
 const RECENT_LIMIT = 5
 
@@ -63,7 +67,7 @@ export default function DashboardPage() {
     return (
       <section className="card">
         <h2>Dashboard</h2>
-        <p>Loading dashboard...</p>
+        <LoadingState message="Loading dashboard..." />
       </section>
     )
   }
@@ -72,9 +76,7 @@ export default function DashboardPage() {
     return (
       <section className="card">
         <h2>Dashboard</h2>
-        <p>
-          <strong>Failed to load dashboard:</strong> {error}
-        </p>
+        <ErrorState label="Failed to load dashboard:" message={error} />
       </section>
     )
   }
@@ -83,8 +85,9 @@ export default function DashboardPage() {
     return (
       <section className="card">
         <h2>Dashboard</h2>
-        <p>No transactions imported yet.</p>
-        <Link to="/transactions">Import a bank statement to get started</Link>
+        <EmptyState message="No transactions imported yet.">
+          <Link to="/transactions">Import a bank statement to get started</Link>
+        </EmptyState>
       </section>
     )
   }
@@ -127,7 +130,7 @@ export default function DashboardPage() {
         )}
         {withBalances.length > 0 && (
           <p>
-            Combined balance: {formatAmount(combined)}{' '}
+            Combined balance: <Amount value={combined} />{' '}
             <span title="A straight sum of each account's latest bank balance — an everyday account and a credit card are added together as-is, so this is not net worth.">
               (sum of raw bank balances)
             </span>
@@ -143,15 +146,15 @@ export default function DashboardPage() {
           <tbody>
             <tr>
               <td>Total income</td>
-              <td>{formatAmount(summary.total_income)}</td>
+              <td><Amount value={summary.total_income} neutral /></td>
             </tr>
             <tr>
               <td>Total spending</td>
-              <td>{formatAmount(summary.total_spending)}</td>
+              <td><Amount value={summary.total_spending} neutral /></td>
             </tr>
             <tr>
               <td>Net saved</td>
-              <td>{formatAmount(summary.net_saved)}</td>
+              <td><Amount value={summary.net_saved} /></td>
             </tr>
           </tbody>
         </table>
@@ -175,9 +178,9 @@ export default function DashboardPage() {
               {overBudget.map((line) => (
                 <tr key={line.category_id}>
                   <td>{line.category_name}</td>
-                  <td>{formatAmount(line.budget_amount)}</td>
-                  <td>{formatAmount(line.actual)}</td>
-                  <td>{formatAmount(Math.abs(Number(line.difference)))}</td>
+                  <td><Amount value={line.budget_amount} neutral /></td>
+                  <td><Amount value={line.actual} neutral /></td>
+                  <td><Amount value={Math.abs(Number(line.difference))} neutral className="amount-negative" /></td>
                 </tr>
               ))}
             </tbody>
@@ -208,12 +211,12 @@ export default function DashboardPage() {
                     <tr key={`${item.account_id}-${item.narration_key}`}>
                       <td>{item.merchant}</td>
                       <td>{item.next_due_date}</td>
-                      <td>{formatAmount(item.typical_amount)}</td>
+                      <td><Amount value={item.typical_amount} neutral /></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <p>Due in the next 14 days: {formatAmount(recurringSummary.due_soon_total)}</p>
+              <p>Due in the next 14 days: <Amount value={recurringSummary.due_soon_total} neutral /></p>
             </>
           )}
           {dueSoon.length === 0 && <p>Nothing due in the next 14 days.</p>}
@@ -232,7 +235,7 @@ export default function DashboardPage() {
         <h3>Uncategorized</h3>
         <p>
           {uncategorized.uncategorized_count} of {uncategorized.transaction_count} transaction(s) this
-          month are uncategorized (net {formatAmount(uncategorized.net_total)}). They are excluded from
+          month are uncategorized (net <Amount value={uncategorized.net_total} />). They are excluded from
           the summary above.
         </p>
         <Link to={uncategorizedLedgerLink(report.start_date, report.end_date)}>
@@ -259,8 +262,8 @@ export default function DashboardPage() {
                 <td>{transaction.transaction_date}</td>
                 <td>{transaction.account_name || transaction.account_number}</td>
                 <td>{transaction.narration}</td>
-                <td>{formatAmount(transaction.debit)}</td>
-                <td>{formatAmount(transaction.credit)}</td>
+                <td><Amount value={transaction.debit} /></td>
+                <td><Amount value={transaction.credit} /></td>
                 <td>{transaction.category_name || 'Uncategorized'}</td>
               </tr>
             ))}

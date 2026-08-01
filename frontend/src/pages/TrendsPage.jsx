@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import BarChart from '../components/charts/BarChart.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
+import EmptyState from '../components/EmptyState.jsx'
+import ErrorState from '../components/ErrorState.jsx'
+import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
 import { formatAmount } from '../utils/format.js'
 
@@ -86,7 +89,7 @@ export default function TrendsPage() {
     return (
       <section className="card">
         <h2>Trends</h2>
-        <p>Loading trends...</p>
+        <LoadingState message="Loading trends..." />
       </section>
     )
   }
@@ -95,9 +98,7 @@ export default function TrendsPage() {
     return (
       <section className="card">
         <h2>Trends</h2>
-        <p>
-          <strong>Failed to load trends:</strong> {error}
-        </p>
+        <ErrorState label="Failed to load trends:" message={error} />
       </section>
     )
   }
@@ -130,7 +131,7 @@ export default function TrendsPage() {
       <section className="card">
         <h2>Trends</h2>
         {monthLabel}
-        <p>Not enough history yet - import a few months of statements and check back.</p>
+        <EmptyState message="Not enough history yet - import a few months of statements and check back." />
       </section>
     )
   }
@@ -155,7 +156,7 @@ export default function TrendsPage() {
       <div className="card">
         <h3>Spending by Category Over Time</h3>
         {categorySeries.length === 0 ? (
-          <p>No categorized spending in this window yet.</p>
+          <EmptyState message="No categorized spending in this window yet." />
         ) : (
           <LineChart
             periods={periodLabels}
@@ -186,7 +187,7 @@ export default function TrendsPage() {
             title="Budget vs actual"
           />
         ) : (
-          <p>No categories have a budget set yet.</p>
+          <EmptyState message="No categories have a budget set yet." />
         )}
       </div>
     </section>

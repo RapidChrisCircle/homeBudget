@@ -18,6 +18,13 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 | `/trends` | Multi-month charts: spending by category, income vs spending, budget vs actual |
 | `/forecast` | Projected account balances for the next few months |
 
+## UI conventions
+
+- **Design tokens** (`frontend/src/index.css`) — colors, spacing, radii, and shadows are CSS custom properties, with light and dark values defined together under `prefers-color-scheme` rather than as a second stylesheet. Element-level styling (buttons, forms, tables, cards, focus states) lives in `frontend/src/App.css` and applies by tag/class, so most pages carry no page-specific CSS at all.
+- **`<Amount>`** (`frontend/src/components/Amount.jsx`) renders every money value app-wide: tabular numerals, two decimals, right-aligned in table cells. It colors by sign unless `neutral` is passed — `neutral` is for any figure that's a pure magnitude rather than a directional value (a budget, a spend total); combining `neutral` with an explicit `className` is for the rarer case where a raw value's sign doesn't match its domain meaning (e.g. an already-absolute "over budget" figure, or a recurring outflow that's always positive but should still read as a cost).
+- **`<Badge>`** (`frontend/src/components/Badge.jsx`) is the one status-marker component (`auto`, `overridden`, `(over)`, recurring status), with five tones (`neutral`/`info`/`success`/`danger`/`warning`).
+- **`<LoadingState>` / `<ErrorState>` / `<EmptyState>`** (`frontend/src/components/`) standardize the loading/error/empty markup every page needs, in place of each page hand-rolling its own `<p>`.
+
 ## Importing
 
 Upload a bank export on `/transactions`. One header layout is currently recognised and auto-detected:
@@ -163,6 +170,18 @@ python3 -m alembic revision --autogenerate -m "describe the change"
 Review the generated file in `backend/alembic/versions/` before committing — autogenerate is a starting point, not always correct as-is.
 
 **The full migration chain cannot be run against SQLite from scratch** — an early migration (`cee3a8016863`) `ALTER`s a table to add a foreign key constraint, which SQLite refuses without batch-mode rewriting. This only matters if you're testing migrations somewhere without Postgres: a single new migration can still be checked in isolation by building the schema up to its parent revision directly from the models (`Base.metadata.create_all`, excluding the new table), stamping Alembic at that revision, then letting `upgrade`/`downgrade` run just the one new migration. That proves the DDL is syntactically valid and reversible — it does not prove Postgres-specific behaviour (e.g. `server_default=sa.text('now()')` is accepted by SQLite's `CREATE TABLE` but isn't the same guarantee). Always confirm against real Postgres before relying on a new migration in production.
+
+## Versioning
+
+The app reports its own build version and commit in two places — the frontend header/footer, and `GET /api/version` on the backend — resolved independently on each side rather than as one shared value, since the `api` and `web` images are built and published independently (see [QNAP Deployment](#qnap-deployment) below) and can legitimately end up on different builds after a partial redeploy.
+
+- **Source of truth**: the repo-root `VERSION` file (hand-bumped per release, e.g. `0.11.0`).
+- **CI** (`.github/workflows/deploy.yml`) reads `VERSION` and passes it, plus the commit SHA, as Docker build args (`APP_VERSION`, `GIT_SHA`) to both image builds.
+- **Backend** (`backend/app/version.py`) resolves `APP_VERSION`/`GIT_SHA` env vars first (set from those build args), falling back to reading the `VERSION` file directly — which covers local dev, where the full repo checkout is present but the env vars aren't — then to `"dev"`/`"unknown"`. It never raises: a misconfigured image should show a wrong-looking version, not fail to boot.
+- **Frontend** (`frontend/src/version.js`) reads the same two values, injected as build-time literals by `vite.config.js`'s `define` block from the same env vars; outside a real Docker build (e.g. local dev) it falls back to `"dev"`/`"unknown"` the same way.
+- The header shows `v<version> · <short-sha>` (full SHA in the tooltip) and the tab title becomes `homeBudget v<version>`. The footer fetches `GET /api/version`; if the frontend and API report different commits (and neither is `"unknown"`), a mismatch notice appears. An **unreachable** API shows "API version unknown" instead — a down API and a stale one are different problems and are never rendered the same way.
+
+Locally, with no Docker build args in play, both sides just show `dev`/`unknown` with no mismatch warning.
 
 ## QNAP Deployment
 

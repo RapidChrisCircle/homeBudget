@@ -165,7 +165,14 @@ describe('DashboardPage', () => {
 
     renderPage()
 
-    await waitFor(() => expect(screen.getByText(/Combined balance: 900.00/)).toBeInTheDocument())
+    // "Combined balance: " and the amount are separate DOM nodes now that
+    // the amount renders via <Amount>, so match on the paragraph's full
+    // text content rather than a single text node.
+    await waitFor(() => {
+      expect(
+        screen.getByText((_, el) => el?.tagName === 'P' && el.textContent.includes('Combined balance: 900.00'))
+      ).toBeInTheDocument()
+    })
   })
 
   it('omits accounts with no balance from the combined total', async () => {
@@ -175,7 +182,11 @@ describe('DashboardPage', () => {
 
     renderPage()
 
-    await waitFor(() => expect(screen.getByText(/Combined balance: 1200.50/)).toBeInTheDocument())
+    await waitFor(() => {
+      expect(
+        screen.getByText((_, el) => el?.tagName === 'P' && el.textContent.includes('Combined balance: 1200.50'))
+      ).toBeInTheDocument()
+    })
     expect(screen.getByText('No transactions yet')).toBeInTheDocument()
   })
 
@@ -303,7 +314,9 @@ describe('DashboardPage', () => {
     await waitFor(() => expect(screen.getByText('Recurring')).toBeInTheDocument())
 
     expect(screen.getByText('NETFLIX.COM')).toBeInTheDocument()
-    expect(screen.getByText(/Due in the next 14 days: 15.99/)).toBeInTheDocument()
+    expect(
+      screen.getByText((_, el) => el?.tagName === 'P' && el.textContent.includes('Due in the next 14 days: 15.99'))
+    ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'See all recurring payments' })).toHaveAttribute(
       'href',
       '/recurring'

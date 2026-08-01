@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
+import Amount from '../components/Amount.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
+import EmptyState from '../components/EmptyState.jsx'
+import ErrorState from '../components/ErrorState.jsx'
+import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
 import { formatAmount } from '../utils/format.js'
 
@@ -43,7 +47,7 @@ export default function ForecastPage() {
     return (
       <section className="card">
         <h2>Forecast</h2>
-        <p>Loading forecast...</p>
+        <LoadingState message="Loading forecast..." />
       </section>
     )
   }
@@ -52,9 +56,7 @@ export default function ForecastPage() {
     return (
       <section className="card">
         <h2>Forecast</h2>
-        <p>
-          <strong>Failed to load forecast:</strong> {error}
-        </p>
+        <ErrorState label="Failed to load forecast:" message={error} />
       </section>
     )
   }
@@ -63,7 +65,7 @@ export default function ForecastPage() {
     return (
       <section className="card">
         <h2>Forecast</h2>
-        <p>Not enough history yet - import a few months of statements and check back.</p>
+        <EmptyState message="Not enough history yet - import a few months of statements and check back." />
       </section>
     )
   }
@@ -102,7 +104,9 @@ export default function ForecastPage() {
       {accounts.map((account) => (
         <div className="card" key={account.account_id}>
           <h3>{account.account_name || `Account ${account.account_id}`}</h3>
-          <p>Estimated daily run rate (excluding recurring commitments): {formatAmount(account.daily_run_rate)}</p>
+          <p>
+            Estimated daily run rate (excluding recurring commitments): <Amount value={account.daily_run_rate} />
+          </p>
           <table>
             <thead>
               <tr>
@@ -121,11 +125,11 @@ export default function ForecastPage() {
                     {month.label}
                     {month.is_partial && ' (partial)'}
                   </td>
-                  <td>{formatAmount(month.opening)}</td>
-                  <td>{formatAmount(month.recurring_in)}</td>
-                  <td>{formatAmount(month.recurring_out)}</td>
-                  <td>{formatAmount(month.estimated_other)}</td>
-                  <td>{formatAmount(month.closing)}</td>
+                  <td><Amount value={month.opening} /></td>
+                  <td><Amount value={month.recurring_in} /></td>
+                  <td><Amount value={month.recurring_out} neutral /></td>
+                  <td><Amount value={month.estimated_other} /></td>
+                  <td><Amount value={month.closing} /></td>
                 </tr>
               ))}
             </tbody>
@@ -135,7 +139,7 @@ export default function ForecastPage() {
 
       <div className="card">
         <h3>Upcoming Commitments</h3>
-        {upcoming.length === 0 && <p>No known recurring commitments in this window.</p>}
+        {upcoming.length === 0 && <EmptyState message="No known recurring commitments in this window." />}
         {upcoming.length > 0 && (
           <table>
             <thead>
@@ -151,7 +155,13 @@ export default function ForecastPage() {
                 <tr key={`${item.due_date}-${item.account_id}-${item.merchant}-${index}`}>
                   <td>{item.due_date}</td>
                   <td>{item.merchant}</td>
-                  <td>{formatAmount(item.amount)}</td>
+                  <td>
+                    <Amount
+                      value={item.amount}
+                      neutral
+                      className={item.direction === 'inflow' ? 'amount-positive' : 'amount-negative'}
+                    />
+                  </td>
                   <td>{item.direction === 'inflow' ? 'In' : 'Out'}</td>
                 </tr>
               ))}

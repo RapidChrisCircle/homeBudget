@@ -12,6 +12,13 @@ export default defineConfig({
   esbuild: {
     jsx: 'automatic',
   },
+  // Build-time literal substitution, read by src/version.js. Set by the
+  // Docker build (see frontend/Dockerfile and .github/workflows/deploy.yml);
+  // absent in local dev, where the 'dev' / 'unknown' fallback applies.
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.APP_VERSION || 'dev'),
+    __GIT_SHA__: JSON.stringify(process.env.GIT_SHA || 'unknown'),
+  },
   test: {
     environment: 'jsdom',
     setupFiles: './src/test/setup.js',

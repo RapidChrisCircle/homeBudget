@@ -2,6 +2,15 @@
 
 FROM node:22.14-alpine AS build
 
+# Set via --build-arg by .github/workflows/deploy.yml, from the repo-root
+# VERSION file and the commit SHA. Must be ENV (not just ARG) before
+# `npm run build` runs - vite.config.js's `define` block reads these through
+# process.env at build time, and ARG alone isn't visible to RUN commands.
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
+ENV APP_VERSION=${APP_VERSION}
+ENV GIT_SHA=${GIT_SHA}
+
 WORKDIR /app
 
 COPY package*.json ./

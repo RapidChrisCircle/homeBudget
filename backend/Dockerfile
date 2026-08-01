@@ -13,6 +13,16 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 FROM python:3.12.8-slim
 
+# Set via --build-arg by .github/workflows/deploy.yml, from the repo-root
+# VERSION file and the commit SHA. Defaults here matter: they're what a
+# manual `docker build` without --build-arg actually produces, and
+# app/version.py falls back the same way when these env vars are absent
+# entirely (e.g. local dev outside Docker). See app/version.py's docstring.
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
+ENV APP_VERSION=${APP_VERSION}
+ENV GIT_SHA=${GIT_SHA}
+
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1

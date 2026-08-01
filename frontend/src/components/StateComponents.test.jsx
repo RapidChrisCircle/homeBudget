@@ -1,0 +1,41 @@
+import { render, screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+import EmptyState from './EmptyState.jsx'
+import ErrorState from './ErrorState.jsx'
+import LoadingState from './LoadingState.jsx'
+
+describe('LoadingState', () => {
+  it('renders the given message with a status role', () => {
+    render(<LoadingState message="Loading transactions..." />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading transactions...')
+  })
+})
+
+describe('ErrorState', () => {
+  it('renders the label and message with an alert role', () => {
+    render(<ErrorState label="Failed to load accounts:" message="Network Error" />)
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('Failed to load accounts: Network Error')
+    expect(screen.getByText('Failed to load accounts:').tagName).toBe('STRONG')
+  })
+})
+
+describe('EmptyState', () => {
+  it('renders the message', () => {
+    render(<EmptyState message="No accounts yet." />)
+
+    expect(screen.getByText('No accounts yet.')).toBeInTheDocument()
+  })
+
+  it('renders optional follow-up children', () => {
+    render(
+      <EmptyState message="No transactions imported yet.">
+        <a href="/transactions">Import a bank statement to get started</a>
+      </EmptyState>
+    )
+
+    expect(screen.getByRole('link', { name: 'Import a bank statement to get started' })).toBeInTheDocument()
+  })
+})

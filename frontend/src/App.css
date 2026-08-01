@@ -1,52 +1,368 @@
+/* Page shell */
+
 .app-shell {
-  max-width: 860px;
+  max-width: 1120px;
+  width: 100%;
   margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: var(--space-5) var(--space-4) var(--space-8);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
+
+/* Header + nav */
 
 .header {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 20px;
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.header-brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 .header h1 {
   margin: 0;
-  font-size: 1.8rem;
+  font-size: 1.5rem;
+}
+
+.version-badge {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
 }
 
 .nav-links {
   display: flex;
-  gap: 12px;
+  gap: var(--space-1);
+  flex-wrap: wrap;
 }
+
+.nav-links a {
+  display: inline-block;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.nav-links a:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.nav-links a.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* Footer */
+
+.footer {
+  margin-top: var(--space-7);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.footer .version-mismatch {
+  color: var(--warning);
+  font-weight: 500;
+}
+
+/* Cards - the app's one layout primitive, nested up to 3 deep. Each nesting
+   level gets a slightly different surface so the hierarchy is visible
+   without relying on shadows alone. */
 
 .card {
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px;
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
   text-align: left;
-  background: var(--bg);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--space-5);
+}
+
+.card:last-child {
+  margin-bottom: 0;
+}
+
+.card .card {
+  background: var(--surface-2);
+  box-shadow: none;
+  margin-bottom: var(--space-4);
+}
+
+.card .card .card {
+  background: var(--surface-1);
+}
+
+.card > h2:first-child,
+.card > h3:first-child {
+  margin-bottom: var(--space-4);
 }
 
 .card ul {
-  margin-top: 8px;
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
 }
+
+/* Buttons */
+
+button {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--text-muted);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button + button {
+  margin-left: var(--space-2);
+}
+
+.button-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.button-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.button-danger {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.button-danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+
+.button-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent);
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.85rem;
+}
+
+.button-ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+/* Forms - every form in this app follows the same structure:
+     <form><div><label>Field name<input/></label></div>...<button/></form>
+   so field spacing and the label/input stack are handled generically here,
+   with no markup changes needed on any individual page. A <label> in a
+   column flex container stacks its text and its input child automatically -
+   text nodes become anonymous flex items too. */
+
+form > div {
+  margin-bottom: var(--space-4);
+}
+
+form label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  min-width: 220px;
+  max-width: 100%;
+}
+
+input[type='checkbox'] {
+  min-width: 0;
+  width: 16px;
+  height: 16px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Tables */
 
 .card table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 12px;
-  overflow-x: auto;
-  display: block;
+  margin-top: var(--space-3);
 }
 
 .card table th,
 .card table td {
   text-align: left;
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
+}
+
+.card table th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.card table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.card table tfoot td {
+  font-weight: 600;
+  border-bottom: none;
+  border-top: 2px solid var(--border-strong);
+}
+
+/* Table cells wide enough to scroll (rather than the whole table forcing
+   nowrap on every column, which was pushing every data-dense page into
+   horizontal scroll even for columns whose text would happily wrap). */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* Badges - the app's status/marker convention (auto-categorized, budget
+   overridden, over budget, recurring status) unified into one component. */
+
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
   white-space: nowrap;
+}
+
+.badge-neutral {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+.badge-info {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--accent);
+}
+
+.badge-success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.badge-danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.badge-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+/* Amount - tabular numerals so a column of money actually lines up. */
+
+.amount {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.amount-negative {
+  color: var(--danger);
+}
+
+.amount-positive {
+  color: var(--success);
+}
+
+td .amount,
+th .amount {
+  display: block;
+  text-align: right;
+}
+
+/* Pagination */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* State messages (loading / error / empty) */
+
+.state-message {
+  padding: var(--space-4) 0;
+  color: var(--text-secondary);
+}
+
+.state-message-error {
+  color: var(--danger);
+}
+
+.state-message-error strong {
+  color: var(--danger);
 }

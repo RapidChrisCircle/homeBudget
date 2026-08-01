@@ -6,7 +6,7 @@
 // URL) is exactly when the user most needs a way back.
 export default function Pagination({ pageInfo, onPageChange }) {
   return (
-    <div>
+    <div className="pagination">
       <button
         type="button"
         onClick={() => onPageChange(pageInfo.page - 1)}

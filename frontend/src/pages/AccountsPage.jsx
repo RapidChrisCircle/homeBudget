@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import ErrorState from '../components/ErrorState.jsx'
+import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
 import { formatBalance } from '../utils/format.js'
 
@@ -164,7 +166,7 @@ export default function AccountsPage() {
               />
             </label>
           </div>
-          <button type="submit" disabled={saving}>
+          <button type="submit" className="button-primary" disabled={saving}>
             {editingId ? 'Save Changes' : 'Add Account'}
           </button>
           {editingId && (
@@ -178,12 +180,8 @@ export default function AccountsPage() {
       <div className="card">
         <h3>All Accounts</h3>
 
-        {loading && <p>Loading accounts...</p>}
-        {!loading && error && (
-          <p>
-            <strong>Failed to load accounts:</strong> {error}
-          </p>
-        )}
+        {loading && <LoadingState message="Loading accounts..." />}
+        {!loading && error && <ErrorState label="Failed to load accounts:" message={error} />}
 
         {!loading && !error && (
           <table>
@@ -213,7 +211,7 @@ export default function AccountsPage() {
                     <button type="button" onClick={() => startEdit(account)}>
                       Edit
                     </button>
-                    <button type="button" onClick={() => handleDelete(account.id)}>
+                    <button type="button" className="button-danger" onClick={() => handleDelete(account.id)}>
                       Delete
                     </button>
                   </td>

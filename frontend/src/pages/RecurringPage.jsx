@@ -1,13 +1,24 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import Amount from '../components/Amount.jsx'
+import Badge from '../components/Badge.jsx'
+import ErrorState from '../components/ErrorState.jsx'
+import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
-import { formatAmount, recurringLedgerLink } from '../utils/format.js'
+import { recurringLedgerLink } from '../utils/format.js'
 
 const STATUS_LABELS = {
   active: 'Active',
   due_soon: 'Due soon',
   overdue: 'Overdue',
   ended: 'Ended',
+}
+
+const STATUS_TONES = {
+  active: 'neutral',
+  due_soon: 'info',
+  overdue: 'warning',
+  ended: 'danger',
 }
 
 function cadenceLabel(series) {
@@ -87,7 +98,7 @@ export default function RecurringPage() {
     return (
       <section className="card">
         <h2>Recurring</h2>
-        <p>Loading recurring payments...</p>
+        <LoadingState message="Loading recurring payments..." />
       </section>
     )
   }
@@ -96,9 +107,7 @@ export default function RecurringPage() {
     return (
       <section className="card">
         <h2>Recurring</h2>
-        <p>
-          <strong>Failed to load recurring payments:</strong> {error}
-        </p>
+        <ErrorState label="Failed to load recurring payments:" message={error} />
       </section>
     )
   }
@@ -110,11 +119,7 @@ export default function RecurringPage() {
     <section className="card">
       <h2>Recurring</h2>
 
-      {actionError && (
-        <p>
-          <strong>Action failed:</strong> {actionError}
-        </p>
-      )}
+      {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
       {asOf && <p>Based on transactions imported up to {asOf}.</p>}
 
@@ -125,8 +130,8 @@ export default function RecurringPage() {
       {active.length > 0 && (
         <>
           <p>
-            {summary.series_count} recurring payment(s), an estimated {formatAmount(summary.total_annual_cost)} a
-            year combined.
+            {summary.series_count} recurring payment(s), an estimated <Amount value={summary.total_annual_cost} neutral />{' '}
+            a year combined.
           </p>
 
           <table>
@@ -150,19 +155,21 @@ export default function RecurringPage() {
                   <td>{item.account_name}</td>
                   <td>{cadenceLabel(item)}</td>
                   <td>
-                    {formatAmount(item.typical_amount)}
+                    <Amount value={item.typical_amount} neutral />
                     {item.amount_varies && ' (varies)'}
                     {item.amount_changed && (
-                      <span title="Changed from its usual amount at the last occurrence"> (changed)</span>
+                      <Badge tone="warning" title="Changed from its usual amount at the last occurrence"> (changed)</Badge>
                     )}
                   </td>
                   <td>{item.last_date}</td>
                   <td>{item.next_due_date}</td>
-                  <td>{formatAmount(item.annual_cost)}</td>
-                  <td>{STATUS_LABELS[item.status] || item.status}</td>
+                  <td><Amount value={item.annual_cost} neutral /></td>
+                  <td>
+                    <Badge tone={STATUS_TONES[item.status] || 'neutral'}>{STATUS_LABELS[item.status] || item.status}</Badge>
+                  </td>
                   <td>
                     <Link to={recurringLedgerLink(item.account_id, item.merchant)}>View in ledger</Link>{' '}
-                    <button type="button" onClick={() => handleDismiss(item)}>
+                    <button type="button" className="button-ghost" onClick={() => handleDismiss(item)}>
                       Dismiss
                     </button>
                   </td>

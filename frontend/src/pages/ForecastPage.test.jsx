@@ -104,8 +104,13 @@ describe('ForecastPage', () => {
 
     render(<ForecastPage />)
 
+    // "Estimated daily run rate: " and the amount are separate DOM nodes
+    // now that the amount renders via <Amount>, so match on the paragraph's
+    // full text content rather than a single text node.
     await waitFor(() => {
-      expect(screen.getByText(/Estimated daily run rate.*-10.00/)).toBeInTheDocument()
+      expect(
+        screen.getByText((_, el) => el?.tagName === 'P' && el.textContent.includes('Estimated daily run rate') && el.textContent.includes('-10.00'))
+      ).toBeInTheDocument()
     })
   })
 

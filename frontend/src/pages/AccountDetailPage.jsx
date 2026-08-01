@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
+import Amount from '../components/Amount.jsx'
+import Badge from '../components/Badge.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
+import ErrorState from '../components/ErrorState.jsx'
 import LedgerFilters from '../components/LedgerFilters.jsx'
+import LoadingState from '../components/LoadingState.jsx'
 import Pagination from '../components/Pagination.jsx'
 import {
   EMPTY_FILTERS,
@@ -162,7 +166,7 @@ export default function AccountDetailPage() {
     return (
       <section className="card">
         <h2>Account</h2>
-        <p>Loading account...</p>
+        <LoadingState message="Loading account..." />
       </section>
     )
   }
@@ -171,9 +175,7 @@ export default function AccountDetailPage() {
     return (
       <section className="card">
         <h2>Account</h2>
-        <p>
-          <strong>Failed to load account:</strong> {error}
-        </p>
+        <ErrorState label="Failed to load account:" message={error} />
       </section>
     )
   }
@@ -219,11 +221,7 @@ export default function AccountDetailPage() {
       <div className="card">
         <h3>Transactions</h3>
 
-        {actionError && (
-          <p>
-            <strong>Action failed:</strong> {actionError}
-          </p>
-        )}
+        {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
         {transactions.length === 0 && <p>No transactions match these filters.</p>}
 
@@ -245,9 +243,9 @@ export default function AccountDetailPage() {
                 <tr key={transaction.id}>
                   <td>{transaction.transaction_date}</td>
                   <td>{transaction.narration}</td>
-                  <td>{formatAmount(transaction.debit)}</td>
-                  <td>{formatAmount(transaction.credit)}</td>
-                  <td>{formatAmount(transaction.balance)}</td>
+                  <td><Amount value={transaction.debit} /></td>
+                  <td><Amount value={transaction.credit} /></td>
+                  <td><Amount value={transaction.balance} neutral /></td>
                   <td>{transaction.transaction_type}</td>
                   <td>
                     <select
@@ -263,7 +261,7 @@ export default function AccountDetailPage() {
                       ))}
                     </select>
                     {transaction.categorized_by_rule_id && (
-                      <span title="Set automatically by a rule"> auto</span>
+                      <Badge tone="info" title="Set automatically by a rule">auto</Badge>
                     )}
                   </td>
                 </tr>
