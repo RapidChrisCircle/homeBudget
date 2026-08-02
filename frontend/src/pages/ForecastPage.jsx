@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Amount from '../components/Amount.jsx'
+import Card from '../components/Card.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
@@ -91,19 +92,21 @@ export default function ForecastPage() {
         guarantee - a month that closes comfortably can still dip lower partway through it.
       </p>
 
-      <div className="card">
-        <h3>Projected Closing Balance</h3>
+      <Card id="forecast-closing-balance" title="Projected Closing Balance">
         <LineChart
           periods={periodLabels}
           series={balanceSeries}
           formatValue={formatAmount}
           title="Projected closing balance"
         />
-      </div>
+      </Card>
 
       {accounts.map((account) => (
-        <div className="card" key={account.account_id}>
-          <h3>{account.account_name || `Account ${account.account_id}`}</h3>
+        <Card
+          key={account.account_id}
+          id={`forecast-account-${account.account_id}`}
+          title={account.account_name || `Account ${account.account_id}`}
+        >
           <p>
             Estimated daily run rate (excluding recurring commitments): <Amount value={account.daily_run_rate} />
           </p>
@@ -134,11 +137,10 @@ export default function ForecastPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Card>
       ))}
 
-      <div className="card">
-        <h3>Upcoming Commitments</h3>
+      <Card id="forecast-upcoming" title="Upcoming Commitments">
         {upcoming.length === 0 && <EmptyState message="No known recurring commitments in this window." />}
         {upcoming.length > 0 && (
           <table>
@@ -168,7 +170,7 @@ export default function ForecastPage() {
             </tbody>
           </table>
         )}
-      </div>
+      </Card>
     </section>
   )
 }

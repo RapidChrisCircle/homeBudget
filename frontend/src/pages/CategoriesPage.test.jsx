@@ -59,6 +59,21 @@ function budgetsSection() {
   return screen.getByText('Monthly Budgets').closest('.card')
 }
 
+// A grouped category's name appears twice once it has children - once as
+// its own group Card's collapsible heading, once as its row inside that
+// same group's table - so plain getByText is ambiguous. This finds the
+// specific <tr>.
+function categoryRow(container, name) {
+  const row = within(container)
+    .getAllByText(name)
+    .map((el) => el.closest('tr'))
+    .find(Boolean)
+  if (!row) {
+    throw new Error(`No <tr> found for "${name}"`)
+  }
+  return row
+}
+
 describe('CategoriesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -88,13 +103,17 @@ describe('CategoriesPage', () => {
 
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Groceries' } })
     fireEvent.change(screen.getByLabelText('Standing monthly budget'), { target: { value: '800' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add Category' }))
+    // Two "Add Category" buttons now exist - the collapsible card's own
+    // toggle and the form's submit button, which is rendered last.
+    const addCategoryButtons = screen.getAllByRole('button', { name: 'Add Category' })
+    fireEvent.click(addCategoryButtons[addCategoryButtons.length - 1])
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/categories', {
         name: 'Groceries',
         kind: 'expense',
         budget_amount: '800',
+        parent_id: null,
       })
     })
   })
@@ -109,13 +128,17 @@ describe('CategoriesPage', () => {
 
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Salary' } })
     fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'income' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add Category' }))
+    // Two "Add Category" buttons now exist - the collapsible card's own
+    // toggle and the form's submit button, which is rendered last.
+    const addCategoryButtons = screen.getAllByRole('button', { name: 'Add Category' })
+    fireEvent.click(addCategoryButtons[addCategoryButtons.length - 1])
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/categories', {
         name: 'Salary',
         kind: 'income',
         budget_amount: null,
+        parent_id: null,
       })
     })
   })
@@ -387,5 +410,112 @@ describe('CategoriesPage', () => {
     await waitForBudgetsLoaded()
 
     expect(screen.getByText('No expense categories yet.')).toBeInTheDocument()
+  })
+
+  // --- Presets ---------------------------------------------------------
+
+  it('applies the Queensland household preset and shows a summary message', async () => {
+    mockLoad()
+    api.post.mockResolvedValue({ data: { created: ['Housing', 'Mortgage/Rent'], skipped: ['Groceries'] } })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load Queensland household preset' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/categories/preset')
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Created 2 categories, skipped 1 already present.')).toBeInTheDocument()
+    })
+  })
+
+  it('shows an error message when applying the preset fails', async () => {
+    mockLoad()
+    api.post.mockRejectedValue({ response: { data: { detail: 'database unavailable' } } })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load Queensland household preset' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/database unavailable/)).toBeInTheDocument()
+    })
+  })
+
+  // --- Sub-categories ----------------------------------------------------
+
+  it('offers only top-level categories as a parent option', async () => {
+    const parent = { id: 1, name: 'Housing', kind: 'expense', budget_amount: null, parent_id: null }
+    const child = { id: 2, name: 'Rent', kind: 'expense', budget_amount: '1500.00', parent_id: 1 }
+    mockLoad({ categories: [parent, child], budgetData: { ...sampleBudgetData, categories: [] } })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(categoryRow(categoriesSection(), 'Housing')).toBeTruthy())
+
+    const options = Array.from(screen.getByLabelText('Parent category').options).map((o) => o.textContent)
+    expect(options).toEqual(['No parent (top-level)', 'Housing'])
+  })
+
+  it('hides the parent field and explains why when editing a category that has children', async () => {
+    const parent = { id: 1, name: 'Housing', kind: 'expense', budget_amount: null, parent_id: null }
+    const child = { id: 2, name: 'Rent', kind: 'expense', budget_amount: '1500.00', parent_id: 1 }
+    mockLoad({ categories: [parent, child], budgetData: { ...sampleBudgetData, categories: [] } })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(categoryRow(categoriesSection(), 'Housing')).toBeTruthy())
+
+    const housingRow = categoryRow(categoriesSection(), 'Housing')
+    fireEvent.click(within(housingRow).getByRole('button', { name: 'Edit' }))
+
+    expect(screen.queryByLabelText('Parent category')).not.toBeInTheDocument()
+    expect(screen.getByText(/cannot be given a parent itself/)).toBeInTheDocument()
+    // The backend coerces a group's own budget to null too - the field
+    // shouldn't be offered as if setting it would do anything.
+    expect(screen.queryByLabelText('Standing monthly budget')).not.toBeInTheDocument()
+  })
+
+  it("groups categories under their parent, with the parent row showing the sum of its children's budgets", async () => {
+    const parent = { id: 1, name: 'Housing', kind: 'expense', budget_amount: null, parent_id: null }
+    const childA = { id: 2, name: 'Rent', kind: 'expense', budget_amount: '1500.00', parent_id: 1 }
+    const childB = { id: 3, name: 'Council Rates', kind: 'expense', budget_amount: '400.00', parent_id: 1 }
+    const standalone = { id: 4, name: 'Salary', kind: 'income', budget_amount: null, parent_id: null }
+    mockLoad({
+      categories: [parent, childA, childB, standalone],
+      budgetData: { ...sampleBudgetData, categories: [] },
+    })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(categoryRow(categoriesSection(), 'Housing')).toBeTruthy())
+
+    expect(within(categoriesSection()).getByText('Rent')).toBeInTheDocument()
+    expect(within(categoriesSection()).getByText('Council Rates')).toBeInTheDocument()
+
+    // The parent row shows the sum of its children (1500 + 400), not its
+    // own (null) budget_amount.
+    const housingRow = categoryRow(categoriesSection(), 'Housing')
+    expect(within(housingRow).getByText('1900.00')).toBeInTheDocument()
+
+    // The standalone (no parent, no children) category lands in "Other".
+    expect(within(categoriesSection()).getByText('Other')).toBeInTheDocument()
+    expect(within(categoriesSection()).getByText('Salary')).toBeInTheDocument()
+  })
+
+  it('renders one flat table with no group headings when nothing has a parent', async () => {
+    mockLoad()
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    expect(within(categoriesSection()).queryByText('Other')).not.toBeInTheDocument()
+    expect(within(categoriesSection()).queryByText('group')).not.toBeInTheDocument()
   })
 })

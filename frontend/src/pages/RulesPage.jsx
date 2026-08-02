@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
+import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
@@ -203,8 +204,7 @@ export default function RulesPage() {
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
-      <div className="card">
-        <h3>Apply Rules</h3>
+      <Card id="rules-apply" title="Apply Rules">
         <p>
           Re-runs every rule over your existing transactions. Categories you set by hand are never
           changed.
@@ -213,11 +213,9 @@ export default function RulesPage() {
           Apply rules now
         </button>
         {applyMessage && <p>{applyMessage}</p>}
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>{editingId ? 'Edit Rule' : 'Add Rule'}</h3>
-
+      <Card id="rules-form" title={editingId ? 'Edit Rule' : 'Add Rule'}>
         <p>
           Rules are checked top to bottom and the first match wins. Amounts are compared as positive
           dollar values regardless of debit or credit &mdash; set Transaction type to restrict a rule
@@ -306,11 +304,9 @@ export default function RulesPage() {
             be categorized now.
           </p>
         )}
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>All Rules</h3>
-
+      <Card id="rules-list" title="All Rules">
         {loading && <LoadingState message="Loading rules..." />}
         {!loading && error && <ErrorState label="Failed to load rules:" message={error} />}
 
@@ -366,7 +362,7 @@ export default function RulesPage() {
             </tbody>
           </table>
         )}
-      </div>
+      </Card>
     </section>
   )
 }

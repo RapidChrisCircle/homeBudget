@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
+import Card from '../components/Card.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
@@ -100,8 +101,7 @@ export default function ReportsPage() {
         be excluded.
       </p>
 
-      <div className="card">
-        <h3>Month</h3>
+      <Card id="reports-month" title="Month">
         <label>
           Select month
           <select value={`${report.year}-${report.month}`} onChange={handlePeriodChange}>
@@ -112,10 +112,11 @@ export default function ReportsPage() {
             ))}
           </select>
         </label>
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>Monthly Summary &mdash; {report.label}</h3>
+      {/* id is fixed rather than derived from the title, since the title
+          text itself changes every month. */}
+      <Card id="reports-monthly-summary" title={<>Monthly Summary &mdash; {report.label}</>}>
         <table>
           <tbody>
             <tr>
@@ -132,10 +133,9 @@ export default function ReportsPage() {
             </tr>
           </tbody>
         </table>
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>Uncategorized Review</h3>
+      <Card id="reports-uncategorized" title="Uncategorized Review">
         <p>
           {uncategorized.uncategorized_count} of {uncategorized.transaction_count} transaction(s) this
           month are uncategorized (net <Amount value={uncategorized.net_total} />). The summary above only
@@ -144,10 +144,9 @@ export default function ReportsPage() {
         <Link to={uncategorizedLedgerLink(report.start_date, report.end_date)}>
           Review uncategorized transactions
         </Link>
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>Budget vs Actual</h3>
+      <Card id="reports-budget-vs-actual" title="Budget vs Actual">
         {budgets.length === 0 && <p>No activity in this month.</p>}
         {budgets.length > 0 && (
           <table>
@@ -181,10 +180,9 @@ export default function ReportsPage() {
             </tbody>
           </table>
         )}
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>Category Totals Over Time</h3>
+      <Card id="reports-category-totals" title="Category Totals Over Time">
         {grid.rows.length === 0 && <p>No activity in this period.</p>}
         {grid.rows.length > 0 && (
           <table>
@@ -210,7 +208,7 @@ export default function ReportsPage() {
             </tbody>
           </table>
         )}
-      </div>
+      </Card>
     </section>
   )
 }

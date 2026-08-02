@@ -43,6 +43,23 @@
   cursor: default;
 }
 
+/* Theme select - sits outside any <form>, like Pagination's rows-per-page
+   select, so it needs its own inline label layout rather than the generic
+   form-label column stack. */
+.theme-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.theme-select select {
+  font-size: 0.75rem;
+  min-width: 0;
+  padding: 2px var(--space-2);
+}
+
 .nav-links {
   display: flex;
   gap: var(--space-1);
@@ -120,6 +137,37 @@
 .card > h2:first-child,
 .card > h3:first-child {
   margin-bottom: var(--space-4);
+}
+
+/* Collapsible cards (components/Card.jsx) - the toggle button fills the
+   heading so the whole header row is clickable, not just the disclosure
+   icon. Reset to look like plain heading text; the generic button's own
+   hover/focus-visible rules elsewhere in this file still apply on top,
+   which is what gives the toggle its hover/focus feedback. */
+.card-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-toggle:hover {
+  color: var(--accent);
+}
+
+.card-toggle-icon {
+  font-size: 0.7em;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .card ul {

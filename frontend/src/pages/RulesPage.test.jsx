@@ -81,7 +81,10 @@ describe('RulesPage', () => {
 
     fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coles' } })
     fireEvent.change(screen.getByLabelText('Category'), { target: { value: '1' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add Rule' }))
+    // Two "Add Rule" buttons now exist - the collapsible card's own toggle
+    // and the form's submit button, which is rendered last.
+    const addRuleButtons = screen.getAllByRole('button', { name: 'Add Rule' })
+    fireEvent.click(addRuleButtons[addRuleButtons.length - 1])
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/category-rules', {

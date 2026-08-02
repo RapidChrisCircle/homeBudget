@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Amount from './Amount.jsx'
 import Badge from './Badge.jsx'
+import Card from './Card.jsx'
 import CategoryQuickAdd from './CategoryQuickAdd.jsx'
 import EmptyState from './EmptyState.jsx'
 import ErrorState from './ErrorState.jsx'
@@ -119,26 +120,22 @@ export default function TransactionGroups({ groupsQuery, categories, onCategoryC
 
   if (loading) {
     return (
-      <div className="card">
-        <h3>Similar Uncategorized</h3>
+      <Card id="transaction-groups" title="Similar Uncategorized">
         <LoadingState message="Loading similar transactions..." />
-      </div>
+      </Card>
     )
   }
 
   if (error) {
     return (
-      <div className="card">
-        <h3>Similar Uncategorized</h3>
+      <Card id="transaction-groups" title="Similar Uncategorized">
         <ErrorState label="Failed to load similar transactions:" message={error} />
-      </div>
+      </Card>
     )
   }
 
   return (
-    <div className="card">
-      <h3>Similar Uncategorized</h3>
-
+    <Card id="transaction-groups" title="Similar Uncategorized">
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
       {groups.length === 0 && (
@@ -187,6 +184,6 @@ export default function TransactionGroups({ groupsQuery, categories, onCategoryC
           </div>
         </div>
       ))}
-    </div>
+    </Card>
   )
 }

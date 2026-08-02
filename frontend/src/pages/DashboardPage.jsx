@@ -1,17 +1,24 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
+import Card from '../components/Card.jsx'
+import BarChart from '../components/charts/BarChart.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
-import { formatBalance, uncategorizedLedgerLink } from '../utils/format.js'
+import { formatAmount, formatBalance, uncategorizedLedgerLink } from '../utils/format.js'
 
 const RECENT_LIMIT = 5
+// A simple in/out picture, not the full multi-month analysis /trends
+// already gives a whole page to - 6 months is enough to see a trend at a
+// glance without turning the dashboard into a second Trends page.
+const CHART_MONTHS = 6
 
 export default function DashboardPage() {
   const [accounts, setAccounts] = useState([])
   const [report, setReport] = useState(null)
+  const [trends, setTrends] = useState(null)
   const [recent, setRecent] = useState([])
   const [transactionTotal, setTransactionTotal] = useState(0)
   const [recurringSeries, setRecurringSeries] = useState([])
@@ -32,13 +39,15 @@ export default function DashboardPage() {
     Promise.all([
       api.get('/accounts'),
       api.get('/reports/monthly?months=1'),
+      api.get(`/trends?months=${CHART_MONTHS}`),
       api.get(`/transactions?page_size=${RECENT_LIMIT}`),
       api.get('/recurring'),
     ])
-      .then(([accountsRes, reportRes, transactionsRes, recurringRes]) => {
+      .then(([accountsRes, reportRes, trendsRes, transactionsRes, recurringRes]) => {
         if (!cancelled) {
           setAccounts(accountsRes.data)
           setReport(reportRes.data)
+          setTrends(trendsRes.data)
           setRecent(transactionsRes.data.items)
           setTransactionTotal(transactionsRes.data.total)
           setRecurringSeries(recurringRes.data.series)
@@ -96,6 +105,16 @@ export default function DashboardPage() {
   const withBalances = accounts.filter((account) => account.balance !== null)
   const combined = withBalances.reduce((sum, account) => sum + Number(account.balance), 0)
   const overBudget = budgets.filter((line) => line.difference !== null && Number(line.difference) < 0)
+
+  // Deliberately NOT monthly.length > 0 - /trends outer-joins its grid (see
+  // reporting.category_grid's docstring), so a budgeted-but-idle category
+  // can make an otherwise-empty window look like it has data. Real activity
+  // in at least one of the charted months is the only honest signal, same
+  // check TrendsPage itself uses.
+  const monthlyTrend = trends?.monthly || []
+  const hasChartHistory = monthlyTrend.some(
+    (m) => Number(m.total_income) !== 0 || Number(m.total_spending) !== 0
+  )
   const dueSoon = recurringSeries
     .filter((item) => item.status === 'due_soon')
     .sort((a, b) => a.next_due_date.localeCompare(b.next_due_date))
@@ -105,8 +124,7 @@ export default function DashboardPage() {
     <section className="card">
       <h2>Dashboard</h2>
 
-      <div className="card">
-        <h3>Accounts</h3>
+      <Card id="dashboard-accounts" title="Accounts">
         {accounts.length === 0 && <p>No accounts yet.</p>}
         {accounts.length > 0 && (
           <table>
@@ -136,12 +154,27 @@ export default function DashboardPage() {
             </span>
           </p>
         )}
-      </div>
+      </Card>
 
-      <div className="card">
-        {/* The month shown is the most recent one WITH data, not necessarily
-            the current calendar month - so the label is not optional. */}
-        <h3>Summary &mdash; {report.label}</h3>
+      {hasChartHistory && (
+        <Card id="dashboard-income-vs-spending" title="Income vs Spending">
+          <BarChart
+            periods={trends.periods.map((p) => p.label)}
+            series={[
+              { label: 'Income', values: monthlyTrend.map((m) => Number(m.total_income)) },
+              { label: 'Spending', values: monthlyTrend.map((m) => Number(m.total_spending)) },
+            ]}
+            formatValue={formatAmount}
+            title="Income vs spending"
+          />
+        </Card>
+      )}
+
+      {/* The month shown is the most recent one WITH data, not necessarily
+          the current calendar month - so the label is not optional. id is
+          fixed rather than derived from the title, since the title text
+          itself changes every month. */}
+      <Card id="dashboard-summary" title={<>Summary &mdash; {report.label}</>}>
         <table>
           <tbody>
             <tr>
@@ -159,10 +192,9 @@ export default function DashboardPage() {
           </tbody>
         </table>
         <Link to="/reports">See full report</Link>
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>Needs Attention</h3>
+      <Card id="dashboard-needs-attention" title="Needs Attention">
         {overBudget.length === 0 && <p>Nothing over budget this month.</p>}
         {overBudget.length > 0 && (
           <table>
@@ -186,11 +218,10 @@ export default function DashboardPage() {
             </tbody>
           </table>
         )}
-      </div>
+      </Card>
 
       {recurringSummary && recurringSummary.series_count > 0 && (
-        <div className="card">
-          <h3>Recurring</h3>
+        <Card id="dashboard-recurring" title="Recurring">
           {/* "Due in the next 14 days" is measured from the ledger's own
               latest transaction, not today - see services/recurring.py. This
               caption is what stops that being misread as "14 days from now"
@@ -228,11 +259,10 @@ export default function DashboardPage() {
             </p>
           )}
           <Link to="/recurring">See all recurring payments</Link>
-        </div>
+        </Card>
       )}
 
-      <div className="card">
-        <h3>Uncategorized</h3>
+      <Card id="dashboard-uncategorized" title="Uncategorized">
         <p>
           {uncategorized.uncategorized_count} of {uncategorized.transaction_count} transaction(s) this
           month are uncategorized (net <Amount value={uncategorized.net_total} />). They are excluded from
@@ -241,10 +271,9 @@ export default function DashboardPage() {
         <Link to={uncategorizedLedgerLink(report.start_date, report.end_date)}>
           Review uncategorized transactions
         </Link>
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>Recent Activity</h3>
+      <Card id="dashboard-recent-activity" title="Recent Activity">
         <table>
           <thead>
             <tr>
@@ -270,7 +299,7 @@ export default function DashboardPage() {
           </tbody>
         </table>
         <Link to="/transactions">Go to the full ledger</Link>
-      </div>
+      </Card>
     </section>
   )
 }

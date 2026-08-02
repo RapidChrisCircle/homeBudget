@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.jsx'
@@ -47,10 +47,12 @@ function renderApp(initialEntries = ['/']) {
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    document.documentElement.removeAttribute('data-theme')
   })
 
   it('renders the frontend version and commit in the header', async () => {
@@ -122,5 +124,26 @@ describe('App', () => {
     renderApp()
 
     expect(document.title).toBe('homeBudget v0.11.0')
+  })
+
+  it('changing the Theme select applies the chosen theme to the document', async () => {
+    mockApi({ version: { version: '0.11.0', commit: 'unknown' } })
+
+    renderApp()
+
+    const select = screen.getByLabelText('Theme')
+    expect(select).toHaveValue('auto')
+
+    fireEvent.change(select, { target: { value: 'dark' } })
+
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    })
+
+    fireEvent.change(select, { target: { value: 'light' } })
+
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    })
   })
 })

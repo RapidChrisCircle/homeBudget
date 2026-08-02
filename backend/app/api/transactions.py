@@ -29,6 +29,33 @@ from ..services.ledger import (
 router = APIRouter()
 
 
+def _validate_assignable_category(db: Session, category_id: int | None) -> None:
+    """A transaction can only be assigned to a LEAF category - never one
+    that has children. Parents are grouping only (see api/categories.py's
+    module docstring); letting one be assigned directly would make "the
+    total for this parent" ambiguous between its own direct transactions
+    and its children's, which is exactly the roll-up question this feature
+    deliberately doesn't take on.
+    """
+
+    if category_id is None:
+        return
+
+    category = db.get(Category, category_id)
+
+    if category is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    if category.children:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This category has sub-categories and cannot be assigned directly - "
+                "choose one of its sub-categories instead"
+            ),
+        )
+
+
 @router.post("/transactions/import", response_model=ImportResultResponse, status_code=201)
 def import_transactions(
     file: UploadFile = File(...),
@@ -200,8 +227,7 @@ def update_transaction_category(
     if transaction is None:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    if payload.category_id is not None and db.get(Category, payload.category_id) is None:
-        raise HTTPException(status_code=404, detail="Category not found")
+    _validate_assignable_category(db, payload.category_id)
 
     # Setting a category by hand makes it permanent - clearing the rule
     # marker takes this transaction out of scope for future rule runs.
@@ -219,8 +245,7 @@ def bulk_update_transaction_category(
     db: Session = Depends(get_db)
 ):
 
-    if payload.category_id is not None and db.get(Category, payload.category_id) is None:
-        raise HTTPException(status_code=404, detail="Category not found")
+    _validate_assignable_category(db, payload.category_id)
 
     updated = (
         db.query(Transaction)

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
+import Card from '../components/Card.jsx'
 import CategoryQuickAdd from '../components/CategoryQuickAdd.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LedgerFilters from '../components/LedgerFilters.jsx'
@@ -338,8 +339,7 @@ export default function TransactionsPage() {
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
-      <div className="card">
-        <h3>Import CSV</h3>
+      <Card id="transactions-import" title="Import CSV">
         <input type="file" accept=".csv" onChange={handleFileChange} disabled={uploading} />
 
         {uploading && <p>Importing...</p>}
@@ -368,10 +368,9 @@ export default function TransactionsPage() {
             </ul>
           </div>
         )}
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>Import History</h3>
+      <Card id="transactions-import-history" title="Import History">
         <button type="button" className="button-danger" onClick={handleWipeAll} disabled={loading}>
           Wipe all
         </button>
@@ -402,7 +401,7 @@ export default function TransactionsPage() {
             ))}
           </tbody>
         </table>
-      </div>
+      </Card>
 
       <LedgerFilters
         values={filterForm}
@@ -421,9 +420,7 @@ export default function TransactionsPage() {
         onAssigned={refresh}
       />
 
-      <div className="card">
-        <h3>Ledger</h3>
-
+      <Card id="transactions-ledger" title="Ledger">
         {loading && <LoadingState message="Loading transactions..." />}
         {!loading && error && <ErrorState label="Failed to load transactions:" message={error} />}
 
@@ -541,7 +538,7 @@ export default function TransactionsPage() {
             />
           </>
         )}
-      </div>
+      </Card>
     </section>
   )
 }

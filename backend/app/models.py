@@ -88,6 +88,20 @@ class Category(Base):
     standing, and that resolution happens in exactly one place
     (services/budgets.effective_budget) so it cannot drift between callers.
     Only meaningful when kind == "expense".
+
+    parent_id is GROUPING ONLY - see api/categories.py's module docstring.
+    A parent category exists purely to group its children in the UI
+    (CategoriesPage, reports); it is never itself assignable to a
+    transaction and never itself carries a budget. Transactions, rules and
+    budget resolution all still attach to leaf categories exactly as before
+    parents existed, so nothing downstream needs to know grouping exists.
+    One level only - api/categories.py rejects a parent that already has a
+    parent, and rejects a category that has children being given a parent.
+    ondelete="SET NULL" so deleting a parent promotes its children to
+    top-level categories rather than deleting them (also enforced in Python
+    in delete_category, since SQLite ignores ondelete without PRAGMA
+    foreign_keys=ON - see the budgets cascade comment below for the same
+    reasoning).
     """
 
     __tablename__ = "categories"
@@ -114,6 +128,24 @@ class Category(Base):
         nullable=True
     )
 
+    parent_id = Column(
+        Integer,
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    parent = relationship(
+        "Category",
+        remote_side=[id],
+        back_populates="children"
+    )
+
+    children = relationship(
+        "Category",
+        back_populates="parent"
+    )
+
     transactions = relationship(
         "Transaction",
         back_populates="category"
@@ -134,6 +166,11 @@ class Category(Base):
         back_populates="category",
         cascade="all, delete-orphan"
     )
+
+    @property
+    def parent_name(self):
+
+        return self.parent.name if self.parent else None
 
     __table_args__ = (
         UniqueConstraint(

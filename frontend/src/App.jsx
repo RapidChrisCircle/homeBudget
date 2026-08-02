@@ -4,6 +4,7 @@ import './App.css'
 import DashboardPage from './pages/DashboardPage.jsx'
 import { pages } from './pageRegistry.jsx'
 import { api } from './services/api'
+import { useTheme } from './useTheme.js'
 import { getAppVersion, getGitSha } from './version.js'
 
 function navLinkClassName({ isActive }) {
@@ -32,6 +33,8 @@ function App() {
 
   const appVersion = getAppVersion()
   const gitSha = getGitSha()
+
+  const { mode: themeMode, setMode: setThemeMode } = useTheme()
 
   // `apiVersion` starts out `null` (still checking / not yet resolved)
   // rather than an object with blank fields, so "unreachable" and "haven't
@@ -82,6 +85,14 @@ function App() {
           <span className="version-badge" title={`commit ${gitSha}`}>
             v{appVersion} &middot; {shortSha(gitSha)}
           </span>
+          <label className="theme-select">
+            Theme
+            <select value={themeMode} onChange={(e) => setThemeMode(e.target.value)}>
+              <option value="auto">Auto</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
         </div>
         <nav className="nav-links">
           <NavLink to="/" end className={navLinkClassName}>

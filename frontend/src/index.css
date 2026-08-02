@@ -6,9 +6,17 @@
  * already uses (blue/red/green/amber) so charts and chrome read as one
  * visual language, not two.
  *
- * Every token gets BOTH a light and a dark value, in this one place, via
- * `prefers-color-scheme` - never a second stylesheet. Dark mode is driven
- * entirely by system preference; there is no in-app toggle.
+ * Every token gets BOTH a light and a dark value, in this one place. Theme
+ * selection has two layers:
+ *
+ * 1. `@media (prefers-color-scheme: dark)` below - the no-JS/pre-hydration
+ *    fallback, following the OS. Scoped to `:root:not([data-theme])` so it
+ *    stops applying the instant src/theme.js has stamped an explicit choice.
+ * 2. `:root[data-theme="light"|"dark"]` further down - src/theme.js's
+ *    resolved choice (an explicit Light/Dark pick, or "Auto" resolved from
+ *    the clock - see that file for why time-of-day can't be expressed as a
+ *    media query). Attribute selectors outrank the bare `:root` the media
+ *    query above uses, so an explicit choice always wins over the OS one.
  */
 :root {
   /* Surfaces - three layers so nested cards (pervasive throughout this app)
@@ -83,7 +91,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --surface-0: #14151a;
     --surface-1: #1c1d24;
     --surface-2: #24252e;
@@ -110,6 +118,69 @@
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
     --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
+}
+
+/* Explicit theme choice (src/theme.js) - always wins over the OS media
+ * query above, via specificity (an attribute selector beats a bare :root)
+ * rather than source order, so it doesn't matter that these blocks come
+ * after it. `[data-theme="light"]` repeats :root's own light values because
+ * an explicit "Light" pick must be able to override prefers-color-scheme:
+ * dark, not just add to it.
+ */
+:root[data-theme='light'] {
+  --surface-0: #f7f7f8;
+  --surface-1: #ffffff;
+  --surface-2: #f2f1f4;
+
+  --text-primary: #08060d;
+  --text-secondary: #4b4555;
+  --text-muted: #8b8594;
+
+  --border: #e5e4e7;
+  --border-strong: #d0cfd4;
+
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-contrast: #ffffff;
+
+  --danger: #dc2626;
+  --danger-bg: #fee2e2;
+  --success: #16a34a;
+  --success-bg: #dcfce7;
+  --warning: #b45309;
+  --warning-bg: #fef3c7;
+
+  --focus-ring: #2563eb;
+  --shadow-sm: 0 1px 2px rgba(16, 15, 20, 0.06);
+  --shadow-md: 0 6px 20px rgba(16, 15, 20, 0.10);
+}
+
+:root[data-theme='dark'] {
+  --surface-0: #14151a;
+  --surface-1: #1c1d24;
+  --surface-2: #24252e;
+
+  --text-primary: #f3f4f6;
+  --text-secondary: #b8b3c0;
+  --text-muted: #7d7887;
+
+  --border: #2e303a;
+  --border-strong: #3d3f4b;
+
+  --accent: #5b8def;
+  --accent-hover: #7ba3f2;
+  --accent-contrast: #0b1220;
+
+  --danger: #f87171;
+  --danger-bg: #3f1414;
+  --success: #4ade80;
+  --success-bg: #0f2e1a;
+  --warning: #fbbf24;
+  --warning-bg: #3a2907;
+
+  --focus-ring: #7ba3f2;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
 * {

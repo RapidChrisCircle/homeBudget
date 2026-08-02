@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
@@ -60,6 +60,27 @@ const sampleReport = {
   },
 }
 
+const sampleTrends = {
+  periods: [
+    { year: 2026, month: 2, label: '2026-02' },
+    { year: 2026, month: 3, label: '2026-03' },
+    { year: 2026, month: 4, label: '2026-04' },
+    { year: 2026, month: 5, label: '2026-05' },
+    { year: 2026, month: 6, label: '2026-06' },
+    { year: 2026, month: 7, label: '2026-07' },
+  ],
+  categories: [],
+  monthly: [
+    { label: '2026-02', total_income: '5000.00', total_spending: '3000.00', net_saved: '2000.00' },
+    { label: '2026-03', total_income: '5000.00', total_spending: '3100.00', net_saved: '1900.00' },
+    { label: '2026-04', total_income: '5000.00', total_spending: '3400.00', net_saved: '1600.00' },
+    { label: '2026-05', total_income: '5000.00', total_spending: '3000.00', net_saved: '2000.00' },
+    { label: '2026-06', total_income: '5000.00', total_spending: '3300.00', net_saved: '1700.00' },
+    { label: '2026-07', total_income: '5000.00', total_spending: '3200.00', net_saved: '1800.00' },
+  ],
+  budget: [],
+}
+
 const sampleTransaction = {
   id: 1,
   account_id: 1,
@@ -102,6 +123,7 @@ const emptyRecurring = {
 function mockLoad({
   accounts = sampleAccounts,
   report = sampleReport,
+  trends = sampleTrends,
   transactions = [sampleTransaction],
   listResponse = null,
   recurring = emptyRecurring,
@@ -114,6 +136,9 @@ function mockLoad({
     }
     if (path.startsWith('/reports/monthly')) {
       return Promise.resolve({ data: report })
+    }
+    if (path.startsWith('/trends')) {
+      return Promise.resolve({ data: trends })
     }
     if (path === '/recurring') {
       return Promise.resolve({ data: recurring })
@@ -201,8 +226,11 @@ describe('DashboardPage', () => {
       expect(screen.getByRole('heading', { name: /Summary — 2026-07/ })).toBeInTheDocument()
     })
 
-    expect(screen.getByText('5000.00')).toBeInTheDocument()
-    expect(screen.getByText('1800.00')).toBeInTheDocument()
+    // Scoped to the Summary card - the new Income vs Spending chart's own
+    // y-axis tick labels can coincidentally show the same figures.
+    const summarySection = screen.getByRole('heading', { name: /Summary — 2026-07/ }).closest('.card')
+    expect(within(summarySection).getByText('5000.00')).toBeInTheDocument()
+    expect(within(summarySection).getByText('1800.00')).toBeInTheDocument()
   })
 
   it('lists only the over-budget categories under Needs Attention', async () => {
@@ -251,6 +279,33 @@ describe('DashboardPage', () => {
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
     expect(api.get).toHaveBeenCalledWith('/transactions?page_size=5')
+  })
+
+  it('shows a simple income vs spending chart when the charted window has real activity', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Income vs Spending' })).toBeInTheDocument()
+    })
+    expect(api.get).toHaveBeenCalledWith('/trends?months=6')
+  })
+
+  it('hides the income vs spending chart when the charted window has no real activity', async () => {
+    mockLoad({
+      trends: {
+        ...sampleTrends,
+        monthly: sampleTrends.monthly.map((m) => ({ ...m, total_income: '0.00', total_spending: '0.00' })),
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('heading', { name: 'Income vs Spending' })).not.toBeInTheDocument()
   })
 
   it('shows an empty state when nothing has been imported', async () => {

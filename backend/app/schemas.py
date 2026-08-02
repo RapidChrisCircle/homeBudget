@@ -49,6 +49,8 @@ class CategoryResponse(BaseModel):
     name: str
     kind: str
     budget_amount: Optional[Decimal]
+    parent_id: Optional[int]
+    parent_name: Optional[str]
 
     class Config:
         from_attributes = True
@@ -59,6 +61,7 @@ class CategoryCreate(BaseModel):
     name: str
     kind: str = "expense"
     budget_amount: Optional[Decimal] = None
+    parent_id: Optional[int] = None
 
 
 class CategoryUpdate(BaseModel):
@@ -66,6 +69,13 @@ class CategoryUpdate(BaseModel):
     name: str
     kind: str = "expense"
     budget_amount: Optional[Decimal] = None
+    parent_id: Optional[int] = None
+
+
+class CategoryPresetResultResponse(BaseModel):
+
+    created: list[str]
+    skipped: list[str]
 
 
 class CategoryRuleResponse(BaseModel):

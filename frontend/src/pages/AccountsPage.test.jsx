@@ -99,7 +99,11 @@ describe('AccountsPage', () => {
 
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Joint Everyday' } })
     fireEvent.change(screen.getByLabelText('Account Number'), { target: { value: '5229 8024 5118 3514' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add Account' }))
+    // Two "Add Account" buttons now exist - the collapsible card's own
+    // toggle (title text doubles as its accessible name) and the form's
+    // submit button. The submit button is the one rendered last.
+    const addButtons = screen.getAllByRole('button', { name: 'Add Account' })
+    fireEvent.click(addButtons[addButtons.length - 1])
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/accounts', expect.objectContaining({

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
@@ -128,8 +129,7 @@ export default function AccountsPage() {
         </p>
       )}
 
-      <div className="card">
-        <h3>{editingId ? 'Edit Account' : 'Add Account'}</h3>
+      <Card id="accounts-form" title={editingId ? 'Edit Account' : 'Add Account'}>
         <form onSubmit={handleSubmit}>
           <div>
             <label>
@@ -175,11 +175,9 @@ export default function AccountsPage() {
             </button>
           )}
         </form>
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>All Accounts</h3>
-
+      <Card id="accounts-list" title="All Accounts">
         {loading && <LoadingState message="Loading accounts..." />}
         {!loading && error && <ErrorState label="Failed to load accounts:" message={error} />}
 
@@ -220,7 +218,7 @@ export default function AccountsPage() {
             </tbody>
           </table>
         )}
-      </div>
+      </Card>
     </section>
   )
 }

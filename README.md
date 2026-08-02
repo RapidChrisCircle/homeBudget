@@ -8,7 +8,7 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 
 | Page | What it does |
 |---|---|
-| `/` | Dashboard — account balances, this month's totals, over-budget categories, uncategorized count, recent activity |
+| `/` | Dashboard — account balances, a 6-month income vs spending chart, this month's totals, over-budget categories, uncategorized count, recent activity |
 | `/transactions` | Import CSVs, and the filterable, paginated ledger |
 | `/accounts` | Manage accounts; `/accounts/:id` is one account's balance and transactions |
 | `/categories` | Manage categories, their kind, and their monthly budgets (standing + per-month overrides) |
@@ -24,6 +24,8 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 - **`<Amount>`** (`frontend/src/components/Amount.jsx`) renders every money value app-wide: tabular numerals, two decimals, right-aligned in table cells. It colors by sign unless `neutral` is passed — `neutral` is for any figure that's a pure magnitude rather than a directional value (a budget, a spend total); combining `neutral` with an explicit `className` is for the rarer case where a raw value's sign doesn't match its domain meaning (e.g. an already-absolute "over budget" figure, or a recurring outflow that's always positive but should still read as a cost).
 - **`<Badge>`** (`frontend/src/components/Badge.jsx`) is the one status-marker component (`auto`, `overridden`, `(over)`, recurring status), with five tones (`neutral`/`info`/`success`/`danger`/`warning`).
 - **`<LoadingState>` / `<ErrorState>` / `<EmptyState>`** (`frontend/src/components/`) standardize the loading/error/empty markup every page needs, in place of each page hand-rolling its own `<p>`.
+- **`<Card>`** (`frontend/src/components/Card.jsx`) is every nested card's heading — collapsible, defaulting open, with the open/closed state remembered in `localStorage` per card. The outer page section each page itself lives in is a plain `.card`, not a `<Card>` — collapsing a whole page reads as a broken page, not a tidied one. A `<Card>` needs an explicit `id` distinct from its title, since some titles change with the data they show (a month, an account name) and a title-derived storage key would lose the user's choice the moment that text changes.
+- **Theme** — light, dark, or auto (the header's Theme selector; `frontend/src/theme.js` / `useTheme.js`), persisted in `localStorage`. Auto means **time of day** (dark 18:00–06:00 by a fixed clock, not geolocation), not the OS's `prefers-color-scheme` — the two are independent, and an explicit Light/Dark choice always overrides the OS setting. Both palettes were already fully defined in `index.css`; this only adds a way to choose between them instead of always following the system.
 
 ## Importing
 
@@ -66,6 +68,16 @@ Categories have a **kind** (`expense`, `income`, or `transfer`) and expense cate
 **On auto-categorization from an external source:** nothing is integrated, and nothing free is worth integrating. The commercial merchant-enrichment APIs (Basiq, Plaid Enrich, Ntropy, Yodlee) are all paid per-transaction and require sending narration text — effectively your spending history — to a third party; there's no credible free or offline equivalent, since the value in those services is a proprietary merchant-name dataset that can't be self-hosted. The strongest no-cost option — suggesting a category from your own past categorizations of the same merchant — is not built, but the merchant-key logic it would need (`services/narration.py`) already exists and is shared with both recurring detection and the ledger's own transaction grouping above.
 
 Rules on `/rules` auto-categorize on import and can be re-run over existing transactions from the ledger's **Apply rules now**. A rule matches on narration, transaction type, and/or an amount range; rows it categorizes are marked `auto`. Setting a category by hand clears that marker, so a later rule run won't overwrite your decision.
+
+### Sub-categories
+
+A category may have a **parent** — `/categories` shows a Parent dropdown on the add/edit form, and groups the All Categories table under parent headings once anything has one. This is **grouping only**, one level deep:
+
+- A parent's own budget is always blank, and a parent can never be assigned to a transaction directly (the API rejects both) — its role is purely to group its children for display; totals and reports still work entirely on leaf categories, exactly as before parents existed.
+- One level: a category that already has children can't itself be given a parent, and a category can't be given a parent that already has one. There is no deeper tree.
+- Deleting a parent promotes its children to top-level rather than deleting them.
+
+**Load Queensland household preset** (also on `/categories`) creates a starting chart of accounts for a typical Queensland family of four — parent groups (Housing, Utilities, Food, Transport, Health, Children, Financial, Lifestyle, Income, Transfers) with sub-categories and indicative monthly budgets (`backend/app/services/category_presets.py`). It's a starting point to edit, not a claim about any particular household — the figures are sized for two adults and two children (one in paid care, one at school; delete whichever leaf doesn't apply) and total roughly $10,500/month of indicative expense budget. Safe to press more than once: matching is case-insensitive by name against your whole category list, and anything that already exists — anywhere, under any parent or none — is left completely untouched, never duplicated or overwritten.
 
 ## Budgets
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import BarChart from '../components/charts/BarChart.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
+import Card from '../components/Card.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
@@ -153,8 +154,7 @@ export default function TrendsPage() {
       <h2>Trends</h2>
       {monthLabel}
 
-      <div className="card">
-        <h3>Spending by Category Over Time</h3>
+      <Card id="trends-category-over-time" title="Spending by Category Over Time">
         {categorySeries.length === 0 ? (
           <EmptyState message="No categorized spending in this window yet." />
         ) : (
@@ -165,20 +165,18 @@ export default function TrendsPage() {
             title="Spending by category over time"
           />
         )}
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>Income vs Spending vs Net</h3>
+      <Card id="trends-income-vs-spending" title="Income vs Spending vs Net">
         <BarChart
           periods={periodLabels}
           series={incomeSpendingSeries}
           formatValue={formatAmount}
           title="Income vs spending vs net"
         />
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>Budget vs Actual</h3>
+      <Card id="trends-budget-vs-actual" title="Budget vs Actual">
         {hasBudget ? (
           <BarChart
             periods={periodLabels}
@@ -189,7 +187,7 @@ export default function TrendsPage() {
         ) : (
           <EmptyState message="No categories have a budget set yet." />
         )}
-      </div>
+      </Card>
     </section>
   )
 }

@@ -1,3 +1,5 @@
+import Card from './Card.jsx'
+
 // The ledger filter form, shared by the transactions page and the account
 // detail page. Filters apply on an explicit button rather than on every
 // keystroke - the codebase has no debounce machinery and shouldn't grow any
@@ -16,8 +18,7 @@ export default function LedgerFilters({
   accounts = null,
 }) {
   return (
-    <div className="card">
-      <h3>Filters</h3>
+    <Card id="ledger-filters" title="Filters">
       <form onSubmit={onApply}>
         <div className="filter-grid">
           {accounts && (
@@ -112,6 +113,6 @@ export default function LedgerFilters({
           </button>
         </div>
       </form>
-    </div>
+    </Card>
   )
 }

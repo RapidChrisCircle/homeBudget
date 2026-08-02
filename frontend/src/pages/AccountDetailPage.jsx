@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
+import Card from '../components/Card.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LedgerFilters from '../components/LedgerFilters.jsx'
@@ -205,8 +206,7 @@ export default function AccountDetailPage() {
       </div>
 
       {balanceHistory && (
-        <div className="card">
-          <h3>Balance History</h3>
+        <Card id="account-detail-balance-history" title="Balance History">
           <LineChart
             periods={balanceHistory.periods.map((p) => p.label)}
             series={[{
@@ -219,7 +219,7 @@ export default function AccountDetailPage() {
             formatValue={formatAmount}
             title="Balance history"
           />
-        </div>
+        </Card>
       )}
 
       <LedgerFilters
@@ -231,9 +231,7 @@ export default function AccountDetailPage() {
         transactionTypes={transactionTypes}
       />
 
-      <div className="card">
-        <h3>Transactions</h3>
-
+      <Card id="account-detail-transactions" title="Transactions">
         {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
         {transactions.length === 0 && <p>No transactions match these filters.</p>}
@@ -291,7 +289,7 @@ export default function AccountDetailPage() {
           pageSize={pageSize}
           onPageSizeChange={handlePageSizeChange}
         />
-      </div>
+      </Card>
     </section>
   )
 }

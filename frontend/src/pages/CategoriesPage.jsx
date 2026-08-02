@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
+import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
@@ -9,6 +10,7 @@ const EMPTY_FORM = {
   name: '',
   kind: 'expense',
   budget_amount: '',
+  parent_id: '',
 }
 
 // Shifts a <input type="month"> value ("YYYY-MM") by whole months.
@@ -19,13 +21,68 @@ function shiftMonthString(monthStr, delta) {
 }
 
 // Blank optional fields are sent as null, not '' - the backend treats an
-// empty budget as "not set" rather than "must equal empty string".
+// empty budget (or parent) as "not set" rather than "must equal empty string".
 function buildPayload(form) {
   return {
     name: form.name,
     kind: form.kind,
     budget_amount: form.budget_amount || null,
+    parent_id: form.parent_id ? Number(form.parent_id) : null,
   }
+}
+
+// Sub-categories are grouping only (see backend's Category.parent_id
+// docstring) - this arranges the flat /categories list into that shape for
+// display, without changing what's actually stored. When nothing has a
+// parent yet (the common case pre-preset), this returns exactly the one
+// flat section the page has always rendered - same rows, same table, so
+// nothing about adopting grouping changes what an ungrouped install sees.
+function buildCategorySections(categories) {
+  const childrenByParentId = new Map()
+
+  for (const category of categories) {
+    if (category.parent_id) {
+      const siblings = childrenByParentId.get(category.parent_id) || []
+      siblings.push(category)
+      childrenByParentId.set(category.parent_id, siblings)
+    }
+  }
+
+  const topLevel = categories.filter((category) => !category.parent_id)
+  const groups = topLevel
+    .map((parent) => ({ parent, children: childrenByParentId.get(parent.id) || [] }))
+    .filter((group) => group.children.length > 0)
+
+  if (groups.length === 0) {
+    return [{ id: 'flat', heading: null, rows: categories.map((category) => ({ category, isGroup: false })) }]
+  }
+
+  const standalone = topLevel.filter((category) => (childrenByParentId.get(category.id) || []).length === 0)
+
+  const sections = groups.map((group) => {
+    const groupTotal = group.children.reduce(
+      (sum, child) => sum + (child.budget_amount ? Number(child.budget_amount) : 0),
+      0
+    )
+    return {
+      id: `group-${group.parent.id}`,
+      heading: group.parent.name,
+      rows: [
+        { category: group.parent, isGroup: true, groupTotal },
+        ...group.children.map((category) => ({ category, isGroup: false })),
+      ],
+    }
+  })
+
+  if (standalone.length > 0) {
+    sections.push({
+      id: 'other',
+      heading: 'Other',
+      rows: standalone.map((category) => ({ category, isGroup: false })),
+    })
+  }
+
+  return sections
 }
 
 export default function CategoriesPage() {
@@ -47,6 +104,10 @@ export default function CategoriesPage() {
   const [budgetError, setBudgetError] = useState('')
   const [budgetActionError, setBudgetActionError] = useState('')
   const [copying, setCopying] = useState(false)
+
+  const [presetMessage, setPresetMessage] = useState('')
+  const [presetError, setPresetError] = useState('')
+  const [applyingPreset, setApplyingPreset] = useState(false)
 
   const refresh = async () => {
     const response = await api.get('/categories')
@@ -207,12 +268,36 @@ export default function CategoriesPage() {
       name: category.name,
       kind: category.kind,
       budget_amount: category.budget_amount ?? '',
+      parent_id: category.parent_id ?? '',
     })
   }
 
   const cancelEdit = () => {
     setEditingId(null)
     setForm(EMPTY_FORM)
+  }
+
+  const handleApplyPreset = async () => {
+    setPresetError('')
+    setPresetMessage('')
+    setApplyingPreset(true)
+    try {
+      const response = await api.post('/categories/preset')
+      const { created, skipped } = response.data
+      setPresetMessage(
+        `Created ${created.length} categor${created.length === 1 ? 'y' : 'ies'}, `
+        + `skipped ${skipped.length} already present.`
+      )
+      // Same reason handleSubmit/handleDelete refresh both: new categories
+      // (and their budgets) must show up in the Monthly Budgets card too,
+      // not just the list above it.
+      await Promise.all([refresh(), refreshBudgets()])
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Preset failed'
+      setPresetError(String(message))
+    } finally {
+      setApplyingPreset(false)
+    }
   }
 
   const handleSubmit = async (event) => {
@@ -259,14 +344,34 @@ export default function CategoriesPage() {
     }
   }
 
+  // A parent must itself be top-level (one level only - see
+  // api/categories.py), and a category can't be its own parent.
+  const parentOptions = categories.filter((category) => !category.parent_id && category.id !== editingId)
+  const editingHasChildren = editingId != null && categories.some((category) => category.parent_id === editingId)
+  const sections = buildCategorySections(categories)
+
   return (
     <section className="card">
       <h2>Categories</h2>
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
-      <div className="card">
-        <h3>{editingId ? 'Edit Category' : 'Add Category'}</h3>
+      <Card id="categories-preset" title="Presets">
+        <p>
+          Creates a starting chart of accounts for a typical Queensland household &mdash; parent
+          groups (Housing, Utilities, Food, ...) with sub-categories and indicative monthly
+          budgets for a family of four. Safe to run more than once: anything you already have,
+          by name, is left untouched, and nothing is ever overwritten or duplicated. Edit or
+          delete anything afterward &mdash; these are a starting point, not a recommendation.
+        </p>
+        {presetError && <ErrorState label="Preset failed:" message={presetError} />}
+        <button type="button" className="button-primary" onClick={handleApplyPreset} disabled={applyingPreset}>
+          {applyingPreset ? 'Loading preset...' : 'Load Queensland household preset'}
+        </button>
+        {presetMessage && <p>{presetMessage}</p>}
+      </Card>
+
+      <Card id="categories-form" title={editingId ? 'Edit Category' : 'Add Category'}>
         <form onSubmit={handleSubmit}>
           <div>
             <label>
@@ -288,7 +393,30 @@ export default function CategoriesPage() {
               between your own accounts.
             </p>
           </div>
-          {form.kind === 'expense' && (
+          {editingHasChildren ? (
+            <p>
+              This category groups its own sub-categories, so it cannot be given a parent itself.
+            </p>
+          ) : (
+            <div>
+              <label>
+                Parent category
+                <select value={form.parent_id} onChange={handleFieldChange('parent_id')}>
+                  <option value="">No parent (top-level)</option>
+                  {parentOptions.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p>
+                Optional &mdash; groups this category for display. A parent cannot itself have a
+                parent (one level only).
+              </p>
+            </div>
+          )}
+          {form.kind === 'expense' && !editingHasChildren && (
             <div>
               <label>
                 Standing monthly budget
@@ -315,48 +443,65 @@ export default function CategoriesPage() {
             </button>
           )}
         </form>
-      </div>
+      </Card>
 
-      <div className="card">
-        <h3>All Categories</h3>
-
+      <Card id="categories-list" title="All Categories">
         {loading && <LoadingState message="Loading categories..." />}
         {!loading && error && <ErrorState label="Failed to load categories:" message={error} />}
 
-        {!loading && !error && (
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Kind</th>
-                <th>Standing Budget</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {categories.map((category) => (
-                <tr key={category.id}>
-                  <td>{category.name}</td>
-                  <td>{category.kind}</td>
-                  <td><Amount value={category.budget_amount} neutral /></td>
-                  <td>
-                    <button type="button" onClick={() => startEdit(category)}>
-                      Edit
-                    </button>
-                    <button type="button" className="button-danger" onClick={() => handleDelete(category.id)}>
-                      Delete
-                    </button>
-                  </td>
+        {!loading && !error && sections.map((section) => {
+          const table = (
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Kind</th>
+                  <th>Standing Budget</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+              </thead>
+              <tbody>
+                {section.rows.map(({ category, isGroup, groupTotal }) => (
+                  <tr key={category.id}>
+                    <td>
+                      {category.name}
+                      {isGroup && (
+                        <Badge tone="neutral" title="Groups its own sub-categories"> group</Badge>
+                      )}
+                    </td>
+                    <td>{category.kind}</td>
+                    <td>
+                      <Amount value={isGroup ? groupTotal : category.budget_amount} neutral />
+                    </td>
+                    <td>
+                      <button type="button" onClick={() => startEdit(category)}>
+                        Edit
+                      </button>
+                      <button type="button" className="button-danger" onClick={() => handleDelete(category.id)}>
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
 
-      <div className="card">
-        <h3>Monthly Budgets</h3>
+          // No groups exist anywhere yet - the exact flat table this page
+          // has always rendered, with no extra wrapping card.
+          if (!section.heading) {
+            return <div key={section.id}>{table}</div>
+          }
 
+          return (
+            <Card key={section.id} id={`categories-${section.id}`} title={section.heading} level={4}>
+              {table}
+            </Card>
+          )
+        })}
+      </Card>
+
+      <Card id="categories-monthly-budgets" title="Monthly Budgets">
         {budgetActionError && <ErrorState label="Action failed:" message={budgetActionError} />}
 
         <label>
@@ -449,7 +594,7 @@ export default function CategoriesPage() {
             )}
           </>
         )}
-      </div>
+      </Card>
     </section>
   )
 }
