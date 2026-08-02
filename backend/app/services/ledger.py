@@ -2,11 +2,17 @@
 
 Filter semantics, in one place so the API and any future caller agree:
 
-- account_id / category_id are exact matches.
-- uncategorized=True means `category_id IS NULL` and takes precedence over
-  category_id - the API layer rejects the two being combined rather than
-  silently picking a winner, since "this category" and "no category" are
-  contradictory requests.
+- account_id / category_id are exact matches. category_id also matches a
+  SPLIT transaction that has an allocation for that category (a split
+  transaction's own category_id is always NULL - see TransactionSplit's
+  docstring in models.py - so a plain equality check alone would silently
+  hide split transactions from this filter).
+- uncategorized=True means `category_id IS NULL AND no splits` and takes
+  precedence over category_id - the API layer rejects the two being
+  combined rather than silently picking a winner, since "this category" and
+  "no category" are contradictory requests. A split transaction is never
+  "uncategorized" even though its own category_id is also NULL - it has an
+  allocation (or several), just not a single direct category_id.
 - date_from/date_to are INCLUSIVE on both ends (`>= from AND <= to`). This is
   deliberately different from reporting.month_bounds()'s half-open
   [start, end): half-open is right for internal month arithmetic, but a user
@@ -49,10 +55,10 @@ from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 
-from ..models import Account, Transaction
+from ..models import Account, Transaction, TransactionSplit
 from .narration import merchant_label, narration_key
 
 DEFAULT_PAGE_SIZE = 50
@@ -66,7 +72,13 @@ MAX_PAGE_SIZE = 200
 # 2 with. Passed to paginate() rather than baked into build_transaction_query()
 # so the COUNT stays join-free: these joins cannot change the count (both
 # relationships are many-to-one), but the count has no reason to pay for them.
-LIST_LOADERS = (joinedload(Transaction.account), joinedload(Transaction.category))
+# splits (and each split's own category) is the same story, one level
+# deeper - TransactionResponse.splits[].category_name needs it.
+LIST_LOADERS = (
+    joinedload(Transaction.account),
+    joinedload(Transaction.category),
+    joinedload(Transaction.splits).joinedload(TransactionSplit.category),
+)
 
 # Mirrors categorization._row_amount's positive-dollar/absolute-value
 # convention, expressed as a SQL expression instead of a Python function.
@@ -95,9 +107,14 @@ def build_transaction_query(db: Session, filters: TransactionFilters) -> Query:
         query = query.filter(Transaction.account_id == filters.account_id)
 
     if filters.uncategorized:
-        query = query.filter(Transaction.category_id.is_(None))
+        query = query.filter(Transaction.category_id.is_(None), ~Transaction.splits.any())
     elif filters.category_id is not None:
-        query = query.filter(Transaction.category_id == filters.category_id)
+        query = query.filter(
+            or_(
+                Transaction.category_id == filters.category_id,
+                Transaction.splits.any(TransactionSplit.category_id == filters.category_id),
+            )
+        )
 
     if filters.date_from is not None:
         query = query.filter(Transaction.transaction_date >= filters.date_from)

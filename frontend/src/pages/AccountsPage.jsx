@@ -183,15 +183,16 @@ export default function AccountsPage() {
 
         {!loading && !error && (
           <table>
+            <caption className="visually-hidden">All accounts</caption>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Institution</th>
-                <th>Type</th>
-                <th>BSB</th>
-                <th>Account Number</th>
-                <th>Balance</th>
-                <th></th>
+                <th scope="col">Name</th>
+                <th scope="col">Institution</th>
+                <th scope="col">Type</th>
+                <th scope="col">BSB</th>
+                <th scope="col">Account Number</th>
+                <th scope="col">Balance</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>

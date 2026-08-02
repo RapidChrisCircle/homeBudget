@@ -94,6 +94,8 @@ const sampleTransaction = {
   credit: null,
   balance: '100.00',
   transaction_type: 'WDL',
+  is_split: false,
+  splits: [],
 }
 
 function envelope(transactions, overrides = {}) {
@@ -279,6 +281,29 @@ describe('DashboardPage', () => {
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
     expect(api.get).toHaveBeenCalledWith('/transactions?page_size=5')
+  })
+
+  // Regression: a split transaction's own category_name is always null
+  // (see TransactionSplit's docstring in models.py), but it is not
+  // uncategorized - it has allocations instead of one direct category.
+  it('labels a split transaction as Split rather than Uncategorized in Recent Activity', async () => {
+    mockLoad({
+      transactions: [{
+        ...sampleTransaction,
+        category_id: null,
+        category_name: null,
+        is_split: true,
+        splits: [{ id: 301, category_id: 2, category_name: 'Groceries', amount: '-5.00', note: null }],
+      }],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const row = screen.getByText('Coffee').closest('tr')
+    expect(within(row).getByText('Split')).toBeInTheDocument()
+    expect(within(row).queryByText('Uncategorized')).not.toBeInTheDocument()
   })
 
   it('shows a simple income vs spending chart when the charted window has real activity', async () => {

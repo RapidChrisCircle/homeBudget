@@ -128,10 +128,11 @@ export default function DashboardPage() {
         {accounts.length === 0 && <p>No accounts yet.</p>}
         {accounts.length > 0 && (
           <table>
+            <caption className="visually-hidden">Account balances</caption>
             <thead>
               <tr>
-                <th>Account</th>
-                <th>Balance</th>
+                <th scope="col">Account</th>
+                <th scope="col">Balance</th>
               </tr>
             </thead>
             <tbody>
@@ -176,17 +177,18 @@ export default function DashboardPage() {
           itself changes every month. */}
       <Card id="dashboard-summary" title={<>Summary &mdash; {report.label}</>}>
         <table>
+          <caption className="visually-hidden">Monthly summary</caption>
           <tbody>
             <tr>
-              <td>Total income</td>
+              <th scope="row">Total income</th>
               <td><Amount value={summary.total_income} neutral /></td>
             </tr>
             <tr>
-              <td>Total spending</td>
+              <th scope="row">Total spending</th>
               <td><Amount value={summary.total_spending} neutral /></td>
             </tr>
             <tr>
-              <td>Net saved</td>
+              <th scope="row">Net saved</th>
               <td><Amount value={summary.net_saved} /></td>
             </tr>
           </tbody>
@@ -198,12 +200,13 @@ export default function DashboardPage() {
         {overBudget.length === 0 && <p>Nothing over budget this month.</p>}
         {overBudget.length > 0 && (
           <table>
+            <caption className="visually-hidden">Categories over budget this month</caption>
             <thead>
               <tr>
-                <th>Category</th>
-                <th>Budget</th>
-                <th>Actual</th>
-                <th>Over by</th>
+                <th scope="col">Category</th>
+                <th scope="col">Budget</th>
+                <th scope="col">Actual</th>
+                <th scope="col">Over by</th>
               </tr>
             </thead>
             <tbody>
@@ -230,11 +233,12 @@ export default function DashboardPage() {
           {dueSoon.length > 0 && (
             <>
               <table>
+                <caption className="visually-hidden">Recurring payments due soon</caption>
                 <thead>
                   <tr>
-                    <th>Merchant</th>
-                    <th>Due</th>
-                    <th>Amount</th>
+                    <th scope="col">Merchant</th>
+                    <th scope="col">Due</th>
+                    <th scope="col">Amount</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -275,14 +279,15 @@ export default function DashboardPage() {
 
       <Card id="dashboard-recent-activity" title="Recent Activity">
         <table>
+          <caption className="visually-hidden">Recent transactions</caption>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Account</th>
-              <th>Narration</th>
-              <th>Debit</th>
-              <th>Credit</th>
-              <th>Category</th>
+              <th scope="col">Date</th>
+              <th scope="col">Account</th>
+              <th scope="col">Narration</th>
+              <th scope="col">Debit</th>
+              <th scope="col">Credit</th>
+              <th scope="col">Category</th>
             </tr>
           </thead>
           <tbody>
@@ -293,7 +298,11 @@ export default function DashboardPage() {
                 <td>{transaction.narration}</td>
                 <td><Amount value={transaction.debit} /></td>
                 <td><Amount value={transaction.credit} /></td>
-                <td>{transaction.category_name || 'Uncategorized'}</td>
+                {/* A split transaction's own category_name is always null
+                    (see TransactionSplit's docstring in models.py) but it
+                    is not uncategorized - it has one or more allocations
+                    instead, just not a single direct category. */}
+                <td>{transaction.is_split ? 'Split' : (transaction.category_name || 'Uncategorized')}</td>
               </tr>
             ))}
           </tbody>

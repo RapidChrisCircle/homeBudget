@@ -452,12 +452,13 @@ export default function CategoriesPage() {
         {!loading && !error && sections.map((section) => {
           const table = (
             <table>
+              <caption className="visually-hidden">Categories{section.heading ? ` under ${section.heading}` : ''}</caption>
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Kind</th>
-                  <th>Standing Budget</th>
-                  <th></th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Kind</th>
+                  <th scope="col">Standing Budget</th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>
@@ -524,14 +525,15 @@ export default function CategoriesPage() {
             {budgetData.categories.length === 0 && <p>No expense categories yet.</p>}
             {budgetData.categories.length > 0 && (
               <table>
+                <caption className="visually-hidden">Monthly budgets</caption>
                 <thead>
                   <tr>
-                    <th>Category</th>
-                    <th>Standing</th>
-                    <th>This Month</th>
-                    <th>Actual</th>
-                    <th>Difference</th>
-                    <th></th>
+                    <th scope="col">Category</th>
+                    <th scope="col">Standing</th>
+                    <th scope="col">This Month</th>
+                    <th scope="col">Actual</th>
+                    <th scope="col">Difference</th>
+                    <th scope="col"></th>
                   </tr>
                 </thead>
                 <tbody>

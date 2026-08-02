@@ -26,20 +26,28 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 - **`<LoadingState>` / `<ErrorState>` / `<EmptyState>`** (`frontend/src/components/`) standardize the loading/error/empty markup every page needs, in place of each page hand-rolling its own `<p>`.
 - **`<Card>`** (`frontend/src/components/Card.jsx`) is every nested card's heading — collapsible, defaulting open, with the open/closed state remembered in `localStorage` per card. The outer page section each page itself lives in is a plain `.card`, not a `<Card>` — collapsing a whole page reads as a broken page, not a tidied one. A `<Card>` needs an explicit `id` distinct from its title, since some titles change with the data they show (a month, an account name) and a title-derived storage key would lose the user's choice the moment that text changes.
 - **Theme** — light, dark, or auto (the header's Theme selector; `frontend/src/theme.js` / `useTheme.js`), persisted in `localStorage`. Auto means **time of day** (dark 18:00–06:00 by a fixed clock, not geolocation), not the OS's `prefers-color-scheme` — the two are independent, and an explicit Light/Dark choice always overrides the OS setting. Both palettes were already fully defined in `index.css`; this only adds a way to choose between them instead of always following the system.
+- **`<ErrorBoundary>`** (`frontend/src/components/ErrorBoundary.jsx`) wraps the routed page area only, not the header/nav/footer, so a render crash on one page leaves navigation to a working page intact. Keyed on the route path in `App.jsx`, so navigating away from a crashed page always gets a fresh attempt rather than staying stuck on the same fallback.
+- **Every data table** has a visually-hidden `<caption>` and `scope="col"`/`scope="row"` on its header cells — the surrounding heading is enough context for a sighted user, but a screen reader user jumping straight into table navigation mode never passes it, so the table needs its own accessible name too.
 
 ## Importing
 
-Upload a bank export on `/transactions`. One header layout is currently recognised and auto-detected:
+Upload a bank export on `/transactions`. One layout is built in and auto-detected with no setup:
 
 ```
 BSB Number,Account Number,Transaction Date,Narration,Cheque Number,Debit,Credit,Balance,Transaction Type
 ```
 
-`Transaction Date` must be `DD/MM/YYYY`. Each row needs exactly one of `Debit`/`Credit` populated (not both, not neither), and `Balance` is required — the app never sums debits and credits to derive a balance, it reads the bank's own running balance.
+(`Transaction Date` in `DD/MM/YYYY`.) Any other bank's export can be **mapped**: if a file's header doesn't match a known layout, the API responds with the raw header and a few sample rows instead of a flat rejection, and `/transactions` opens a mapping panel — a dropdown per field, populated from that file's own column names. **Preview** parses a candidate mapping and shows the resulting rows (or errors) without writing anything, however many times you need to adjust it; **Save mapping and import** then saves the mapping and imports for real. The next file with the same header auto-detects it, exactly like the built-in format — there's no annual "re-teach it your bank" step.
+
+Two amount layouts are supported per mapping: separate Debit/Credit columns (the built-in format's own convention), or a single signed Amount column, split by sign at parse time (negative → debit, positive → credit) so nothing downstream of import ever knows which kind a file was.
+
+**A running Balance column is always required**, for every format, mapped or built in. The app never sums debits and credits to derive a balance — it reads the bank's own figure — because there's no captured opening balance and a derived one would just be net change, not a balance (see `services/ledger.py`). A bank export with no balance column (some CommBank, Up and NAB exports) is out of scope for this reason, not an oversight; deriving one would quietly break the Accounts page, the balance-history chart, and the forecast, all three of which trust `Transaction.balance` completely.
 
 If **any** row fails validation the whole file is rejected with a per-row error list — nothing is imported until the file is clean. Rows exactly matching an already-imported transaction (same account, date, narration, debit, credit, and balance) are skipped as duplicates and counted separately.
 
 Accounts are created automatically from the account numbers in the file. Every upload is recorded as a batch; deleting a batch cascades to its transactions. **Wipe all** clears every transaction and batch — there's no undo.
+
+Saved mappings are managed via `GET`/`POST`/`DELETE /api/csv-formats` (`backend/app/models.py`'s `CsvFormatMapping`, `backend/app/services/csv_formats.py`) — there's no settings page for them yet, only the mapping panel's own save action.
 
 ## The ledger
 
@@ -47,7 +55,7 @@ Accounts are created automatically from the account numbers in the file. Every u
 
 | Filter | Semantics |
 |---|---|
-| Account, Category | exact match; **Uncategorized only** is a distinct mode from "all categories" |
+| Account, Category | exact match, and Category also matches a **split** transaction with an allocation in that category (see Splits, below); **Uncategorized only** is a distinct mode from "all categories" and excludes split transactions entirely — a split row is never uncategorized even though its own `category_id` is null |
 | From / To date | **inclusive on both ends** |
 | Narration contains | case-insensitive; `%` and `_` are literal, not wildcards |
 | Type | case-insensitive exact match |
@@ -60,6 +68,16 @@ Rows can be categorized individually or in bulk. Selection applies to the curren
 **Similar Uncategorized**, above the ledger table, groups still-uncategorized rows by merchant (`GET /api/transactions/groups`, `services/ledger.transaction_groups`) so a batch of the same recurring charge can be cleared in one action instead of row by row. A group is scoped to whatever the ledger's own filters currently show — narrowing the date range or account shrinks the group counts to match, and "Categorize all N" can only ever touch rows that were actually visible. Optionally also creates a rule from the group's merchant name, so the same charge is auto-categorized on the next import.
 
 A category that doesn't exist yet can be created inline from either the ledger toolbar or a group's own row (**+ New category**) — it's available in every category dropdown on the page immediately, no reload or trip to `/categories` required.
+
+### Splits and notes
+
+A transaction is either **unsplit** (its own single category, as above) or **split** across several — a supermarket run that's part groceries, part alcohol, part homewares. **Split** on a ledger row opens an editor: one row per allocation (category, amount, optional note), a live remainder, and Save disabled until the remainder is exactly zero. Splits must sum to **exactly** the transaction's own signed amount — a partial allocation is rejected outright, never saved, because every report reads through the same allocation view (`backend/app/services/allocations.py`) that this invariant makes safe to trust rather than re-check on every read.
+
+Splitting and direct categorization are mutually exclusive: setting a category directly (singly or in bulk) clears any existing split, and saving a split clears the transaction's own `category_id`. A split transaction's `category_id` is therefore always null — same as an uncategorized one — but it is **not** uncategorized: `/reports`, the ledger's `uncategorized` filter, and the category filter all treat a split row as categorized via its allocations, not as missing a category. A rule never touches a split transaction either, for the same reason it never touches one you categorized by hand: splitting is a manual decision.
+
+Every transaction can also carry a free-text **note**, independent of splitting, editable inline in the ledger (saved on blur, not per keystroke).
+
+The account detail page (`/accounts/:id`) shows a split transaction's badge and per-category breakdown read-only — it has no split editor of its own; use the main ledger to edit one.
 
 ## Categorization
 

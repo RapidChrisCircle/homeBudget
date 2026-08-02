@@ -9,6 +9,7 @@ vi.mock('../services/api', () => ({
     get: vi.fn(),
     post: vi.fn(),
     patch: vi.fn(),
+    put: vi.fn(),
     delete: vi.fn(),
   },
 }))
@@ -30,6 +31,9 @@ const sampleTransaction = {
   credit: null,
   balance: '100.00',
   transaction_type: 'WDL',
+  note: null,
+  is_split: false,
+  splits: [],
 }
 
 const sampleBatch = {
@@ -494,5 +498,69 @@ describe('TransactionsPage', () => {
     const row = screen.getByText('Coffee').closest('tr')
     const rowOptions = Array.from(within(row).getByRole('combobox').options).map((o) => o.textContent)
     expect(rowOptions).toContain('Subscriptions')
+  })
+
+  it('opens the split editor for a row and shows the transaction in its title', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const row = screen.getByText('Coffee').closest('tr')
+    fireEvent.click(within(row).getByRole('button', { name: 'Split' }))
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/Split "Coffee"/)).toBeInTheDocument()
+  })
+
+  it('shows a split badge and per-category breakdown instead of a select for a split transaction', async () => {
+    mockLoad({
+      transactions: [{
+        ...sampleTransaction,
+        category_id: null,
+        is_split: true,
+        splits: [
+          { id: 201, category_id: 1, category_name: 'Groceries', amount: '-3.00', note: null },
+          { id: 202, category_id: null, category_name: null, amount: '-2.00', note: null },
+        ],
+      }],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const row = screen.getByText('Coffee').closest('tr')
+    expect(within(row).getByText('split')).toBeInTheDocument()
+    expect(within(row).getByText(/Groceries/)).toBeInTheDocument()
+    expect(within(row).queryByLabelText('Category for Coffee')).not.toBeInTheDocument()
+    // A split row has nothing to re-split into further from this button -
+    // editing goes through "Edit split" instead.
+    expect(within(row).queryByRole('button', { name: 'Split' })).not.toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Edit split' })).toBeInTheDocument()
+  })
+
+  it('saves a note on blur, but only when it actually changed', async () => {
+    mockLoad()
+    api.patch.mockResolvedValue({})
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const noteInput = screen.getByLabelText('Note for Coffee')
+
+    // Focusing and blurring without editing must not fire a request.
+    fireEvent.focus(noteInput)
+    fireEvent.blur(noteInput)
+    expect(api.patch).not.toHaveBeenCalledWith('/transactions/1/note', expect.anything())
+
+    fireEvent.change(noteInput, { target: { value: 'Split with Sam' } })
+    fireEvent.blur(noteInput)
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/transactions/1/note', { note: 'Split with Sam' })
+    })
   })
 })

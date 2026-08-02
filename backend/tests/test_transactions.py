@@ -5,7 +5,7 @@ import pytest
 
 from app.models import Account, CategoryRule, ImportBatch, Transaction
 from app.services import csv_formats
-from app.services.csv_formats import CsvFormat
+from app.services.csv_formats import ColumnMapping, header_signature
 
 HEADER = "BSB Number,Account Number,Transaction Date,Narration,Cheque Number,Debit,Credit,Balance,Transaction Type\n"
 
@@ -476,40 +476,58 @@ def test_import_single_csv_with_multiple_accounts_creates_all_accounts(client, d
     assert account_numbers == {"5229 8024 5118 3514", "0128778"}
 
 
-def test_import_unrecognized_header_row_rejected(client):
+def test_import_unrecognized_header_row_rejected_with_mapping_details(client):
 
     bad_header = "Date,Description,Amount\n"
+    csv_content = bad_header + "2026-07-24,Coffee,-5.00\n"
     response = client.post(
         "/api/transactions/import",
-        files={"file": ("bad.csv", io.BytesIO(bad_header.encode("utf-8")), "text/csv")},
+        files={"file": ("bad.csv", io.BytesIO(csv_content.encode("utf-8")), "text/csv")},
     )
 
     assert response.status_code == 422
 
-    errors = response.json()["detail"]["errors"]
-    assert any("does not match any supported bank format" in e["message"] for e in errors)
+    detail = response.json()["detail"]
+    assert detail["needs_mapping"] is True
+    assert detail["header"] == ["Date", "Description", "Amount"]
+    assert detail["sample_rows"] == [["2026-07-24", "Coffee", "-5.00"]]
 
 
 @pytest.fixture
 def second_bank_format():
 
-    # Same 9-column logical layout as the ANZ format (see CsvFormat docstring),
-    # just different header labels and an ISO date format - a realistic
-    # example of a second bank's export differing only cosmetically.
-    fmt = CsvFormat(
-        key="other_bank",
+    # Same 9-column logical layout as the ANZ format (see ColumnMapping's
+    # docstring in services/csv_formats.py), just different header labels
+    # and an ISO date format - a realistic example of a second bank's
+    # export differing only cosmetically. Built-in formats are matched the
+    # identical way saved mappings are (an exact header-signature lookup),
+    # so registering one here exercises the same code path a real second
+    # built-in format would.
+    header = [
+        "BSB", "Account", "Value Date", "Description", "Cheque No",
+        "Debit Amount", "Credit Amount", "Running Balance", "Type",
+    ]
+    mapping = ColumnMapping(
         institution="Other Bank",
-        expected_headers=[
-            "BSB", "Account", "Value Date", "Description", "Cheque No",
-            "Debit Amount", "Credit Amount", "Running Balance", "Type",
-        ],
         date_format="%Y-%m-%d",
+        amount_mode="debit_credit",
+        bsb_index=0,
+        account_number_index=1,
+        transaction_date_index=2,
+        narration_index=3,
+        cheque_number_index=4,
+        debit_index=5,
+        credit_index=6,
+        amount_index=None,
+        balance_index=7,
+        transaction_type_index=8,
     )
-    csv_formats.CSV_FORMATS.append(fmt)
+    signature = header_signature(header)
+    csv_formats.BUILTIN_FORMATS[signature] = mapping
 
-    yield fmt
+    yield mapping
 
-    csv_formats.CSV_FORMATS.remove(fmt)
+    del csv_formats.BUILTIN_FORMATS[signature]
 
 
 def test_import_second_format_is_auto_detected_and_sets_institution(client, db_session, second_bank_format):

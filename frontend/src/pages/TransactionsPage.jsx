@@ -4,10 +4,12 @@ import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
 import CategoryQuickAdd from '../components/CategoryQuickAdd.jsx'
+import CsvFormatMapper from '../components/CsvFormatMapper.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LedgerFilters from '../components/LedgerFilters.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import Pagination from '../components/Pagination.jsx'
+import SplitEditor from '../components/SplitEditor.jsx'
 import TransactionGroups from '../components/TransactionGroups.jsx'
 import {
   EMPTY_FILTERS,
@@ -44,6 +46,8 @@ export default function TransactionsPage() {
   const [applying, setApplying] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
+  const [splitEditorTransaction, setSplitEditorTransaction] = useState(null)
+  const [mappingPanel, setMappingPanel] = useState(null)
   const navigate = useNavigate()
 
   // Read straight from the URL, like the page number already is - see
@@ -198,7 +202,13 @@ export default function TransactionsPage() {
     } catch (err) {
       const detail = err?.response?.data?.detail
 
-      if (detail && typeof detail === 'object' && Array.isArray(detail.errors)) {
+      if (detail && typeof detail === 'object' && detail.needs_mapping) {
+        // Kept as its own File object (not just the input's value, which
+        // gets cleared below regardless of outcome) so the mapper can
+        // re-submit the SAME bytes for preview and, once mapped, the real
+        // import - without asking the user to re-select the file.
+        setMappingPanel({ file, header: detail.header, sampleRows: detail.sample_rows })
+      } else if (detail && typeof detail === 'object' && Array.isArray(detail.errors)) {
         setUploadErrors(detail.errors)
       } else {
         const message = detail || err?.message || 'Import failed'
@@ -210,6 +220,12 @@ export default function TransactionsPage() {
     }
   }
 
+  const handleMappingImported = async (result) => {
+    setMappingPanel(null)
+    setUploadResult(result)
+    await refresh({ withLookups: true })
+  }
+
   const handleCategoryChange = async (transactionId, categoryId) => {
     setActionError('')
     try {
@@ -219,6 +235,26 @@ export default function TransactionsPage() {
       await refresh()
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Category update failed'
+      setActionError(String(message))
+    }
+  }
+
+  // Commits on blur rather than per keystroke - the same "apply on an
+  // explicit action" philosophy LedgerFilters follows, and it avoids a
+  // request per character typed. No-ops when nothing actually changed, so
+  // clicking into a note and back out without editing it doesn't refetch
+  // the whole page for nothing.
+  const handleNoteChange = async (transaction, note) => {
+    const trimmed = note.trim()
+    if (trimmed === (transaction.note || '')) {
+      return
+    }
+    setActionError('')
+    try {
+      await api.patch(`/transactions/${transaction.id}/note`, { note: trimmed || null })
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Note update failed'
       setActionError(String(message))
     }
   }
@@ -376,13 +412,14 @@ export default function TransactionsPage() {
         </button>
 
         <table>
+          <caption className="visually-hidden">Import history</caption>
           <thead>
             <tr>
-              <th>Filename</th>
-              <th>Imported At</th>
-              <th>Imported</th>
-              <th>Skipped Duplicates</th>
-              <th></th>
+              <th scope="col">Filename</th>
+              <th scope="col">Imported At</th>
+              <th scope="col">Imported</th>
+              <th scope="col">Skipped Duplicates</th>
+              <th scope="col"></th>
             </tr>
           </thead>
           <tbody>
@@ -445,9 +482,10 @@ export default function TransactionsPage() {
 
             <div className="table-scroll">
               <table>
+                <caption className="visually-hidden">Ledger</caption>
                 <thead>
                   <tr>
-                    <th>
+                    <th scope="col">
                       <input
                         type="checkbox"
                         aria-label="Select all on this page"
@@ -462,14 +500,14 @@ export default function TransactionsPage() {
                         disabled={transactions.length === 0}
                       />
                     </th>
-                    <th>Date</th>
-                    <th>Account</th>
-                    <th>Narration</th>
-                    <th>Debit</th>
-                    <th>Credit</th>
-                    <th>Balance</th>
-                    <th>Type</th>
-                    <th>Category</th>
+                    <th scope="col">Date</th>
+                    <th scope="col">Account</th>
+                    <th scope="col">Narration</th>
+                    <th scope="col">Debit</th>
+                    <th scope="col">Credit</th>
+                    <th scope="col">Balance</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Category</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -490,18 +528,38 @@ export default function TransactionsPage() {
                       <td><Amount value={transaction.balance} neutral /></td>
                       <td>{transaction.transaction_type}</td>
                       <td>
-                        <select
-                          aria-label={`Category for ${transaction.narration}`}
-                          value={transaction.category_id ?? ''}
-                          onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
-                        >
-                          <option value="">Uncategorized</option>
-                          {categories.map((category) => (
-                            <option key={category.id} value={category.id}>
-                              {category.name}
-                            </option>
-                          ))}
-                        </select>
+                        {transaction.is_split ? (
+                          <div className="split-summary">
+                            <Badge tone="info" title="This transaction is split across categories">split</Badge>
+                            <ul>
+                              {transaction.splits.map((split) => (
+                                <li key={split.id}>
+                                  {split.category_name || 'Uncategorized'}: <Amount value={split.amount} />
+                                </li>
+                              ))}
+                            </ul>
+                            <button
+                              type="button"
+                              className="button-ghost"
+                              onClick={() => setSplitEditorTransaction(transaction)}
+                            >
+                              Edit split
+                            </button>
+                          </div>
+                        ) : (
+                          <select
+                            aria-label={`Category for ${transaction.narration}`}
+                            value={transaction.category_id ?? ''}
+                            onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
+                          >
+                            <option value="">Uncategorized</option>
+                            {categories.map((category) => (
+                              <option key={category.id} value={category.id}>
+                                {category.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         {/* Import filename and row actions live here rather
                             than as their own columns - both are low-frequency
                             and text-heavy, and were what pushed the table
@@ -511,6 +569,23 @@ export default function TransactionsPage() {
                             <Badge tone="info" title="Set automatically by a rule">auto</Badge>
                           )}
                           <span className="text-muted">{batchFilename(transaction.import_batch_id)}</span>
+                          <input
+                            type="text"
+                            className="ledger-note-input"
+                            placeholder="Add a note..."
+                            defaultValue={transaction.note || ''}
+                            onBlur={(e) => handleNoteChange(transaction, e.target.value)}
+                            aria-label={`Note for ${transaction.narration}`}
+                          />
+                          {!transaction.is_split && (
+                            <button
+                              type="button"
+                              className="button-ghost"
+                              onClick={() => setSplitEditorTransaction(transaction)}
+                            >
+                              Split
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="button-ghost"
@@ -539,6 +614,29 @@ export default function TransactionsPage() {
           </>
         )}
       </Card>
+
+      {splitEditorTransaction && (
+        <SplitEditor
+          transaction={splitEditorTransaction}
+          categories={categories}
+          onCategoryCreated={handleCategoryCreated}
+          onClose={() => setSplitEditorTransaction(null)}
+          onSaved={() => {
+            setSplitEditorTransaction(null)
+            refresh()
+          }}
+        />
+      )}
+
+      {mappingPanel && (
+        <CsvFormatMapper
+          file={mappingPanel.file}
+          header={mappingPanel.header}
+          sampleRows={mappingPanel.sampleRows}
+          onClose={() => setMappingPanel(null)}
+          onImported={handleMappingImported}
+        />
+      )}
     </section>
   )
 }

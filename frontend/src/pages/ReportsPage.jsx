@@ -118,17 +118,18 @@ export default function ReportsPage() {
           text itself changes every month. */}
       <Card id="reports-monthly-summary" title={<>Monthly Summary &mdash; {report.label}</>}>
         <table>
+          <caption className="visually-hidden">Monthly summary</caption>
           <tbody>
             <tr>
-              <td>Total income</td>
+              <th scope="row">Total income</th>
               <td><Amount value={summary.total_income} neutral /></td>
             </tr>
             <tr>
-              <td>Total spending</td>
+              <th scope="row">Total spending</th>
               <td><Amount value={summary.total_spending} neutral /></td>
             </tr>
             <tr>
-              <td>Net saved</td>
+              <th scope="row">Net saved</th>
               <td><Amount value={summary.net_saved} /></td>
             </tr>
           </tbody>
@@ -150,12 +151,13 @@ export default function ReportsPage() {
         {budgets.length === 0 && <p>No activity in this month.</p>}
         {budgets.length > 0 && (
           <table>
+            <caption className="visually-hidden">Budget vs actual by category</caption>
             <thead>
               <tr>
-                <th>Category</th>
-                <th>Budget</th>
-                <th>Actual</th>
-                <th>Difference</th>
+                <th scope="col">Category</th>
+                <th scope="col">Budget</th>
+                <th scope="col">Actual</th>
+                <th scope="col">Difference</th>
               </tr>
             </thead>
             <tbody>
@@ -186,13 +188,14 @@ export default function ReportsPage() {
         {grid.rows.length === 0 && <p>No activity in this period.</p>}
         {grid.rows.length > 0 && (
           <table>
+            <caption className="visually-hidden">Category totals over time</caption>
             <thead>
               <tr>
-                <th>Category</th>
+                <th scope="col">Category</th>
                 {grid.periods.map((period) => (
-                  <th key={period.label}>{period.label}</th>
+                  <th scope="col" key={period.label}>{period.label}</th>
                 ))}
-                <th>Total</th>
+                <th scope="col">Total</th>
               </tr>
             </thead>
             <tbody>

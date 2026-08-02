@@ -135,17 +135,18 @@ export default function RecurringPage() {
           </p>
 
           <table>
+            <caption className="visually-hidden">Detected recurring payments</caption>
             <thead>
               <tr>
-                <th>Merchant</th>
-                <th>Account</th>
-                <th>Cadence</th>
-                <th>Typical amount</th>
-                <th>Last seen</th>
-                <th>Next due</th>
-                <th>Annual cost</th>
-                <th>Status</th>
-                <th></th>
+                <th scope="col">Merchant</th>
+                <th scope="col">Account</th>
+                <th scope="col">Cadence</th>
+                <th scope="col">Typical amount</th>
+                <th scope="col">Last seen</th>
+                <th scope="col">Next due</th>
+                <th scope="col">Annual cost</th>
+                <th scope="col">Status</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
@@ -188,12 +189,13 @@ export default function RecurringPage() {
 
           {showDismissed && (
             <table>
+              <caption className="visually-hidden">Dismissed recurring payments</caption>
               <thead>
                 <tr>
-                  <th>Merchant</th>
-                  <th>Account</th>
-                  <th>Cadence</th>
-                  <th></th>
+                  <th scope="col">Merchant</th>
+                  <th scope="col">Account</th>
+                  <th scope="col">Cadence</th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import './App.css'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import { pages } from './pageRegistry.jsx'
 import { api } from './services/api'
@@ -35,6 +36,8 @@ function App() {
   const gitSha = getGitSha()
 
   const { mode: themeMode, setMode: setThemeMode } = useTheme()
+
+  const location = useLocation()
 
   // `apiVersion` starts out `null` (still checking / not yet resolved)
   // rather than an object with blank fields, so "unreachable" and "haven't
@@ -104,14 +107,21 @@ function App() {
         </nav>
       </header>
 
-      <Routes>
-        {/* The dashboard is deliberately not in pageRegistry: the registry
-            drives the nav bar, and Home already has its own link there. */}
-        <Route path="/" element={<DashboardPage />} />
-        {pages.map((page) => (
-          <Route key={page.path} path={page.path} element={page.element} />
-        ))}
-      </Routes>
+      {/* key={location.pathname} remounts the boundary itself on every
+          navigation, clearing state.error along with it - without this, a
+          crash on one route would strand the fallback in place forever,
+          since changing what <Routes> renders next does not by itself make
+          an already-tripped error boundary retry rendering its children. */}
+      <ErrorBoundary key={location.pathname}>
+        <Routes>
+          {/* The dashboard is deliberately not in pageRegistry: the registry
+              drives the nav bar, and Home already has its own link there. */}
+          <Route path="/" element={<DashboardPage />} />
+          {pages.map((page) => (
+            <Route key={page.path} path={page.path} element={page.element} />
+          ))}
+        </Routes>
+      </ErrorBoundary>
 
       <footer className="footer">
         <span>

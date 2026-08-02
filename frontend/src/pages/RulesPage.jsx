@@ -312,15 +312,16 @@ export default function RulesPage() {
 
         {!loading && !error && (
           <table>
+            <caption className="visually-hidden">Auto-categorization rules</caption>
             <thead>
               <tr>
-                <th>Order</th>
-                <th>Narration contains</th>
-                <th>Type</th>
-                <th>Min</th>
-                <th>Max</th>
-                <th>Category</th>
-                <th></th>
+                <th scope="col">Order</th>
+                <th scope="col">Narration contains</th>
+                <th scope="col">Type</th>
+                <th scope="col">Min</th>
+                <th scope="col">Max</th>
+                <th scope="col">Category</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>

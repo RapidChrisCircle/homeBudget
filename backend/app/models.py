@@ -167,6 +167,15 @@ class Category(Base):
         cascade="all, delete-orphan"
     )
 
+    # No cascade - deleting a category nulls out a split's category_id
+    # (matching Transaction.category_id's own ondelete="SET NULL"), it never
+    # deletes the split itself. delete_category in api/categories.py does
+    # this explicitly, for the standing SQLite-ignores-ondelete reason.
+    splits = relationship(
+        "TransactionSplit",
+        back_populates="category"
+    )
+
     @property
     def parent_name(self):
 
@@ -257,6 +266,96 @@ class CategoryRule(Base):
     def category_name(self):
 
         return self.category.name if self.category else None
+
+
+class CsvFormatMapping(Base):
+    """A user-defined column mapping for a bank CSV layout other than the
+    one built in (ANZ - see services/csv_formats.py, which is what both this
+    and the built-in format reduce to before parsing: one ColumnMapping
+    shape, one parsing code path in services/csv_import.py, regardless of
+    which kind matched a given upload).
+
+    Every *_index column is the raw CSV column's 0-based position in the
+    file this mapping was built from. amount_mode decides which of two
+    mutually exclusive column pairs is populated:
+    - "debit_credit": debit_index and credit_index, mirroring this app's
+      own storage convention directly (debit negative, credit positive,
+      exactly one populated per row).
+    - "single_amount": amount_index only, one signed column split into
+      debit/credit BY SIGN at parse time (negative -> debit, positive ->
+      credit) so nothing downstream of import ever learns single-amount
+      files exist.
+
+    balance_index is NEVER nullable, unlike every other column here. This
+    app's most load-bearing invariant is that Transaction.balance is the
+    bank's OWN running balance, never derived by summing debits/credits
+    (see services/ledger.py's module docstring) - a bank export with no
+    balance column is out of scope, rejected with a clear message rather
+    than silently deriving one and quietly breaking that invariant.
+
+    header_signature is the exact header row this mapping was built from
+    (see services/csv_formats.header_signature for the exact join format),
+    matched EXACTLY on a later upload to auto-detect this mapping without
+    the user re-mapping the same file's layout every time they import.
+    """
+
+    __tablename__ = "csv_format_mappings"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    name = Column(
+        String,
+        nullable=False
+    )
+
+    institution = Column(
+        String,
+        nullable=True
+    )
+
+    header_signature = Column(
+        String,
+        nullable=False
+    )
+
+    date_format = Column(
+        String,
+        nullable=False
+    )
+
+    amount_mode = Column(
+        String,
+        nullable=False,
+        default="debit_credit",
+        server_default="debit_credit"
+    )
+
+    bsb_index = Column(Integer, nullable=True)
+    account_number_index = Column(Integer, nullable=False)
+    transaction_date_index = Column(Integer, nullable=False)
+    narration_index = Column(Integer, nullable=False)
+    cheque_number_index = Column(Integer, nullable=True)
+    debit_index = Column(Integer, nullable=True)
+    credit_index = Column(Integer, nullable=True)
+    amount_index = Column(Integer, nullable=True)
+    balance_index = Column(Integer, nullable=False)
+    transaction_type_index = Column(Integer, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "header_signature",
+            name="uq_csv_format_mappings_header_signature"
+        ),
+    )
 
 
 class ImportBatch(Base):
@@ -380,6 +479,13 @@ class Transaction(Base):
         nullable=False
     )
 
+    # Free text, entirely separate from splits.note below (a per-transaction
+    # note vs. a per-allocation one - a split transaction can have both).
+    note = Column(
+        String,
+        nullable=True
+    )
+
     import_batch = relationship(
         "ImportBatch",
         back_populates="transactions"
@@ -400,6 +506,17 @@ class Transaction(Base):
         back_populates="tagged_transactions"
     )
 
+    # ORM-level cascade, not just the FK's ondelete=CASCADE - mirrors every
+    # other cascade in this file (see delete_category's comment): SQLite
+    # ignores ondelete without PRAGMA foreign_keys=ON, so an FK-only cascade
+    # would pass every test while behaving differently against Postgres.
+    # delete_transaction in api/transactions.py relies on this.
+    splits = relationship(
+        "TransactionSplit",
+        back_populates="transaction",
+        cascade="all, delete-orphan"
+    )
+
     @property
     def account_name(self):
 
@@ -409,6 +526,11 @@ class Transaction(Base):
     def category_name(self):
 
         return self.category.name if self.category else None
+
+    @property
+    def is_split(self):
+
+        return len(self.splits) > 0
 
     __table_args__ = (
         Index(
@@ -421,6 +543,78 @@ class Transaction(Base):
             "balance"
         ),
     )
+
+
+class TransactionSplit(Base):
+    """One category's slice of a split transaction.
+
+    A transaction is either UNSPLIT (its own category_id, exactly as before
+    splits existed) or SPLIT (category_id NULL, N of these rows instead -
+    see api/transactions.py's split endpoints, which enforce that a
+    transaction is never both at once). Splits must sum EXACTLY to the
+    transaction's own signed amount (debit negative, credit positive, same
+    convention as everywhere else) - enforced on write in
+    api/transactions.py, not just trusted, since a partial allocation would
+    make every report silently under-count. amount here is signed the same
+    way, not an absolute value - a split of a debit transaction has a
+    negative amount.
+
+    services/allocations.py is what every money query (reporting, trends,
+    budgets) actually reads through instead of Transaction directly, so an
+    unsplit transaction and a split one contribute to totals identically.
+
+    category_id mirrors Transaction.category_id's own rules exactly: never
+    a category that has children (see Category.parent_id's docstring -
+    "grouping only" applies here too), and SET NULL (enforced explicitly in
+    Python, not left to the FK - see delete_category) rather than deleted
+    when its category goes.
+    """
+
+    __tablename__ = "transaction_splits"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    transaction_id = Column(
+        Integer,
+        ForeignKey("transactions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    category_id = Column(
+        Integer,
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    amount = Column(
+        Numeric(12, 2),
+        nullable=False
+    )
+
+    note = Column(
+        String,
+        nullable=True
+    )
+
+    transaction = relationship(
+        "Transaction",
+        back_populates="splits"
+    )
+
+    category = relationship(
+        "Category",
+        back_populates="splits"
+    )
+
+    @property
+    def category_name(self):
+
+        return self.category.name if self.category else None
 
 
 class RecurringDismissal(Base):

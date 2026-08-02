@@ -21,6 +21,15 @@ categorized by hand has a category but no rule marker, so it is permanently
 off limits. The manual-categorization endpoints clear the marker precisely to
 put a row into that protected state.
 
+A SPLIT row (see TransactionSplit's docstring in models.py) is off limits
+regardless of what the eligibility rule above would otherwise say - a split
+transaction's own category_id is always NULL, which would make it look
+"fair game" by the rule above alone, but splitting is inherently a manual
+decision and a rule must never flatten one back into a single category.
+_is_eligible's has_splits parameter and _eligible_rows' SQL-level filter
+enforce this the same way, for the same reason every other duplicated check
+in this module exists: preview and apply must never disagree.
+
 Matching runs in Python rather than SQL because the import path has to match
 rows that are not in the database yet. Keeping one matcher for all three
 callers avoids the "preview said 12, apply did 9" class of bug, and sidesteps
@@ -46,7 +55,10 @@ def _row_amount(debit: Decimal | None, credit: Decimal | None) -> Decimal | None
     return None
 
 
-def _is_eligible(category_id: int | None, categorized_by_rule_id: int | None) -> bool:
+def _is_eligible(category_id: int | None, categorized_by_rule_id: int | None, has_splits: bool = False) -> bool:
+
+    if has_splits:
+        return False
 
     return category_id is None or categorized_by_rule_id is not None
 
@@ -176,7 +188,11 @@ def apply_rules_to_transaction(rules: list[CategoryRule], transaction: Transacti
 
 
 def _eligible_rows(db: Session, eligible_only: bool):
-    """Lightweight column query - no ORM hydration, no relationship loading."""
+    """Lightweight column query - no ORM hydration, no relationship loading.
+
+    has_splits is a correlated EXISTS, not a join - a row can have any
+    number of splits and this must stay one row per transaction regardless.
+    """
 
     query = db.query(
         Transaction.id,
@@ -186,6 +202,7 @@ def _eligible_rows(db: Session, eligible_only: bool):
         Transaction.credit,
         Transaction.category_id,
         Transaction.categorized_by_rule_id,
+        Transaction.splits.any().label("has_splits"),
     )
 
     if eligible_only:
@@ -193,7 +210,8 @@ def _eligible_rows(db: Session, eligible_only: bool):
             or_(
                 Transaction.category_id.is_(None),
                 Transaction.categorized_by_rule_id.isnot(None),
-            )
+            ),
+            ~Transaction.splits.any(),
         )
 
     return query.all()
@@ -285,7 +303,7 @@ def preview_rule(
 
         match_count += 1
 
-        if not _is_eligible(row.category_id, row.categorized_by_rule_id):
+        if not _is_eligible(row.category_id, row.categorized_by_rule_id, has_splits=row.has_splits):
             continue
 
         already_applied = (

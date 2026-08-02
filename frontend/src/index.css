@@ -254,3 +254,23 @@ small,
   color: var(--text-muted);
   font-size: 0.85em;
 }
+
+/* Visually hidden but still reachable by assistive tech - used for table
+   <caption>s throughout the app (see App.css's table rules): a table's
+   surrounding heading already says what it is for a sighted user reading
+   top to bottom, but a screen reader user jumping straight into table
+   navigation mode never passes that heading, so the table itself still
+   needs its own accessible name. `clip` (not display:none/visibility:hidden,
+   both of which remove it from the accessibility tree entirely) is the
+   standard technique for exactly this. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

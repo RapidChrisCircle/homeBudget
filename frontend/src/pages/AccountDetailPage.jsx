@@ -238,15 +238,16 @@ export default function AccountDetailPage() {
 
         {transactions.length > 0 && (
           <table>
+            <caption className="visually-hidden">Transactions for this account</caption>
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Narration</th>
-                <th>Debit</th>
-                <th>Credit</th>
-                <th>Balance</th>
-                <th>Type</th>
-                <th>Category</th>
+                <th scope="col">Date</th>
+                <th scope="col">Narration</th>
+                <th scope="col">Debit</th>
+                <th scope="col">Credit</th>
+                <th scope="col">Balance</th>
+                <th scope="col">Type</th>
+                <th scope="col">Category</th>
               </tr>
             </thead>
             <tbody>
@@ -259,18 +260,40 @@ export default function AccountDetailPage() {
                   <td><Amount value={transaction.balance} neutral /></td>
                   <td>{transaction.transaction_type}</td>
                   <td>
-                    <select
-                      aria-label={`Category for ${transaction.narration}`}
-                      value={transaction.category_id ?? ''}
-                      onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
-                    >
-                      <option value="">Uncategorized</option>
-                      {categories.map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name}
-                        </option>
-                      ))}
-                    </select>
+                    {transaction.is_split ? (
+                      // Read-only here, deliberately - this page never
+                      // offers the split editor, only /transactions does.
+                      // A split transaction's own category_id is NULL by
+                      // construction (see TransactionSplit's docstring in
+                      // models.py), so it must NEVER render as the plain
+                      // select below - that select's "Uncategorized"
+                      // option would misrepresent an already-categorized
+                      // transaction, and choosing it would silently wipe
+                      // the split (PATCH .../category clears splits).
+                      <div className="split-summary">
+                        <Badge tone="info" title="This transaction is split across categories">split</Badge>
+                        <ul>
+                          {transaction.splits.map((split) => (
+                            <li key={split.id}>
+                              {split.category_name || 'Uncategorized'}: <Amount value={split.amount} />
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <select
+                        aria-label={`Category for ${transaction.narration}`}
+                        value={transaction.category_id ?? ''}
+                        onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
+                      >
+                        <option value="">Uncategorized</option>
+                        {categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     {transaction.categorized_by_rule_id && (
                       <Badge tone="info" title="Set automatically by a rule">auto</Badge>
                     )}

@@ -28,7 +28,12 @@ Sign handling, in one place so every report agrees:
 
 Exclusions, applied to every money query:
 - Transaction.category_id IS NULL -> excluded from category rows, counted
-  only by the uncategorized review.
+  only by the uncategorized review. A SPLIT transaction also has
+  category_id NULL by construction (see TransactionSplit's docstring in
+  models.py) but is NOT uncategorized - its activity reaches category rows
+  through services/allocations.py instead, and uncategorized_summary()
+  below excludes split transactions specifically so they are not
+  double-counted as "uncategorized" on top of that.
 - Category.kind == "transfer" -> excluded from every report section. This is
   how money moving between the user's own accounts stops inflating both
   income and spending.
@@ -73,13 +78,11 @@ from sqlalchemy import Integer, and_, cast, extract, func
 from sqlalchemy.orm import Session
 
 from ..models import Category, Transaction
+from .allocations import allocation_subquery
 from .budgets import effective_budget, overrides_for_period, overrides_for_periods
 
 DEFAULT_GRID_MONTHS = 6
 MAX_GRID_MONTHS = 24
-
-# The one signed aggregate every report derives from.
-_NET_EXPR = func.coalesce(Transaction.debit, 0) + func.coalesce(Transaction.credit, 0)
 
 
 @dataclass
@@ -120,11 +123,20 @@ def month_bounds(year: int, month: int) -> tuple[date, date]:
     return start, end
 
 
-def _year_month_columns():
-    """Dialect-agnostic (year, month) grouping columns - see module docstring."""
+def _year_month_columns(date_column=None):
+    """Dialect-agnostic (year, month) grouping columns - see module docstring.
 
-    year_col = cast(extract("year", Transaction.transaction_date), Integer).label("year")
-    month_col = cast(extract("month", Transaction.transaction_date), Integer).label("month")
+    Defaults to Transaction.transaction_date for callers grouping the
+    ledger directly (available_periods below); category_grid() passes the
+    allocation subquery's own transaction_date column instead, since it
+    groups allocations, not transactions.
+    """
+
+    if date_column is None:
+        date_column = Transaction.transaction_date
+
+    year_col = cast(extract("year", date_column), Integer).label("year")
+    month_col = cast(extract("month", date_column), Integer).label("month")
     return year_col, month_col
 
 
@@ -178,8 +190,12 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
     WHERE silently turns the outer join back into an inner join and drops
     every zero-activity category - including budgeted categories the user
     spent nothing in, which are exactly the rows they want to see.
-    count(Transaction.id) rather than count(*) so outer-joined rows with no
-    matching transaction count 0, not 1.
+    count(alloc.c.transaction_id) rather than count(*) so outer-joined rows
+    with no matching allocation count 0, not 1. alloc is
+    services.allocations.allocation_subquery() - a (transaction_id,
+    category_id, amount, transaction_date) view standing in for Transaction
+    here specifically so a split transaction's allocations count too, not
+    just unsplit ones.
 
     start must be the first day of a calendar month. budget_amount below is
     resolved (override-if-present-else-standing) for the ONE month start
@@ -192,6 +208,7 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
         raise ValueError(f"category_totals_for_period requires a month-aligned start date, got {start!r}")
 
     overrides = overrides_for_period(db, start.year, start.month)
+    alloc = allocation_subquery(db)
 
     rows = (
         db.query(
@@ -199,16 +216,16 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
             Category.name,
             Category.kind,
             Category.budget_amount,
-            func.coalesce(func.sum(_NET_EXPR), 0).label("net"),
-            func.count(Transaction.id).label("transaction_count"),
+            func.coalesce(func.sum(alloc.c.amount), 0).label("net"),
+            func.count(alloc.c.transaction_id).label("transaction_count"),
         )
         .select_from(Category)
         .outerjoin(
-            Transaction,
+            alloc,
             and_(
-                Transaction.category_id == Category.id,
-                Transaction.transaction_date >= start,
-                Transaction.transaction_date < end,
+                alloc.c.category_id == Category.id,
+                alloc.c.transaction_date >= start,
+                alloc.c.transaction_date < end,
             ),
         )
         .filter(Category.kind != "transfer")
@@ -309,7 +326,8 @@ def category_grid(
     window_start, _ = month_bounds(*periods[0])
     _, window_end = month_bounds(*periods[-1])
 
-    year_col, month_col = _year_month_columns()
+    alloc = allocation_subquery(db)
+    year_col, month_col = _year_month_columns(alloc.c.transaction_date)
 
     rows = (
         db.query(
@@ -319,15 +337,15 @@ def category_grid(
             Category.budget_amount,
             year_col,
             month_col,
-            func.coalesce(func.sum(_NET_EXPR), 0).label("net"),
+            func.coalesce(func.sum(alloc.c.amount), 0).label("net"),
         )
         .select_from(Category)
         .outerjoin(
-            Transaction,
+            alloc,
             and_(
-                Transaction.category_id == Category.id,
-                Transaction.transaction_date >= window_start,
-                Transaction.transaction_date < window_end,
+                alloc.c.category_id == Category.id,
+                alloc.c.transaction_date >= window_start,
+                alloc.c.transaction_date < window_end,
             ),
         )
         .filter(Category.kind != "transfer")
@@ -392,6 +410,16 @@ def uncategorized_summary(db: Session, start: date, end: date) -> dict:
     this period have no category, and what they total (split by direction -
     a single net figure is close to meaningless when it mixes a salary and
     a grocery run).
+
+    A SPLIT transaction also has category_id NULL (see TransactionSplit's
+    docstring in models.py) but is not uncategorized - it is excluded here
+    via ~Transaction.splits.any() so it is not double-counted as both
+    "categorized via its splits" (in the totals above, through
+    services/allocations.py) and "uncategorized" (here). An allocation
+    within a split that itself has no category is a real gap, same as an
+    uncategorized whole transaction, but tracking that partial case is out
+    of scope for now - it simply doesn't reach a category row, same as
+    before splits existed.
     """
 
     transaction_count = (
@@ -408,6 +436,7 @@ def uncategorized_summary(db: Session, start: date, end: date) -> dict:
         )
         .filter(
             Transaction.category_id.is_(None),
+            ~Transaction.splits.any(),
             Transaction.transaction_date >= start,
             Transaction.transaction_date < end,
         )

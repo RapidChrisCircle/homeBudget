@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
@@ -27,12 +27,16 @@ const sampleTransaction = {
   account_id: 1,
   category_id: null,
   category_name: null,
+  categorized_by_rule_id: null,
   transaction_date: '2026-07-24',
   narration: 'Coffee',
   debit: '-5.00',
   credit: null,
   balance: '100.00',
   transaction_type: 'WDL',
+  note: null,
+  is_split: false,
+  splits: [],
 }
 
 function envelope(transactions, overrides = {}) {
@@ -193,6 +197,53 @@ describe('AccountDetailPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Category not found/)).toBeInTheDocument()
+    })
+  })
+
+  // Regression coverage: this page has no split editor, so a split
+  // transaction must never render the plain category select at all - that
+  // select's "Uncategorized" option would misrepresent an
+  // already-categorized transaction, and choosing it would silently wipe
+  // the split (PATCH .../category clears splits - see api/transactions.py).
+  it('shows a split badge and per-category breakdown instead of a select for a split transaction', async () => {
+    mockLoad({
+      transactions: [{
+        ...sampleTransaction,
+        category_id: null,
+        is_split: true,
+        splits: [
+          { id: 201, category_id: 1, category_name: 'Groceries', amount: '-3.00', note: null },
+          { id: 202, category_id: null, category_name: null, amount: '-2.00', note: null },
+        ],
+      }],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const row = screen.getByText('Coffee').closest('tr')
+    expect(within(row).getByText('split')).toBeInTheDocument()
+    expect(within(row).getByText(/Groceries/)).toBeInTheDocument()
+    expect(within(row).queryByLabelText('Category for Coffee')).not.toBeInTheDocument()
+    expect(within(row).queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
+  it('still shows the plain category select, and still patches on change, for an unsplit transaction', async () => {
+    mockLoad({ categories: [{ id: 9, name: 'Groceries' }] })
+    api.patch.mockResolvedValue({})
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const row = screen.getByText('Coffee').closest('tr')
+    expect(within(row).getByLabelText('Category for Coffee')).toBeInTheDocument()
+
+    fireEvent.change(within(row).getByLabelText('Category for Coffee'), { target: { value: '9' } })
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/transactions/1/category', { category_id: 9 })
     })
   })
 

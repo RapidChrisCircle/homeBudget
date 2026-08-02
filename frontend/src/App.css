@@ -422,12 +422,22 @@ a:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 
-.card table th {
+/* Column headers (<thead> th) only - a <tbody> th (scope="row", a few
+   key/value tables like Dashboard's Summary use one for the row label
+   instead of a plain td, purely for the accessible row-header semantics)
+   reads as an ordinary cell instead, not shrunk and upper-cased like a
+   column heading would be. */
+.card table thead th {
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);
+}
+
+.card table tbody th {
+  font-weight: 400;
+  color: inherit;
 }
 
 .card table tbody tr:hover {
@@ -546,4 +556,72 @@ th .amount {
 
 .state-message-error strong {
   color: var(--danger);
+}
+
+/* Split editor modal (SplitEditor.jsx) - the app's only modal, so no
+   general-purpose Modal component exists yet; if a second one is ever
+   needed, extract .modal-overlay/.modal into one. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 13, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  z-index: 100;
+}
+
+.modal {
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.split-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.split-row input {
+  min-width: 120px;
+}
+
+.split-remainder {
+  font-weight: 600;
+  margin: var(--space-3) 0;
+}
+
+.split-remainder-error {
+  color: var(--danger);
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* Split summary (TransactionsPage's ledger, in place of the plain category
+   select for a transaction that has splits). */
+.split-summary ul {
+  margin: var(--space-1) 0;
+  padding-left: var(--space-4);
+  font-size: 0.8rem;
+}
+
+/* Inline note input in the ledger row meta - compact, and grows to fill
+   whatever space is left in that flex-wrap row rather than claiming a
+   fixed width regardless of how much else is already on the row. */
+.ledger-note-input {
+  font-size: 0.75rem;
+  min-width: 100px;
+  flex: 1 1 140px;
 }

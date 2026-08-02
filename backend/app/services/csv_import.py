@@ -1,3 +1,13 @@
+"""CSV parsing, validation and import.
+
+Column-mapping driven (see services/csv_formats.py) rather than assuming a
+single fixed 9-column ANZ layout - parse_and_validate() and preview_import()
+both work against services.csv_formats.ColumnMapping, regardless of whether
+it came from the built-in ANZ format or a saved CsvFormatMapping row, so
+there is exactly one row-parsing code path (_parse_rows below) for every
+bank layout the app knows about.
+"""
+
 import csv
 import io
 from dataclasses import dataclass
@@ -8,7 +18,11 @@ from sqlalchemy.orm import Session
 
 from ..models import Account, ImportBatch, Transaction
 from .categorization import apply_rules_to_transaction, load_rules
-from .csv_formats import CSV_FORMATS, CsvFormat, find_format_for_header
+from .csv_formats import ColumnMapping, find_format_for_header
+
+# Preview shows a HANDFUL of parsed rows, not the whole file - enough to
+# confirm a candidate mapping looks right, not a second import.
+PREVIEW_SAMPLE_ROWS = 5
 
 
 @dataclass
@@ -26,11 +40,31 @@ class ParsedRow:
 
 
 class CsvValidationError(Exception):
+    """Row-level problems in an otherwise-recognized format - a bad date, a
+    missing amount, wrong column count. Import is all-or-nothing: any of
+    these means nothing in the file gets written.
+    """
 
     def __init__(self, errors: list[tuple[int, str]]):
 
         super().__init__("CSV validation failed")
         self.errors = errors
+
+
+class UnrecognizedFormatError(Exception):
+    """The header didn't match ANY known format - built-in or saved. This is
+    NOT "this file is broken", it is "the app doesn't know this file's
+    layout yet" - a different problem needing a different response (the
+    mapping UI), which is why it is not just another CsvValidationError.
+    Carries what that UI needs to build itself: the raw header and a few
+    raw sample rows, straight from the file, before any mapping is applied.
+    """
+
+    def __init__(self, header: list[str], sample_rows: list[list[str]]):
+
+        super().__init__("unrecognized CSV header")
+        self.header = header
+        self.sample_rows = sample_rows
 
 
 def _blank(value: str | None) -> bool:
@@ -50,7 +84,12 @@ def _parse_decimal(value: str, field_name: str, row_number: int, errors: list[tu
         return None
 
 
-def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
+def _read_header_and_rows(file_bytes: bytes):
+    """Shared by parse_and_validate and preview_import - decodes the file,
+    reads off the header row, and returns (header, reader) with the reader
+    positioned at the first data row. Raises CsvValidationError for a file
+    that is malformed before any per-row parsing could even start.
+    """
 
     try:
         text = file_bytes.decode("utf-8-sig")
@@ -71,13 +110,47 @@ def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
     except csv.Error as exc:
         raise CsvValidationError([(1, f"could not parse CSV header: {exc}")]) from None
 
-    csv_format = find_format_for_header(header)
+    return header, reader
 
-    if csv_format is None:
-        supported = " | ".join(", ".join(fmt.expected_headers) for fmt in CSV_FORMATS)
-        raise CsvValidationError([
-            (1, f"unexpected header row, does not match any supported bank format. Supported formats: {supported}")
-        ])
+
+def _parse_rows(mapping: ColumnMapping, header: list[str], reader, *, stop_after: int | None = None):
+    """The generalized row-parsing loop - reads columns by mapping.*_index
+    instead of a fixed positional order, so the same code serves the
+    built-in ANZ layout and any saved mapping alike.
+
+    Returns (rows, errors) and never raises for row-level problems, so
+    preview_import can show partial results alongside errors instead of an
+    all-or-nothing rejection; parse_and_validate (the real import path) is
+    what turns a non-empty errors list into a raised CsvValidationError,
+    since import ITSELF is still all-or-nothing.
+
+    stop_after limits how many DATA rows are COLLECTED - once that many
+    valid rows exist, the loop stops scanning the rest of the file
+    entirely (preview_import only ever needs a handful, and must not pay
+    the cost of parsing a 10,000-row file just to show 5). This means a
+    row-level problem after the stop point goes unseen by a preview - an
+    accepted tradeoff, since preview's job is "does this mapping look
+    right", not a full validation pass; parse_and_validate (no stop_after)
+    is what scans the whole file for the real import.
+    """
+
+    column_count = len(header)
+
+    mapped_indices = [
+        i for i in (
+            mapping.bsb_index, mapping.account_number_index, mapping.transaction_date_index,
+            mapping.narration_index, mapping.cheque_number_index, mapping.debit_index,
+            mapping.credit_index, mapping.amount_index, mapping.balance_index,
+            mapping.transaction_type_index,
+        )
+        if i is not None
+    ]
+
+    if any(i >= column_count or i < 0 for i in mapped_indices):
+        return [], [(1, f"mapping references a column beyond this file's {column_count} columns")]
+
+    def cell(raw_row: list[str], index: int | None) -> str:
+        return raw_row[index] if index is not None else ""
 
     errors: list[tuple[int, str]] = []
     rows: list[ParsedRow] = []
@@ -88,62 +161,93 @@ def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
 
             last_row_number = row_number
 
+            if stop_after is not None and len(rows) >= stop_after:
+                break
+
             if all(_blank(value) for value in raw_row):
                 continue
 
-            if len(raw_row) != len(csv_format.expected_headers):
-                errors.append((row_number, f"expected {len(csv_format.expected_headers)} columns, found {len(raw_row)}"))
+            if len(raw_row) != column_count:
+                errors.append((row_number, f"expected {column_count} columns, found {len(raw_row)}"))
                 continue
 
-            if raw_row == csv_format.expected_headers:
+            if raw_row == header:
                 errors.append((row_number, "row appears to be a repeated header row"))
                 continue
 
-            (
-                bsb_raw, account_raw, date_raw, narration_raw, cheque_raw,
-                debit_raw, credit_raw, balance_raw, type_raw
-            ) = raw_row
-
             errors_before = len(errors)
 
-            account_number = account_raw.strip()
+            account_number = cell(raw_row, mapping.account_number_index).strip()
             if _blank(account_number):
                 errors.append((row_number, "Account Number is required"))
 
+            bsb_raw = cell(raw_row, mapping.bsb_index)
             bsb_number = None if _blank(bsb_raw) else bsb_raw.strip()
 
+            date_raw = cell(raw_row, mapping.transaction_date_index)
             transaction_date = None
             try:
-                transaction_date = datetime.strptime(date_raw.strip(), csv_format.date_format).date()
+                transaction_date = datetime.strptime(date_raw.strip(), mapping.date_format).date()
 
             except ValueError:
-                errors.append((row_number, f"invalid Transaction Date '{date_raw}', expected format {csv_format.date_format}"))
+                errors.append((row_number, f"invalid Transaction Date '{date_raw}', expected format {mapping.date_format}"))
 
-            narration = narration_raw.strip()
+            narration = cell(raw_row, mapping.narration_index).strip()
             if _blank(narration):
                 errors.append((row_number, "Narration is required"))
 
+            cheque_raw = cell(raw_row, mapping.cheque_number_index)
             cheque_number = None if _blank(cheque_raw) else cheque_raw.strip()
 
-            debit_present = not _blank(debit_raw)
-            credit_present = not _blank(credit_raw)
+            debit: Decimal | None = None
+            credit: Decimal | None = None
 
-            debit = _parse_decimal(debit_raw, "Debit", row_number, errors) if debit_present else None
-            credit = _parse_decimal(credit_raw, "Credit", row_number, errors) if credit_present else None
+            if mapping.amount_mode == "single_amount":
 
-            if debit_present and credit_present:
-                errors.append((row_number, "row has both Debit and Credit populated"))
-            elif not debit_present and not credit_present:
-                errors.append((row_number, "row has neither Debit nor Credit populated"))
+                amount_raw = cell(raw_row, mapping.amount_index)
 
+                if _blank(amount_raw):
+                    errors.append((row_number, "Amount is required"))
+                else:
+                    amount = _parse_decimal(amount_raw, "Amount", row_number, errors)
+                    if amount is not None:
+                        # Splits by sign into the same storage convention
+                        # every other format uses - negative -> debit,
+                        # positive (including exactly zero) -> credit - so
+                        # nothing downstream of import ever learns
+                        # single-amount files exist.
+                        if amount < 0:
+                            debit = amount
+                        else:
+                            credit = amount
+
+            else:
+                debit_raw = cell(raw_row, mapping.debit_index)
+                credit_raw = cell(raw_row, mapping.credit_index)
+                debit_present = not _blank(debit_raw)
+                credit_present = not _blank(credit_raw)
+
+                debit = _parse_decimal(debit_raw, "Debit", row_number, errors) if debit_present else None
+                credit = _parse_decimal(credit_raw, "Credit", row_number, errors) if credit_present else None
+
+                if debit_present and credit_present:
+                    errors.append((row_number, "row has both Debit and Credit populated"))
+                elif not debit_present and not credit_present:
+                    errors.append((row_number, "row has neither Debit nor Credit populated"))
+
+            balance_raw = cell(raw_row, mapping.balance_index)
             balance = None
             if _blank(balance_raw):
                 errors.append((row_number, "Balance is required"))
             else:
                 balance = _parse_decimal(balance_raw, "Balance", row_number, errors)
 
-            transaction_type = type_raw.strip()
-            if _blank(transaction_type):
+            # Optional column - a bank export with no explicit type column
+            # (just date/description/amount/balance) still imports; the
+            # stored value is just an empty string, never None
+            # (Transaction.transaction_type is NOT NULL).
+            transaction_type = cell(raw_row, mapping.transaction_type_index).strip()
+            if mapping.transaction_type_index is not None and _blank(transaction_type):
                 errors.append((row_number, "Transaction Type is required"))
 
             if len(errors) > errors_before:
@@ -162,9 +266,39 @@ def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
             ))
 
     except csv.Error as exc:
-        raise CsvValidationError([
-            (last_row_number + 1, f"malformed CSV data near this row: {exc}")
-        ]) from None
+        errors.append((last_row_number + 1, f"malformed CSV data near this row: {exc}"))
+
+    return rows, errors
+
+
+def parse_and_validate(db: Session, file_bytes: bytes) -> tuple[ColumnMapping, list[ParsedRow]]:
+    """The real import path. Auto-detects the format from the header
+    (built-in or saved - see services.csv_formats.find_format_for_header)
+    and requires the WHOLE file to be valid, raising CsvValidationError
+    otherwise - import has always been all-or-nothing, mapping support
+    doesn't change that.
+
+    Raises UnrecognizedFormatError (not CsvValidationError) when the header
+    matches nothing at all - the caller (api/transactions.py) turns that
+    into a distinct "needs mapping" response rather than a flat rejection.
+    """
+
+    header, reader = _read_header_and_rows(file_bytes)
+
+    mapping = find_format_for_header(db, header)
+
+    if mapping is None:
+
+        sample_rows = []
+        for raw_row in reader:
+            if len(sample_rows) >= PREVIEW_SAMPLE_ROWS:
+                break
+            if any(not _blank(value) for value in raw_row):
+                sample_rows.append(raw_row)
+
+        raise UnrecognizedFormatError(header, sample_rows)
+
+    rows, errors = _parse_rows(mapping, header, reader)
 
     if errors:
         raise CsvValidationError(errors)
@@ -172,13 +306,34 @@ def parse_and_validate(file_bytes: bytes) -> list[ParsedRow]:
     if not rows:
         raise CsvValidationError([(2, "CSV has no data rows to import")])
 
-    return csv_format, rows
+    return mapping, rows
+
+
+def preview_import(
+    db: Session, file_bytes: bytes, mapping: ColumnMapping
+) -> tuple[list[ParsedRow], list[tuple[int, str]]]:
+    """Parses with an EXPLICIT candidate mapping, bypassing auto-detection
+    entirely - the caller is deliberately testing a mapping that may not be
+    saved, or even valid, yet. Limited to PREVIEW_SAMPLE_ROWS and never
+    raises for row-level problems; the whole point is to show what's wrong
+    (or right) without an all-or-nothing rejection. Writes nothing
+    regardless of outcome - there is no import_rows call anywhere in this
+    function, deliberately.
+
+    `db` is accepted for signature symmetry with parse_and_validate even
+    though it's unused here (an explicit mapping never needs a database
+    lookup) - kept so both entry points have the same shape from the API
+    layer's point of view.
+    """
+
+    header, reader = _read_header_and_rows(file_bytes)
+    return _parse_rows(mapping, header, reader, stop_after=PREVIEW_SAMPLE_ROWS)
 
 
 def import_rows(
     db: Session,
     filename: str,
-    csv_format: CsvFormat,
+    mapping: ColumnMapping,
     rows: list[ParsedRow]
 ) -> tuple[ImportBatch, int, int]:
 
@@ -226,7 +381,7 @@ def import_rows(
         if account is None:
             account = Account(
                 name=row.account_number,
-                institution=csv_format.institution,
+                institution=mapping.institution,
                 bsb_number=row.bsb_number,
                 account_number=row.account_number,
             )

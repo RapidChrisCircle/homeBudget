@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class AccountResponse(BaseModel):
@@ -21,8 +21,7 @@ class AccountResponse(BaseModel):
     balance: Optional[Decimal] = None
     balance_as_of: Optional[date] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AccountCreate(BaseModel):
@@ -52,8 +51,7 @@ class CategoryResponse(BaseModel):
     parent_id: Optional[int]
     parent_name: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CategoryCreate(BaseModel):
@@ -90,8 +88,7 @@ class CategoryRuleResponse(BaseModel):
     priority: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CategoryRuleCreate(BaseModel):
@@ -149,6 +146,34 @@ class BulkCategoryUpdate(BaseModel):
     category_id: Optional[int]
 
 
+class TransactionSplitResponse(BaseModel):
+
+    id: int
+    category_id: Optional[int]
+    category_name: Optional[str]
+    amount: Decimal
+    note: Optional[str]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TransactionSplitInput(BaseModel):
+
+    category_id: Optional[int] = None
+    amount: Decimal
+    note: Optional[str] = None
+
+
+class TransactionSplitsUpdate(BaseModel):
+
+    splits: list[TransactionSplitInput]
+
+
+class TransactionNoteUpdate(BaseModel):
+
+    note: Optional[str] = None
+
+
 class TransactionResponse(BaseModel):
 
     id: int
@@ -167,9 +192,11 @@ class TransactionResponse(BaseModel):
     credit: Optional[Decimal]
     balance: Decimal
     transaction_type: str
+    note: Optional[str]
+    is_split: bool
+    splits: list[TransactionSplitResponse]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TransactionListResponse(BaseModel):
@@ -194,8 +221,7 @@ class TransactionGroupResponse(BaseModel):
     account_names: list[str]
     transaction_ids: list[int]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TransactionGroupListResponse(BaseModel):
@@ -211,8 +237,7 @@ class ImportBatchResponse(BaseModel):
     row_count: int
     skipped_duplicate_count: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ImportResultResponse(BaseModel):
@@ -222,6 +247,78 @@ class ImportResultResponse(BaseModel):
     skipped_duplicate_count: int
     new_account_count: int
     auto_categorized_count: int
+
+
+class CsvColumnMappingInput(BaseModel):
+    """A candidate (not-yet-saved) or about-to-be-saved column mapping -
+    see services/csv_formats.ColumnMapping and CsvFormatMapping in
+    models.py for the full field-by-field reasoning. balance_index is the
+    one column that is never optional - a format with no running balance
+    is out of scope (see services/ledger.py's module docstring on why the
+    app never derives one).
+    """
+
+    name: str
+    institution: Optional[str] = None
+    date_format: str
+    amount_mode: str = "debit_credit"
+    bsb_index: Optional[int] = None
+    account_number_index: int
+    transaction_date_index: int
+    narration_index: int
+    cheque_number_index: Optional[int] = None
+    debit_index: Optional[int] = None
+    credit_index: Optional[int] = None
+    amount_index: Optional[int] = None
+    balance_index: int
+    transaction_type_index: Optional[int] = None
+
+
+class CsvFormatMappingCreate(BaseModel):
+
+    mapping: CsvColumnMappingInput
+    header: list[str]
+
+
+class CsvFormatMappingResponse(BaseModel):
+
+    id: int
+    name: str
+    institution: Optional[str]
+    header_signature: str
+    date_format: str
+    amount_mode: str
+    bsb_index: Optional[int]
+    account_number_index: int
+    transaction_date_index: int
+    narration_index: int
+    cheque_number_index: Optional[int]
+    debit_index: Optional[int]
+    credit_index: Optional[int]
+    amount_index: Optional[int]
+    balance_index: int
+    transaction_type_index: Optional[int]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CsvPreviewRowResponse(BaseModel):
+
+    bsb_number: Optional[str]
+    account_number: str
+    transaction_date: date
+    narration: str
+    cheque_number: Optional[str]
+    debit: Optional[Decimal]
+    credit: Optional[Decimal]
+    balance: Decimal
+    transaction_type: str
+
+
+class CsvImportPreviewResponse(BaseModel):
+
+    rows: list[CsvPreviewRowResponse]
+    errors: list[dict]
 
 
 class ReportPeriodResponse(BaseModel):
@@ -248,8 +345,7 @@ class BudgetLineResponse(BaseModel):
     difference: Optional[Decimal]
     transaction_count: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CategoryGridPeriodResponse(BaseModel):
@@ -321,8 +417,7 @@ class RecurringSeriesResponse(BaseModel):
     dismissed: bool
     dismissal_id: Optional[int]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecurringSummaryResponse(BaseModel):
@@ -357,8 +452,7 @@ class RecurringDismissalResponse(BaseModel):
     account_id: int
     narration_key: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TrendMonthlySummaryResponse(BaseModel):

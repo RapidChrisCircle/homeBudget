@@ -111,14 +111,15 @@ export default function ForecastPage() {
             Estimated daily run rate (excluding recurring commitments): <Amount value={account.daily_run_rate} />
           </p>
           <table>
+            <caption className="visually-hidden">Monthly forecast for {account.account_name || `Account ${account.account_id}`}</caption>
             <thead>
               <tr>
-                <th>Month</th>
-                <th>Opening</th>
-                <th>Recurring In</th>
-                <th>Recurring Out</th>
-                <th>Estimated Other</th>
-                <th>Closing</th>
+                <th scope="col">Month</th>
+                <th scope="col">Opening</th>
+                <th scope="col">Recurring In</th>
+                <th scope="col">Recurring Out</th>
+                <th scope="col">Estimated Other</th>
+                <th scope="col">Closing</th>
               </tr>
             </thead>
             <tbody>
@@ -144,12 +145,13 @@ export default function ForecastPage() {
         {upcoming.length === 0 && <EmptyState message="No known recurring commitments in this window." />}
         {upcoming.length > 0 && (
           <table>
+            <caption className="visually-hidden">Upcoming recurring commitments</caption>
             <thead>
               <tr>
-                <th>Due</th>
-                <th>Merchant</th>
-                <th>Amount</th>
-                <th>Direction</th>
+                <th scope="col">Due</th>
+                <th scope="col">Merchant</th>
+                <th scope="col">Amount</th>
+                <th scope="col">Direction</th>
               </tr>
             </thead>
             <tbody>
