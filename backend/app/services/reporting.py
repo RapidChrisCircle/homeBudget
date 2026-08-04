@@ -94,6 +94,14 @@ class CategoryPeriodTotal:
     budget_amount: Decimal | None
     net: Decimal
     transaction_count: int
+    # Carried through purely for display (an "archived" badge) and for
+    # budget_lines()'s own presentation-edge filter below - NOT used to
+    # exclude anything here. This row exists regardless of archived status;
+    # every summary derived from the full totals list (monthly_summary())
+    # must keep seeing archived categories with real activity, or
+    # total_spending would silently drop real money. See reporting.py's
+    # module docstring and Category.archived's own docstring in models.py.
+    archived: bool
 
     @property
     def actual(self) -> Decimal:
@@ -216,6 +224,7 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
             Category.name,
             Category.kind,
             Category.budget_amount,
+            Category.archived,
             func.coalesce(func.sum(alloc.c.amount), 0).label("net"),
             func.count(alloc.c.transaction_id).label("transaction_count"),
         )
@@ -229,7 +238,7 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
             ),
         )
         .filter(Category.kind != "transfer")
-        .group_by(Category.id, Category.name, Category.kind, Category.budget_amount)
+        .group_by(Category.id, Category.name, Category.kind, Category.budget_amount, Category.archived)
         .order_by(Category.name)
         .all()
     )
@@ -242,6 +251,7 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
             budget_amount=effective_budget(row.budget_amount, overrides.get(row.id)),
             net=Decimal(row.net),
             transaction_count=row.transaction_count,
+            archived=row.archived,
         )
         for row in rows
     ]
@@ -264,11 +274,25 @@ def budget_lines(totals: list[CategoryPeriodTotal]) -> list[CategoryPeriodTotal]
     """Expense categories worth showing in budget-vs-actual: those with a
     budget set, or with activity this month. Omitting the rest avoids a wall
     of zeros for categories that are neither budgeted nor used.
+
+    An ARCHIVED category with NO activity this month is dropped regardless
+    of whether it still carries a budget_amount - this is the case
+    archiving exists for (a preset's ~35 budgeted-but-never-used
+    categories being exactly the clutter the Unused card targets), and
+    it's a presentation choice, not a rewrite of history: an archived
+    category with real activity this month (transaction_count > 0) is
+    UNCHANGED by this line and still shows, budget or no budget - only the
+    OR-condition just above ever decides that, this filter never overrides
+    it. See PresentationEdge notes in Category.archived's docstring
+    (models.py) and this module's own docstring before moving either
+    filter into SQL.
     """
 
     return [
         t for t in totals
-        if t.kind == "expense" and (t.budget_amount is not None or t.transaction_count > 0)
+        if t.kind == "expense"
+        and (t.budget_amount is not None or t.transaction_count > 0)
+        and not (t.archived and t.transaction_count == 0)
     ]
 
 
@@ -320,6 +344,17 @@ def category_grid(
     Each row's "budgets" is {period: resolved amount | None} - one figure
     PER PERIOD, not one figure repeated across the whole window, since an
     override can make one month's budget differ from the next.
+
+    An ARCHIVED category is additionally dropped when it has NO activity
+    ANYWHERE in the whole window (has_activity below), same rule as
+    category_totals_for_period's budget_lines() filter, extended to a
+    multi-month window: an archived category with real activity in even
+    one period of the window still shows. This can never change monthly_
+    summaries()/budget_totals() in services/trends.py, which sum straight
+    from these rows: a row with has_activity == False has amounts[period]
+    == 0 for EVERY period in the window by construction just below (the
+    `amounts.get(p, Decimal("0"))` fill), so removing it adds zero to
+    every period's sum - the equivalence a dedicated test asserts.
     """
 
     periods = contiguous_periods(year, month, months)
@@ -335,6 +370,7 @@ def category_grid(
             Category.name,
             Category.kind,
             Category.budget_amount,
+            Category.archived,
             year_col,
             month_col,
             func.coalesce(func.sum(alloc.c.amount), 0).label("net"),
@@ -349,7 +385,10 @@ def category_grid(
             ),
         )
         .filter(Category.kind != "transfer")
-        .group_by(Category.id, Category.name, Category.kind, Category.budget_amount, year_col, month_col)
+        .group_by(
+            Category.id, Category.name, Category.kind, Category.budget_amount, Category.archived,
+            year_col, month_col,
+        )
         .all()
     )
 
@@ -363,6 +402,7 @@ def category_grid(
             "category_id": row.id,
             "category_name": row.name,
             "kind": row.kind,
+            "archived": row.archived,
             "_standing": row.budget_amount,
             "amounts": {},
         })
@@ -392,7 +432,7 @@ def category_grid(
         }
         has_budget = any(amount is not None for amount in budgets.values())
 
-        if not has_activity and not has_budget:
+        if not has_activity and (not has_budget or entry["archived"]):
             continue
 
         entry["amounts"] = {p: amounts.get(p, Decimal("0")) for p in periods}

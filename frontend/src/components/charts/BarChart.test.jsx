@@ -42,7 +42,7 @@ describe('BarChart', () => {
     )
 
     const bars = container.querySelectorAll('rect')
-    const zeroLine = container.querySelector('line[stroke="#9ca3af"]')
+    const zeroLine = container.querySelector('line[stroke="var(--border-strong)"]')
     const zeroY = Number(zeroLine.getAttribute('y1'))
 
     // The negative bar (index 2) must start AT the zero line, not above it.

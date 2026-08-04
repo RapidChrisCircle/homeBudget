@@ -204,7 +204,9 @@ def test_get_trends_endpoint_returns_periods_categories_monthly_and_budget(clien
     assert len(body["periods"]) == 2
     assert len(body["monthly"]) == 2
     assert len(body["budget"]) == 2
+    assert len(body["balances"]) == 2
     assert any(c["category_id"] == category_id for c in body["categories"])
+    assert body["balances"][-1] == {"label": "2026-07", "balance": "100.00"}
 
 
 def test_get_trends_rejects_year_without_month(client):

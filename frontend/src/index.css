@@ -2,9 +2,19 @@
  *
  * Colour, spacing, radius and shadow live here as custom properties so the
  * whole app shares one system rather than each page inventing its own.
- * Anchored to the same palette src/components/charts/chartConstants.js
- * already uses (blue/red/green/amber) so charts and chrome read as one
- * visual language, not two.
+ *
+ * --series-1..7 (below) are the ONE categorical palette every chart in
+ * src/components/charts/ draws from (chartConstants.js's seriesColor()
+ * returns `var(--series-N)`, not a literal hex) - defining them as tokens
+ * here, alongside every other colour, is what lets a chart's own series
+ * colours follow the theme the same way --danger/--success already do.
+ * Each of the four steps below (light default, dark media-query fallback,
+ * explicit light, explicit dark) is independently validated against its
+ * own surface with dataviz's scripts/validate_palette.js - colourblind
+ * separation, chroma floor and contrast are computed, not eyeballed. The
+ * two sets are NOT the same seven hex values with brightness nudged: they
+ * are separately chosen steps of the same seven named hues, each chosen to
+ * clear every check against its own surface.
  *
  * Every token gets BOTH a light and a dark value, in this one place. Theme
  * selection has two layers:
@@ -34,12 +44,13 @@
   --border: #e5e4e7;
   --border-strong: #d0cfd4;
 
-  /* Accent - matches CHART_COLORS[0] */
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --accent-contrast: #ffffff;
 
-  /* Semantic - matches CHART_COLORS[1]/[2]/[3] */
+  /* Semantic - a DIFFERENT job from --series-1..7 below (status/meaning vs.
+     series identity) and deliberately not the same hues, so a chart legend
+     is never mistaken for a status colour or vice versa. */
   --danger: #dc2626;
   --danger-bg: #fee2e2;
   --success: #16a34a;
@@ -50,6 +61,17 @@
   --focus-ring: #2563eb;
   --shadow-sm: 0 1px 2px rgba(16, 15, 20, 0.06);
   --shadow-md: 0 6px 20px rgba(16, 15, 20, 0.10);
+
+  /* Chart series - validated categorical palette (dataviz skill), light
+     surface. Assigned in this fixed order everywhere; never cycled past 7,
+     never reassigned by filtering (see chartConstants.js's seriesColor). */
+  --series-1: #2a78d6; /* blue */
+  --series-2: #eb6834; /* orange */
+  --series-3: #1baf7a; /* aqua */
+  --series-4: #eda100; /* yellow */
+  --series-5: #e87ba4; /* magenta */
+  --series-6: #008300; /* green */
+  --series-7: #4a3aa7; /* violet */
 
   /* Spacing - 4px base scale, used throughout App.css rather than ad-hoc
      pixel values so padding/gaps stay consistent across every page. */
@@ -117,6 +139,14 @@
     --focus-ring: #7ba3f2;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
     --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.45);
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
   }
 }
 
@@ -153,6 +183,14 @@
   --focus-ring: #2563eb;
   --shadow-sm: 0 1px 2px rgba(16, 15, 20, 0.06);
   --shadow-md: 0 6px 20px rgba(16, 15, 20, 0.10);
+
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
 }
 
 :root[data-theme='dark'] {
@@ -181,6 +219,14 @@
   --focus-ring: #7ba3f2;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.45);
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
 }
 
 * {

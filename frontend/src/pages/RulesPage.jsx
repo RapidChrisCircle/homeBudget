@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Card from '../components/Card.jsx'
+import CategorySelect from '../components/CategorySelect.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
@@ -198,6 +199,13 @@ export default function RulesPage() {
   // so editing never silently blanks out a saved value.
   const typeOptions = Array.from(new Set([...transactionTypes, form.transaction_type].filter(Boolean)))
 
+  // The rule being edited may target a category that's since been
+  // archived (GET /categories excludes archived by default), in which
+  // case it won't be in `categories` at all - read straight from `rules`
+  // (which already carries category_name) rather than adding separate
+  // state just to remember it across the edit.
+  const editingRule = editingId != null ? rules.find((rule) => rule.id === editingId) : null
+
   return (
     <section className="card">
       <h2>Rules</h2>
@@ -274,14 +282,17 @@ export default function RulesPage() {
           <div>
             <label>
               Category
-              <select value={form.category_id} onChange={handleFieldChange('category_id')} required>
+              <CategorySelect
+                categories={categories}
+                value={form.category_id}
+                onChange={handleFieldChange('category_id')}
+                required
+                fallbackOption={
+                  editingRule ? { id: editingRule.category_id, name: editingRule.category_name } : null
+                }
+              >
                 <option value="">Select a category</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
+              </CategorySelect>
             </label>
           </div>
 

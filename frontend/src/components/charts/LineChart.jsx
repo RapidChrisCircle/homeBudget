@@ -33,15 +33,15 @@ export default function LineChart({ periods, series, includeZero = false, format
         <g transform={`translate(${CHART_MARGIN.left}, ${CHART_MARGIN.top})`}>
           {ticks.map((tick) => (
             <g key={tick}>
-              <line x1={0} x2={PLOT_WIDTH} y1={yScale(tick)} y2={yScale(tick)} stroke="#e5e7eb" />
-              <text x={-8} y={yScale(tick)} textAnchor="end" dominantBaseline="middle" fontSize="10">
+              <line x1={0} x2={PLOT_WIDTH} y1={yScale(tick)} y2={yScale(tick)} stroke="var(--border)" />
+              <text x={-8} y={yScale(tick)} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="var(--text-muted)">
                 {formatValue(tick)}
               </text>
             </g>
           ))}
 
           {showZeroLine && (
-            <line x1={0} x2={PLOT_WIDTH} y1={yScale(0)} y2={yScale(0)} stroke="#9ca3af" strokeWidth="1.5" />
+            <line x1={0} x2={PLOT_WIDTH} y1={yScale(0)} y2={yScale(0)} stroke="var(--border-strong)" strokeWidth="1.5" />
           )}
 
           {series.map((s, seriesIndex) => {
@@ -75,7 +75,7 @@ export default function LineChart({ periods, series, includeZero = false, format
           })}
 
           {periods.map((period, index) => (
-            <text key={period} x={xScale(index)} y={PLOT_HEIGHT + 20} textAnchor="middle" fontSize="10">
+            <text key={period} x={xScale(index)} y={PLOT_HEIGHT + 20} textAnchor="middle" fontSize="10" fill="var(--text-muted)">
               {period}
             </text>
           ))}

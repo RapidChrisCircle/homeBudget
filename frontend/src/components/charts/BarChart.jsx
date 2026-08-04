@@ -37,14 +37,14 @@ export default function BarChart({ periods, series, formatValue = (v) => v, titl
         <g transform={`translate(${CHART_MARGIN.left}, ${CHART_MARGIN.top})`}>
           {ticks.map((tick) => (
             <g key={tick}>
-              <line x1={0} x2={PLOT_WIDTH} y1={yScale(tick)} y2={yScale(tick)} stroke="#e5e7eb" />
-              <text x={-8} y={yScale(tick)} textAnchor="end" dominantBaseline="middle" fontSize="10">
+              <line x1={0} x2={PLOT_WIDTH} y1={yScale(tick)} y2={yScale(tick)} stroke="var(--border)" />
+              <text x={-8} y={yScale(tick)} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="var(--text-muted)">
                 {formatValue(tick)}
               </text>
             </g>
           ))}
 
-          <line x1={0} x2={PLOT_WIDTH} y1={zeroY} y2={zeroY} stroke="#9ca3af" strokeWidth="1.5" />
+          <line x1={0} x2={PLOT_WIDTH} y1={zeroY} y2={zeroY} stroke="var(--border-strong)" strokeWidth="1.5" />
 
           {periods.map((period, periodIndex) => (
             <g key={period}>
@@ -80,6 +80,7 @@ export default function BarChart({ periods, series, formatValue = (v) => v, titl
               y={PLOT_HEIGHT + 20}
               textAnchor="middle"
               fontSize="10"
+              fill="var(--text-muted)"
             >
               {period}
             </text>

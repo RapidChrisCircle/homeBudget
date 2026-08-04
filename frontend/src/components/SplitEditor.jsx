@@ -19,6 +19,7 @@ function rowsFromTransaction(transaction) {
     return transaction.splits.map((s) => ({
       key: `existing-${s.id}`,
       category_id: s.category_id ? String(s.category_id) : '',
+      category_name: s.category_name,
       amount: s.amount,
       note: s.note ?? '',
     }))
@@ -31,17 +32,10 @@ function rowsFromTransaction(transaction) {
   return [{
     key: 'initial',
     category_id: transaction.category_id ? String(transaction.category_id) : '',
+    category_name: transaction.category_name,
     amount: transactionAmount(transaction).toFixed(2),
     note: '',
   }]
-}
-
-// A category with children groups them and is never itself assignable (see
-// api/categories.py's module docstring) - filtered out here up front so a
-// split row's own dropdown can't offer a choice the backend will reject.
-function assignableCategories(categories) {
-  const parentIds = new Set(categories.filter((c) => c.parent_id).map((c) => c.parent_id))
-  return categories.filter((c) => !parentIds.has(c.id))
 }
 
 export default function SplitEditor({ transaction, categories, onCategoryCreated, onClose, onSaved }) {
@@ -118,8 +112,6 @@ export default function SplitEditor({ transaction, categories, onCategoryCreated
     saveSplits([])
   }
 
-  const options = assignableCategories(categories)
-
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
@@ -139,7 +131,7 @@ export default function SplitEditor({ transaction, categories, onCategoryCreated
           {rows.map((row) => (
             <div className="split-row" key={row.key}>
               <CategoryQuickAdd
-                categories={options}
+                categories={categories}
                 value={row.category_id}
                 onChange={(value) => updateRow(row.key, 'category_id', value)}
                 onCategoryCreated={(category) => {
@@ -147,6 +139,7 @@ export default function SplitEditor({ transaction, categories, onCategoryCreated
                   updateRow(row.key, 'category_id', String(category.id))
                 }}
                 label="Category"
+                fallbackOption={row.category_id ? { id: row.category_id, name: row.category_name } : null}
               />
               <label>
                 Amount

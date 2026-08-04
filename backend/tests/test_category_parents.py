@@ -185,3 +185,103 @@ def test_deleting_a_parent_promotes_its_children_instead_of_deleting_them(client
 
     child = next(c for c in client.get("/api/categories").json() if c["id"] == child_id)
     assert child["parent_id"] is None
+
+
+def test_cascade_delete_removes_a_parent_and_its_children(client):
+
+    parent_id = client.post("/api/categories", json={"name": "Housing", "kind": "expense"}).json()["id"]
+    child_id = client.post(
+        "/api/categories", json={"name": "Rent", "kind": "expense", "parent_id": parent_id}
+    ).json()["id"]
+
+    response = client.delete(f"/api/categories/{parent_id}?cascade=true")
+    assert response.status_code == 204
+
+    remaining_ids = {c["id"] for c in client.get("/api/categories").json()}
+    assert parent_id not in remaining_ids
+    assert child_id not in remaining_ids
+
+
+def test_cascade_delete_untags_transactions_categorized_under_a_child(client, db_session):
+
+    parent_id = client.post("/api/categories", json={"name": "Housing", "kind": "expense"}).json()["id"]
+    child_id = client.post(
+        "/api/categories", json={"name": "Rent", "kind": "expense", "parent_id": parent_id}
+    ).json()["id"]
+
+    account = make_account(db_session)
+    transaction = make_transaction(db_session, account.id, category_id=child_id)
+    transaction_id = transaction.id
+
+    response = client.delete(f"/api/categories/{parent_id}?cascade=true")
+    assert response.status_code == 204
+
+    db_session.expire_all()
+    assert db_session.get(Transaction, transaction_id).category_id is None
+
+
+def test_cascade_defaults_to_false_and_still_promotes(client):
+    """cascade is opt-in - an existing caller that never sends the query
+    param must keep getting today's promote-children behaviour."""
+
+    parent_id = client.post("/api/categories", json={"name": "Housing", "kind": "expense"}).json()["id"]
+    child_id = client.post(
+        "/api/categories", json={"name": "Rent", "kind": "expense", "parent_id": parent_id}
+    ).json()["id"]
+
+    response = client.delete(f"/api/categories/{parent_id}")
+    assert response.status_code == 204
+
+    remaining_ids = {c["id"] for c in client.get("/api/categories").json()}
+    assert parent_id not in remaining_ids
+    assert child_id in remaining_ids
+
+
+def test_bulk_delete_removes_every_listed_category(client, db_session):
+
+    grocery_id = client.post("/api/categories", json={"name": "Groceries", "kind": "expense"}).json()["id"]
+    fuel_id = client.post("/api/categories", json={"name": "Fuel", "kind": "expense"}).json()["id"]
+
+    account = make_account(db_session)
+    transaction = make_transaction(db_session, account.id, category_id=grocery_id)
+    transaction_id = transaction.id
+
+    response = client.post("/api/categories/bulk-delete", json={"category_ids": [grocery_id, fuel_id]})
+
+    assert response.status_code == 200
+    assert response.json()["deleted_count"] == 2
+
+    remaining_ids = {c["id"] for c in client.get("/api/categories").json()}
+    assert grocery_id not in remaining_ids
+    assert fuel_id not in remaining_ids
+
+    db_session.expire_all()
+    assert db_session.get(Transaction, transaction_id).category_id is None
+
+
+def test_bulk_delete_skips_ids_that_do_not_exist(client):
+
+    real_id = client.post("/api/categories", json={"name": "Groceries", "kind": "expense"}).json()["id"]
+
+    response = client.post("/api/categories/bulk-delete", json={"category_ids": [real_id, 999999]})
+
+    assert response.status_code == 200
+    assert response.json()["deleted_count"] == 1
+
+
+def test_bulk_delete_promotes_children_not_named_in_the_request(client):
+    """A parent included in the bulk request, whose child is NOT included,
+    must promote that child exactly like a single non-cascade delete does -
+    bulk delete never cascades."""
+
+    parent_id = client.post("/api/categories", json={"name": "Housing", "kind": "expense"}).json()["id"]
+    child_id = client.post(
+        "/api/categories", json={"name": "Rent", "kind": "expense", "parent_id": parent_id}
+    ).json()["id"]
+
+    response = client.post("/api/categories/bulk-delete", json={"category_ids": [parent_id]})
+    assert response.status_code == 200
+    assert response.json()["deleted_count"] == 1
+
+    child = next(c for c in client.get("/api/categories").json() if c["id"] == child_id)
+    assert child["parent_id"] is None

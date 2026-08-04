@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
+import CategorySelect from '../components/CategorySelect.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LedgerFilters from '../components/LedgerFilters.jsx'
@@ -281,18 +282,19 @@ export default function AccountDetailPage() {
                         </ul>
                       </div>
                     ) : (
-                      <select
+                      <CategorySelect
                         aria-label={`Category for ${transaction.narration}`}
+                        categories={categories}
                         value={transaction.category_id ?? ''}
                         onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
+                        fallbackOption={
+                          transaction.category_id
+                            ? { id: transaction.category_id, name: transaction.category_name }
+                            : null
+                        }
                       >
                         <option value="">Uncategorized</option>
-                        {categories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
-                        ))}
-                      </select>
+                      </CategorySelect>
                     )}
                     {transaction.categorized_by_rule_id && (
                       <Badge tone="info" title="Set automatically by a rule">auto</Badge>

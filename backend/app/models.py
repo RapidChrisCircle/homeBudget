@@ -1,4 +1,17 @@
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    false,
+    func,
+)
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -126,6 +139,23 @@ class Category(Base):
     budget_amount = Column(
         Numeric(12, 2),
         nullable=True
+    )
+
+    # Archiving is NOT deleting - every historical assignment (transactions,
+    # splits, rules) is left completely alone. It only changes AVAILABILITY:
+    # GET /categories excludes archived by default (?include_archived=true
+    # to see them), so every dropdown in the app gets clean data for free.
+    # Reports and the category grid are the one place that does NOT simply
+    # follow that exclusion - an archived category with real activity in
+    # the reported period must still appear there, or total_spending would
+    # silently drop real money. That filter is applied at the presentation
+    # edge in services/reporting.py, never in SQL - see its module
+    # docstring before "simplifying" this into a query-level filter.
+    archived = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false()
     )
 
     parent_id = Column(

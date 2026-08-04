@@ -50,6 +50,7 @@ class CategoryResponse(BaseModel):
     budget_amount: Optional[Decimal]
     parent_id: Optional[int]
     parent_name: Optional[str]
+    archived: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -68,6 +69,36 @@ class CategoryUpdate(BaseModel):
     kind: str = "expense"
     budget_amount: Optional[Decimal] = None
     parent_id: Optional[int] = None
+
+
+class CategoryBulkDelete(BaseModel):
+
+    category_ids: list[int]
+
+
+class CategoryUsageResponse(BaseModel):
+    """Whole-ledger (unscoped to any period) usage for one category - what
+    /categories' Unused card uses to tell a genuinely zero-activity category
+    from one that merely has no budget. transaction_count is read through
+    services/allocations.py's own view, so a category used only via a split
+    (which has no Transaction.category_id of its own at all) is correctly
+    counted as used. Returned for every category, archived or not, so the
+    same endpoint serves both the Unused and Archived cards.
+
+    A PARENT category's own transaction_count is always 0 by construction -
+    a parent is never itself assignable (api/categories.py) - which is
+    expected, not a bug: "unused" is evaluated per LEAF category, and the
+    frontend does not treat a parent's own zero count as meaning anything
+    about whether its children are used.
+    """
+
+    category_id: int
+    category_name: str
+    parent_id: Optional[int]
+    budget_amount: Optional[Decimal]
+    archived: bool
+    transaction_count: int
+    rule_count: int
 
 
 class CategoryPresetResultResponse(BaseModel):
@@ -344,6 +375,7 @@ class BudgetLineResponse(BaseModel):
     actual: Decimal
     difference: Optional[Decimal]
     transaction_count: int
+    archived: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -360,6 +392,7 @@ class CategoryGridRowResponse(BaseModel):
     category_id: int
     category_name: str
     kind: str
+    archived: bool
     amounts: dict[str, Decimal]
     total: Decimal
 
@@ -470,6 +503,15 @@ class TrendBudgetResponse(BaseModel):
     actual: Decimal
 
 
+class TrendBalanceResponse(BaseModel):
+
+    label: str
+    # None for a period before EVERY account has any history yet (a real
+    # gap - see services.trends.combined_balance_history) - never a false
+    # 0 for "the whole ledger has no data this far back".
+    balance: Optional[Decimal]
+
+
 class TrendsResponse(BaseModel):
 
     periods: list[CategoryGridPeriodResponse]
@@ -478,6 +520,7 @@ class TrendsResponse(BaseModel):
     categories: list[CategoryGridRowResponse]
     monthly: list[TrendMonthlySummaryResponse]
     budget: list[TrendBudgetResponse]
+    balances: list[TrendBalanceResponse]
 
 
 class BalanceHistoryResponse(BaseModel):

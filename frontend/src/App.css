@@ -444,6 +444,24 @@ a:focus-visible {
   background: var(--surface-2);
 }
 
+/* Ledger row expander (TransactionsPage) - the detail row a row's own
+   "Details" toggle reveals, holding the low-frequency filename/note/
+   Split/Make rule/Delete controls that used to live in every row
+   unconditionally. Distinguished from an ordinary row (and immune to the
+   hover rule above, which would otherwise make it flicker as the mouse
+   crosses into the controls it contains) since it isn't ledger data. */
+.ledger-detail-row {
+  background: var(--surface-2);
+}
+
+.ledger-detail-row:hover {
+  background: var(--surface-2);
+}
+
+.ledger-detail-row td {
+  border-bottom: 1px solid var(--border-strong);
+}
+
 .card table tfoot td {
   font-weight: 600;
   border-bottom: none;

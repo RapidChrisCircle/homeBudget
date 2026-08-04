@@ -102,6 +102,13 @@ function renderPage(initialEntry = '/transactions') {
   )
 }
 
+// The filename/note/Split/Make rule/Delete controls live behind a row's own
+// "Details" disclosure now, not unconditionally in the row - tests that
+// need one of them must open it first, the same way a user would.
+function expandRow(row) {
+  fireEvent.click(within(row).getByRole('button', { name: 'Details' }))
+}
+
 describe('TransactionsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -158,6 +165,7 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
+    expandRow(screen.getByText('Coffee').closest('tr'))
     const deleteButtons = screen.getAllByRole('button', { name: 'Delete' })
     fireEvent.click(deleteButtons[deleteButtons.length - 1])
 
@@ -174,6 +182,7 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
+    expandRow(screen.getByText('Coffee').closest('tr'))
     const deleteButtons = screen.getAllByRole('button', { name: 'Delete' })
     fireEvent.click(deleteButtons[deleteButtons.length - 1])
 
@@ -232,6 +241,7 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
+    expandRow(screen.getByText('Coffee').closest('tr'))
     fireEvent.click(screen.getByRole('button', { name: 'Make rule from Coffee' }))
 
     expect(await screen.findByText('rules page')).toBeInTheDocument()
@@ -507,8 +517,11 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    const row = screen.getByText('Coffee').closest('tr')
-    fireEvent.click(within(row).getByRole('button', { name: 'Split' }))
+    // The Split button lives in the row's OWN detail row (a sibling <tr>,
+    // not a descendant of the collapsed row), once expanded - so it's
+    // found unscoped here rather than via within(row).
+    expandRow(screen.getByText('Coffee').closest('tr'))
+    fireEvent.click(screen.getByRole('button', { name: 'Split' }))
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(screen.getByText(/Split "Coffee"/)).toBeInTheDocument()
@@ -535,10 +548,14 @@ describe('TransactionsPage', () => {
     expect(within(row).getByText('split')).toBeInTheDocument()
     expect(within(row).getByText(/Groceries/)).toBeInTheDocument()
     expect(within(row).queryByLabelText('Category for Coffee')).not.toBeInTheDocument()
+
     // A split row has nothing to re-split into further from this button -
-    // editing goes through "Edit split" instead.
-    expect(within(row).queryByRole('button', { name: 'Split' })).not.toBeInTheDocument()
-    expect(within(row).getByRole('button', { name: 'Edit split' })).toBeInTheDocument()
+    // editing goes through "Edit split" instead. Both live in the row's
+    // detail expander (a sibling <tr>), so they're found unscoped here
+    // rather than via within(row) once it's open.
+    expandRow(row)
+    expect(screen.queryByRole('button', { name: 'Split' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit split' })).toBeInTheDocument()
   })
 
   it('saves a note on blur, but only when it actually changed', async () => {
@@ -549,6 +566,7 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
+    expandRow(screen.getByText('Coffee').closest('tr'))
     const noteInput = screen.getByLabelText('Note for Coffee')
 
     // Focusing and blurring without editing must not fire a request.
@@ -562,5 +580,49 @@ describe('TransactionsPage', () => {
     await waitFor(() => {
       expect(api.patch).toHaveBeenCalledWith('/transactions/1/note', { note: 'Split with Sam' })
     })
+  })
+
+  // --- Row expander -----------------------------------------------------
+
+  it('hides Delete behind the row expander until it is opened', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const row = screen.getByText('Coffee').closest('tr')
+    // Import History's batch row also has a Delete button - only that one
+    // exists until the transaction row's own expander is opened.
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1)
+
+    expandRow(row)
+
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2)
+  })
+
+  it('tracks aria-expanded on the row disclosure button as it opens and closes', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const toggle = screen.getByRole('button', { name: 'Details' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(toggle)
+
+    const hideToggle = screen.getByRole('button', { name: 'Hide' })
+    expect(hideToggle).toHaveAttribute('aria-expanded', 'true')
+    expect(hideToggle).toBe(toggle)
+
+    fireEvent.click(hideToggle)
+
+    expect(screen.getByRole('button', { name: 'Details' })).toHaveAttribute('aria-expanded', 'false')
+    // Back down to just the batch row's own Delete button - the
+    // transaction's detail row (and its Delete) is gone again, not merely
+    // visually hidden.
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1)
   })
 })

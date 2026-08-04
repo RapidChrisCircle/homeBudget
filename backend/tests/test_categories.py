@@ -1,6 +1,6 @@
 from datetime import date
 
-from app.models import Category, CategoryRule, ImportBatch, Transaction
+from app.models import Category, CategoryRule, ImportBatch, Transaction, TransactionSplit
 
 
 def test_create_category(client):
@@ -190,3 +190,61 @@ def test_delete_category_removes_its_rules_and_clears_markers(client, db_session
     updated = db_session.get(Transaction, transaction_id)
     assert updated.category_id is None
     assert updated.categorized_by_rule_id is None
+
+
+def test_delete_category_clears_it_from_transaction_splits(client, db_session):
+    """Regression test: TransactionSplit's own docstring in models.py
+    promises its category is "SET NULL (enforced explicitly in Python, not
+    left to the FK - see delete_category)", but delete_category never
+    actually did this - only Transaction.category_id and CategoryRule were
+    handled. On SQLite (this test's own database) the FK's ondelete=SET
+    NULL is not enforced without PRAGMA foreign_keys=ON, so a deleted
+    category's id was left dangling in transaction_splits.category_id.
+    """
+
+    category = Category(name="Groceries")
+    other_category = Category(name="Alcohol")
+    db_session.add_all([category, other_category])
+    db_session.flush()
+
+    batch = ImportBatch(filename="seed.csv", row_count=1, skipped_duplicate_count=0)
+    db_session.add(batch)
+    db_session.flush()
+
+    transaction = Transaction(
+        import_batch_id=batch.id,
+        category_id=None,
+        bsb_number=None,
+        account_number="1111",
+        transaction_date=date(2026, 7, 24),
+        narration="Coles",
+        cheque_number=None,
+        debit="-50.00",
+        credit=None,
+        balance="100.00",
+        transaction_type="WDL",
+    )
+    db_session.add(transaction)
+    db_session.flush()
+
+    split = TransactionSplit(
+        transaction_id=transaction.id, category_id=category.id, amount="-30.00", note=None
+    )
+    other_split = TransactionSplit(
+        transaction_id=transaction.id, category_id=other_category.id, amount="-20.00", note=None
+    )
+    db_session.add_all([split, other_split])
+    db_session.commit()
+    split_id = split.id
+    other_split_id = other_split.id
+
+    response = client.delete(f"/api/categories/{category.id}")
+
+    assert response.status_code == 204
+
+    db_session.expire_all()
+    assert db_session.get(TransactionSplit, split_id).category_id is None
+    # A split referencing a DIFFERENT category must be left completely
+    # untouched - this is what confirms the fix filters by category_id
+    # rather than nulling every split on the transaction.
+    assert db_session.get(TransactionSplit, other_split_id).category_id == other_category.id

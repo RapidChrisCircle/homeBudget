@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import CategorySelect from './CategorySelect.jsx'
 import ErrorState from './ErrorState.jsx'
 import { api } from '../services/api'
 
@@ -27,6 +28,7 @@ export default function CategoryQuickAdd({
   onCategoryCreated,
   label,
   includeUncategorized = true,
+  fallbackOption = null,
 }) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
@@ -72,14 +74,14 @@ export default function CategoryQuickAdd({
     <div className="category-quick-add">
       <label>
         {label}
-        <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <CategorySelect
+          categories={categories}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          fallbackOption={fallbackOption}
+        >
           {includeUncategorized && <option value="">Uncategorized</option>}
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </select>
+        </CategorySelect>
       </label>
 
       {!adding && (

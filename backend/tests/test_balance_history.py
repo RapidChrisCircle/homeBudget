@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from app.models import Account, ImportBatch, Transaction
 from app.services.reporting import contiguous_periods
-from app.services.trends import account_balance_history
+from app.services.trends import account_balance_history, combined_balance_history
 
 
 def make_account(db_session, name="Joint Everyday", account_number="1111"):
@@ -131,6 +131,69 @@ def test_two_accounts_are_computed_independently_in_one_call(db_session):
 def test_empty_periods_returns_empty_history(db_session):
 
     assert account_balance_history(db_session, []) == {}
+
+
+# --- combined_balance_history ---------------------------------------------
+
+def test_combined_balance_sums_every_account_for_the_same_period(db_session):
+
+    account_a = make_account(db_session, name="A", account_number="AAAA")
+    account_b = make_account(db_session, name="B", account_number="BBBB")
+
+    make_transaction(db_session, account_a.id, date(2026, 7, 1), balance="100.00", account_number="AAAA")
+    make_transaction(db_session, account_b.id, date(2026, 7, 1), balance="-50.00", account_number="BBBB")
+    db_session.commit()
+
+    periods = contiguous_periods(2026, 7, 1)
+    combined = combined_balance_history(db_session, periods)
+
+    assert combined[(2026, 7)] == Decimal("50.00")
+
+
+def test_combined_balance_treats_an_unopened_account_as_zero_not_a_gap(db_session):
+    """Mirrors DashboardPage's own current-balance figure: an account with
+    no transactions YET contributes 0 to the combined total, it does not
+    make the whole period unknown - the same reason DashboardPage filters
+    out None-balance accounts before summing, rather than bailing out.
+    """
+
+    early_account = make_account(db_session, name="Early", account_number="AAAA")
+    make_transaction(db_session, early_account.id, date(2026, 5, 1), balance="500.00", account_number="AAAA")
+
+    late_account = make_account(db_session, name="Late", account_number="BBBB")
+    make_transaction(db_session, late_account.id, date(2026, 7, 1), balance="200.00", account_number="BBBB")
+    db_session.commit()
+
+    periods = contiguous_periods(2026, 7, 3)  # May, June, July
+    combined = combined_balance_history(db_session, periods)
+
+    # May and June: only the early account exists yet - late_account's None
+    # contributes 0, not a gap.
+    assert combined[(2026, 5)] == Decimal("500.00")
+    assert combined[(2026, 6)] == Decimal("500.00")
+    assert combined[(2026, 7)] == Decimal("700.00")
+
+
+def test_combined_balance_is_none_only_when_every_account_is_none(db_session):
+
+    account_a = make_account(db_session, name="A", account_number="AAAA")
+    account_b = make_account(db_session, name="B", account_number="BBBB")
+
+    make_transaction(db_session, account_a.id, date(2026, 7, 1), balance="100.00", account_number="AAAA")
+    make_transaction(db_session, account_b.id, date(2026, 7, 1), balance="-50.00", account_number="BBBB")
+    db_session.commit()
+
+    # A window starting well before either account's first transaction.
+    periods = contiguous_periods(2026, 7, 6)  # Feb through July
+    combined = combined_balance_history(db_session, periods)
+
+    assert combined[(2026, 2)] is None
+    assert combined[(2026, 7)] == Decimal("50.00")
+
+
+def test_combined_balance_empty_periods_returns_empty_dict(db_session):
+
+    assert combined_balance_history(db_session, []) == {}
 
 
 # --- API level ----------------------------------------------------------------

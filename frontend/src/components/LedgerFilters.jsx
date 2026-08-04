@@ -1,4 +1,5 @@
 import Card from './Card.jsx'
+import CategorySelect from './CategorySelect.jsx'
 
 // The ledger filter form, shared by the transactions page and the account
 // detail page. Filters apply on an explicit button rather than on every
@@ -39,15 +40,10 @@ export default function LedgerFilters({
           <div>
             <label>
               Category
-              <select value={values.category} onChange={onFieldChange('category')}>
+              <CategorySelect categories={categories} value={values.category} onChange={onFieldChange('category')}>
                 <option value="">All categories</option>
                 <option value="uncategorized">Uncategorized only</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
+              </CategorySelect>
             </label>
           </div>
           <div>

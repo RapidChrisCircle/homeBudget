@@ -60,7 +60,15 @@ def get_budgets(
         year, month = default_period(db)
 
     start, end = month_bounds(year, month)
-    totals = [t for t in category_totals_for_period(db, start, end) if t.kind == "expense"]
+    # Archived is excluded UNCONDITIONALLY here, unlike reporting.py's own
+    # budget_lines()/category_grid() filters - this is a forward-looking
+    # editing surface, not a historical total, and archiving is reversible,
+    # so there's no "still has activity" carve-out to make: nothing here
+    # is money that already moved.
+    totals = [
+        t for t in category_totals_for_period(db, start, end)
+        if t.kind == "expense" and not t.archived
+    ]
 
     # category_totals_for_period() already resolved budget_amount to the
     # EFFECTIVE figure - the raw standing amount and which rows are

@@ -79,6 +79,14 @@ const sampleTrends = {
     { label: '2026-07', total_income: '5000.00', total_spending: '3200.00', net_saved: '1800.00' },
   ],
   budget: [],
+  balances: [
+    { label: '2026-02', balance: '40000.00' },
+    { label: '2026-03', balance: '41900.00' },
+    { label: '2026-04', balance: '44100.00' },
+    { label: '2026-05', balance: '46700.00' },
+    { label: '2026-06', balance: '49100.00' },
+    { label: '2026-07', balance: '50900.00' },
+  ],
 }
 
 const sampleTransaction = {
@@ -306,18 +314,18 @@ describe('DashboardPage', () => {
     expect(within(row).queryByText('Uncategorized')).not.toBeInTheDocument()
   })
 
-  it('shows a simple income vs spending chart when the charted window has real activity', async () => {
+  it('shows a cash flow chart when the charted window has real activity', async () => {
     mockLoad()
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Income vs Spending' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Cash Flow' })).toBeInTheDocument()
     })
     expect(api.get).toHaveBeenCalledWith('/trends?months=6')
   })
 
-  it('hides the income vs spending chart when the charted window has no real activity', async () => {
+  it('hides the cash flow chart when the charted window has no real activity', async () => {
     mockLoad({
       trends: {
         ...sampleTrends,
@@ -330,7 +338,50 @@ describe('DashboardPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument()
     })
-    expect(screen.queryByRole('heading', { name: 'Income vs Spending' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Cash Flow' })).not.toBeInTheDocument()
+  })
+
+  it('draws spending as a negative value so it falls below the zero line, opposite income', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Cash Flow' })).toBeInTheDocument()
+    })
+
+    // BarChart puts "<series> — <period>: <value>" in each bar's <title> -
+    // total_spending ("3200.00") must appear NEGATED here, not as the raw
+    // presentation-signed figure the API returns.
+    expect(screen.getByText('Spending — 2026-07: -3200.00')).toBeInTheDocument()
+    expect(screen.getByText('Income — 2026-07: 5000.00')).toBeInTheDocument()
+  })
+
+  it('shows a net balance chart when there is balance history, with a not-net-worth caption', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Net Balance' })).toBeInTheDocument()
+    })
+    expect(screen.getByText(/not net worth/)).toBeInTheDocument()
+  })
+
+  it('hides the net balance chart when no account has any balance history yet', async () => {
+    mockLoad({
+      trends: {
+        ...sampleTrends,
+        balances: sampleTrends.balances.map((b) => ({ ...b, balance: null })),
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('heading', { name: 'Net Balance' })).not.toBeInTheDocument()
   })
 
   it('shows an empty state when nothing has been imported', async () => {

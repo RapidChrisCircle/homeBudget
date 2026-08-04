@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Card from '../components/Card.jsx'
 import BarChart from '../components/charts/BarChart.jsx'
+import LineChart from '../components/charts/LineChart.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
@@ -115,6 +116,16 @@ export default function DashboardPage() {
   const hasChartHistory = monthlyTrend.some(
     (m) => Number(m.total_income) !== 0 || Number(m.total_spending) !== 0
   )
+
+  // Independent of hasChartHistory above - a household can have balance
+  // history (an account with an opening balance) through a month with no
+  // categorized income/spending activity at all, and the reverse. Gated on
+  // the same "is there anything real to plot" principle, just against its
+  // own data: at least one period in the window has a known combined
+  // balance (see services/trends.combined_balance_history - null means
+  // NO account has any history that far back yet, a real gap, not $0).
+  const balanceHistory = trends?.balances || []
+  const hasBalanceHistory = balanceHistory.some((b) => b.balance !== null)
   const dueSoon = recurringSeries
     .filter((item) => item.status === 'due_soon')
     .sort((a, b) => a.next_due_date.localeCompare(b.next_due_date))
@@ -157,17 +168,47 @@ export default function DashboardPage() {
         )}
       </Card>
 
+      {/* Two charts sharing the same months, never one dual-axis chart -
+          cash flow (a few thousand dollars a month) and the combined
+          balance (tens of thousands) are different scales, and plotting
+          both on one axis would invent a correlation from an arbitrary
+          scale alignment rather than show a real one. Reading down a
+          month answers both "did I come out ahead" and "what am I
+          sitting on" honestly, each on its own axis. */}
       {hasChartHistory && (
-        <Card id="dashboard-income-vs-spending" title="Income vs Spending">
+        <Card id="dashboard-cash-flow" title="Cash Flow">
           <BarChart
             periods={trends.periods.map((p) => p.label)}
             series={[
               { label: 'Income', values: monthlyTrend.map((m) => Number(m.total_income)) },
-              { label: 'Spending', values: monthlyTrend.map((m) => Number(m.total_spending)) },
+              // Negated: total_spending is a positive "amount spent" figure
+              // (see reporting.py's presentation-signing docstring) - drawn
+              // as a NEGATIVE value here so it falls below the zero line,
+              // opposite Income, and the month's net reads as the visible
+              // imbalance between the two bars.
+              { label: 'Spending', values: monthlyTrend.map((m) => -Number(m.total_spending)) },
             ]}
             formatValue={formatAmount}
-            title="Income vs spending"
+            title="Cash flow: income and spending"
           />
+        </Card>
+      )}
+
+      {hasBalanceHistory && (
+        <Card id="dashboard-net-balance" title="Net Balance">
+          <LineChart
+            periods={balanceHistory.map((b) => b.label)}
+            series={[{
+              label: 'Combined balance',
+              values: balanceHistory.map((b) => (b.balance === null ? null : Number(b.balance))),
+            }]}
+            formatValue={formatAmount}
+            title="Combined balance over time"
+          />
+          <p className="text-muted">
+            A straight sum of each account&apos;s balance each month &mdash; an everyday account
+            and a credit card are added together as-is, so this is not net worth.
+          </p>
         </Card>
       )}
 

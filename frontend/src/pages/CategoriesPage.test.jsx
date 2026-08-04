@@ -32,9 +32,14 @@ const sampleBudgetData = {
   totals: { budgeted: '250.00', actual: '180.00', difference: '70.00' },
 }
 
-function mockLoad({ categories = [sampleCategory], budgetData = sampleBudgetData } = {}) {
+function mockLoad({ categories = [sampleCategory], budgetData = sampleBudgetData, usage = [] } = {}) {
   api.get.mockImplementation((path) => {
-    if (path === '/categories') {
+    // Checked before the plain /categories match below, since it's the
+    // more specific path.
+    if (path === '/categories/usage') {
+      return Promise.resolve({ data: usage })
+    }
+    if (path.startsWith('/categories')) {
       return Promise.resolve({ data: categories })
     }
     if (path.startsWith('/budgets')) {
@@ -187,6 +192,140 @@ describe('CategoriesPage', () => {
     })
   })
 
+  // --- Deletion: cascade for groups, bulk for multi-select -------------------
+
+  it('cascade-deletes a group and confirms with its child count', async () => {
+    const parent = { id: 1, name: 'Housing', kind: 'expense', budget_amount: null, parent_id: null }
+    const child = { id: 2, name: 'Rent', kind: 'expense', budget_amount: '1500.00', parent_id: 1 }
+    mockLoad({ categories: [parent, child], budgetData: { ...sampleBudgetData, categories: [] } })
+    api.delete.mockResolvedValue({})
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<CategoriesPage />)
+
+    const housingRow = await waitFor(() => categoryRow(categoriesSection(), 'Housing'))
+
+    fireEvent.click(within(housingRow).getByRole('button', { name: 'Delete' }))
+
+    expect(confirmSpy.mock.calls[0][0]).toContain('1 sub-category')
+
+    await waitFor(() => {
+      expect(api.delete).toHaveBeenCalledWith('/categories/1?cascade=true')
+    })
+  })
+
+  it('deletes a plain (non-group) category without the cascade param', async () => {
+    const parent = { id: 1, name: 'Housing', kind: 'expense', budget_amount: null, parent_id: null }
+    const child = { id: 2, name: 'Rent', kind: 'expense', budget_amount: '1500.00', parent_id: 1 }
+    mockLoad({ categories: [parent, child], budgetData: { ...sampleBudgetData, categories: [] } })
+    api.delete.mockResolvedValue({})
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<CategoriesPage />)
+
+    const rentRow = await waitFor(() => categoryRow(categoriesSection(), 'Rent'))
+
+    fireEvent.click(within(rentRow).getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(api.delete).toHaveBeenCalledWith('/categories/2')
+    })
+  })
+
+  it('bulk-deletes every selected category in one request', async () => {
+    const groceries = { id: 1, name: 'Groceries', kind: 'expense', budget_amount: '250.00', parent_id: null }
+    const fuel = { id: 2, name: 'Fuel', kind: 'expense', budget_amount: null, parent_id: null }
+    mockLoad({ categories: [groceries, fuel], budgetData: { ...sampleBudgetData, categories: [] } })
+    api.post.mockResolvedValue({ data: { deleted_count: 2 } })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Select Groceries'))
+    fireEvent.click(screen.getByLabelText('Select Fuel'))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete selected (2)' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/categories/bulk-delete', { category_ids: [1, 2] })
+    })
+  })
+
+  it('disables the bulk delete button until something is selected', async () => {
+    mockLoad()
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    expect(screen.getByRole('button', { name: 'Delete selected (0)' })).toBeDisabled()
+  })
+
+  // --- Unused and Archived --------------------------------------------------
+
+  it('lists a zero-usage category in Unused and archives it', async () => {
+    mockLoad({ usage: [
+      { category_id: 1, category_name: 'Groceries', parent_id: null, budget_amount: '250.00', archived: false, transaction_count: 0, rule_count: 0 },
+    ] })
+    api.post.mockResolvedValue({ data: { ...sampleCategory, archived: true } })
+
+    render(<CategoriesPage />)
+
+    const unusedSection = await waitFor(() => screen.getByText('Unused').closest('.card'))
+    expect(within(unusedSection).getByText('Groceries')).toBeInTheDocument()
+
+    fireEvent.click(within(unusedSection).getByRole('button', { name: 'Archive' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/categories/1/archive')
+    })
+  })
+
+  it('excludes a category with real activity from Unused', async () => {
+    mockLoad({ usage: [
+      { category_id: 1, category_name: 'Groceries', parent_id: null, budget_amount: '250.00', archived: false, transaction_count: 3, rule_count: 0 },
+    ] })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    const unusedSection = screen.getByText('Unused').closest('.card')
+    expect(within(unusedSection).getByText('Nothing unused right now.')).toBeInTheDocument()
+  })
+
+  it('excludes a category still referenced by a rule from Unused', async () => {
+    mockLoad({ usage: [
+      { category_id: 1, category_name: 'Groceries', parent_id: null, budget_amount: '250.00', archived: false, transaction_count: 0, rule_count: 1 },
+    ] })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    const unusedSection = screen.getByText('Unused').closest('.card')
+    expect(within(unusedSection).getByText('Nothing unused right now.')).toBeInTheDocument()
+  })
+
+  it('lists an archived category in Archived, not in All Categories, and restores it', async () => {
+    const archived = { id: 1, name: 'Old Category', kind: 'expense', budget_amount: null, parent_id: null, archived: true }
+    mockLoad({ categories: [archived], budgetData: { ...sampleBudgetData, categories: [] } })
+    api.post.mockResolvedValue({ data: { ...archived, archived: false } })
+
+    render(<CategoriesPage />)
+
+    const archivedSection = await waitFor(() => screen.getByText('Archived').closest('.card'))
+    expect(within(archivedSection).getByText('Old Category')).toBeInTheDocument()
+    expect(within(categoriesSection()).queryByText('Old Category')).not.toBeInTheDocument()
+
+    fireEvent.click(within(archivedSection).getByRole('button', { name: 'Restore' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/categories/1/restore')
+    })
+  })
+
   // --- Stale budgets table remediation --------------------------------------
   // Regression tests: creating/editing/deleting a category on this page must
   // refresh the Monthly Budgets table below it, not just the category list.
@@ -194,7 +333,10 @@ describe('CategoriesPage', () => {
   it('updates the Standing column in the budgets table after editing a standing budget', async () => {
     let edited = false
     api.get.mockImplementation((path) => {
-      if (path === '/categories') {
+      if (path === '/categories/usage') {
+        return Promise.resolve({ data: [] })
+      }
+      if (path.startsWith('/categories')) {
         return Promise.resolve({ data: [sampleCategory] })
       }
       if (path.startsWith('/budgets')) {
@@ -235,7 +377,10 @@ describe('CategoriesPage', () => {
   it('removes a deleted category from the budgets table rather than leaving a phantom row', async () => {
     let deleted = false
     api.get.mockImplementation((path) => {
-      if (path === '/categories') {
+      if (path === '/categories/usage') {
+        return Promise.resolve({ data: [] })
+      }
+      if (path.startsWith('/categories')) {
         return Promise.resolve({ data: deleted ? [] : [sampleCategory] })
       }
       if (path.startsWith('/budgets')) {

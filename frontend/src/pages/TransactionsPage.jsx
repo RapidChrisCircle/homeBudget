@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
 import CategoryQuickAdd from '../components/CategoryQuickAdd.jsx'
+import CategorySelect from '../components/CategorySelect.jsx'
 import CsvFormatMapper from '../components/CsvFormatMapper.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LedgerFilters from '../components/LedgerFilters.jsx'
@@ -48,6 +49,12 @@ export default function TransactionsPage() {
   const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
   const [splitEditorTransaction, setSplitEditorTransaction] = useState(null)
   const [mappingPanel, setMappingPanel] = useState(null)
+  // Per-row disclosure state for the low-frequency actions (filename, note,
+  // Split/Make rule/Delete) - a Set of transaction ids rather than a single
+  // "expanded row", since more than one row can be open at once. Cleared
+  // whenever the page's own contents change (a new page, a changed filter)
+  // so an id from a row that's no longer on screen never lingers.
+  const [expandedIds, setExpandedIds] = useState(new Set())
   const navigate = useNavigate()
 
   // Read straight from the URL, like the page number already is - see
@@ -156,17 +163,20 @@ export default function TransactionsPage() {
   const handleApplyFilters = (event) => {
     event.preventDefault()
     setSelectedIds([])
+    setExpandedIds(new Set())
     setSearchParams(searchParamsFromFilters(filterForm, pageSize))
   }
 
   const handleClearFilters = () => {
     setSelectedIds([])
+    setExpandedIds(new Set())
     setFilterForm(EMPTY_FILTERS)
     setSearchParams(searchParamsFromFilters(EMPTY_FILTERS, pageSize))
   }
 
   const handlePageChange = (newPage) => {
     setSelectedIds([])
+    setExpandedIds(new Set())
     const next = new URLSearchParams(searchParams)
     next.set('page', String(newPage))
     setSearchParams(next)
@@ -175,10 +185,23 @@ export default function TransactionsPage() {
   // Resets to page 1 - page 7 at 50/page doesn't exist at 200/page.
   const handlePageSizeChange = (newSize) => {
     setSelectedIds([])
+    setExpandedIds(new Set())
     const next = new URLSearchParams(searchParams)
     next.set('page_size', String(newSize))
     next.set('page', '1')
     setSearchParams(next)
+  }
+
+  const toggleExpanded = (id) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
   }
 
   const handleFileChange = async (event) => {
@@ -508,99 +531,124 @@ export default function TransactionsPage() {
                     <th scope="col">Balance</th>
                     <th scope="col">Type</th>
                     <th scope="col">Category</th>
+                    <th scope="col"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((transaction) => (
-                    <tr key={transaction.id}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.includes(transaction.id)}
-                          onChange={() => toggleSelected(transaction.id)}
-                        />
-                      </td>
-                      <td>{transaction.transaction_date}</td>
-                      <td>{transaction.account_name || formatAccount(transaction)}</td>
-                      <td>{transaction.narration}</td>
-                      <td><Amount value={transaction.debit} /></td>
-                      <td><Amount value={transaction.credit} /></td>
-                      <td><Amount value={transaction.balance} neutral /></td>
-                      <td>{transaction.transaction_type}</td>
-                      <td>
-                        {transaction.is_split ? (
-                          <div className="split-summary">
-                            <Badge tone="info" title="This transaction is split across categories">split</Badge>
-                            <ul>
-                              {transaction.splits.map((split) => (
-                                <li key={split.id}>
-                                  {split.category_name || 'Uncategorized'}: <Amount value={split.amount} />
-                                </li>
-                              ))}
-                            </ul>
+                  {transactions.map((transaction) => {
+                    const isExpanded = expandedIds.has(transaction.id)
+                    const detailId = `transaction-detail-${transaction.id}`
+
+                    return (
+                      <Fragment key={transaction.id}>
+                        <tr>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(transaction.id)}
+                              onChange={() => toggleSelected(transaction.id)}
+                            />
+                          </td>
+                          <td>{transaction.transaction_date}</td>
+                          <td>{transaction.account_name || formatAccount(transaction)}</td>
+                          <td>{transaction.narration}</td>
+                          <td><Amount value={transaction.debit} /></td>
+                          <td><Amount value={transaction.credit} /></td>
+                          <td><Amount value={transaction.balance} neutral /></td>
+                          <td>{transaction.transaction_type}</td>
+                          <td>
+                            {transaction.is_split ? (
+                              <div className="split-summary">
+                                <Badge tone="info" title="This transaction is split across categories">split</Badge>
+                                <ul>
+                                  {transaction.splits.map((split) => (
+                                    <li key={split.id}>
+                                      {split.category_name || 'Uncategorized'}: <Amount value={split.amount} />
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : (
+                              <CategorySelect
+                                aria-label={`Category for ${transaction.narration}`}
+                                categories={categories}
+                                value={transaction.category_id ?? ''}
+                                onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
+                                fallbackOption={
+                                  transaction.category_id
+                                    ? { id: transaction.category_id, name: transaction.category_name }
+                                    : null
+                                }
+                              >
+                                <option value="">Uncategorized</option>
+                              </CategorySelect>
+                            )}
+                            {transaction.categorized_by_rule_id && (
+                              <Badge tone="info" title="Set automatically by a rule">auto</Badge>
+                            )}
+                          </td>
+                          <td>
+                            {/* Import filename, the note field, and Split/
+                                Make rule/Delete live in a detail row instead
+                                of their own columns - all four are low-
+                                frequency and text-heavy, and were what
+                                pushed the table into horizontal scroll on
+                                every viewport, and what made every row three
+                                lines tall for the common case of just
+                                picking a category. */}
                             <button
                               type="button"
                               className="button-ghost"
-                              onClick={() => setSplitEditorTransaction(transaction)}
+                              aria-expanded={isExpanded}
+                              aria-controls={detailId}
+                              onClick={() => toggleExpanded(transaction.id)}
                             >
-                              Edit split
+                              {isExpanded ? 'Hide' : 'Details'}
                             </button>
-                          </div>
-                        ) : (
-                          <select
-                            aria-label={`Category for ${transaction.narration}`}
-                            value={transaction.category_id ?? ''}
-                            onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}
-                          >
-                            <option value="">Uncategorized</option>
-                            {categories.map((category) => (
-                              <option key={category.id} value={category.id}>
-                                {category.name}
-                              </option>
-                            ))}
-                          </select>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr id={detailId} className="ledger-detail-row">
+                            <td colSpan={10}>
+                              <div className="ledger-row-meta">
+                                <span className="text-muted">{batchFilename(transaction.import_batch_id)}</span>
+                                <input
+                                  type="text"
+                                  className="ledger-note-input"
+                                  placeholder="Add a note..."
+                                  defaultValue={transaction.note || ''}
+                                  onBlur={(e) => handleNoteChange(transaction, e.target.value)}
+                                  aria-label={`Note for ${transaction.narration}`}
+                                />
+                                <button
+                                  type="button"
+                                  className="button-ghost"
+                                  onClick={() => setSplitEditorTransaction(transaction)}
+                                >
+                                  {transaction.is_split ? 'Edit split' : 'Split'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button-ghost"
+                                  aria-label={`Make rule from ${transaction.narration}`}
+                                  onClick={() => handleMakeRule(transaction.narration)}
+                                >
+                                  Make rule
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button-danger"
+                                  onClick={() => handleDeleteTransaction(transaction.id)}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                        {/* Import filename and row actions live here rather
-                            than as their own columns - both are low-frequency
-                            and text-heavy, and were what pushed the table
-                            into horizontal scroll on every viewport. */}
-                        <div className="ledger-row-meta">
-                          {transaction.categorized_by_rule_id && (
-                            <Badge tone="info" title="Set automatically by a rule">auto</Badge>
-                          )}
-                          <span className="text-muted">{batchFilename(transaction.import_batch_id)}</span>
-                          <input
-                            type="text"
-                            className="ledger-note-input"
-                            placeholder="Add a note..."
-                            defaultValue={transaction.note || ''}
-                            onBlur={(e) => handleNoteChange(transaction, e.target.value)}
-                            aria-label={`Note for ${transaction.narration}`}
-                          />
-                          {!transaction.is_split && (
-                            <button
-                              type="button"
-                              className="button-ghost"
-                              onClick={() => setSplitEditorTransaction(transaction)}
-                            >
-                              Split
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="button-ghost"
-                            aria-label={`Make rule from ${transaction.narration}`}
-                            onClick={() => handleMakeRule(transaction.narration)}
-                          >
-                            Make rule
-                          </button>
-                          <button type="button" className="button-danger" onClick={() => handleDeleteTransaction(transaction.id)}>
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                      </Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

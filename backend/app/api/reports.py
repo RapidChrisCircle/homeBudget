@@ -50,6 +50,7 @@ def get_monthly_report(
             category_id=row["category_id"],
             category_name=row["category_name"],
             kind=row["kind"],
+            archived=row["archived"],
             amounts={_label(y, m): amount for (y, m), amount in row["amounts"].items()},
             total=row["total"],
         )

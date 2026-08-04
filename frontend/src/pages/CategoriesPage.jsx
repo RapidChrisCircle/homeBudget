@@ -5,6 +5,7 @@ import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
+import { groupByParent } from '../utils/categories.js'
 
 const EMPTY_FORM = {
   name: '',
@@ -109,10 +110,55 @@ export default function CategoriesPage() {
   const [presetError, setPresetError] = useState('')
   const [applyingPreset, setApplyingPreset] = useState(false)
 
+  // Bulk delete - a flat set of ids regardless of which section/table a row
+  // is rendered in, since selection is a page-level concept, not a
+  // per-section one.
+  const [selectedIds, setSelectedIds] = useState([])
+
+  // Whole-ledger usage (transaction_count/rule_count per category), for the
+  // Unused card - independent async state, same reasoning as the budgets
+  // card above: a usage fetch failure shouldn't block category CRUD.
+  const [usage, setUsage] = useState([])
+  const [usageLoading, setUsageLoading] = useState(true)
+  const [usageError, setUsageError] = useState('')
+
+  // `categories` includes archived rows (include_archived=true) - this page
+  // is the one place in the app that needs to see and manage them (the
+  // Archived card below), unlike every other page's own `GET /categories`,
+  // which deliberately gets the clean, archived-excluded default.
   const refresh = async () => {
-    const response = await api.get('/categories')
+    const response = await api.get('/categories?include_archived=true')
     setCategories(response.data)
   }
+
+  const refreshUsage = async () => {
+    const response = await api.get('/categories/usage')
+    setUsage(response.data)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    setUsageLoading(true)
+    setUsageError('')
+
+    refreshUsage()
+      .catch((err) => {
+        if (!cancelled) {
+          const message = err?.response?.data?.detail || err?.message || 'Unknown error'
+          setUsageError(String(message))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setUsageLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const fetchBudgets = async (month) => {
     const query = month ? `?year=${month.split('-')[0]}&month=${Number(month.split('-')[1])}` : ''
@@ -325,30 +371,131 @@ export default function CategoriesPage() {
     }
   }
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this category? Transactions using it will become uncategorized.')) {
+  // isGroup transactions are deleted WITH their children (?cascade=true) -
+  // the default (no query param) would instead promote them to top-level,
+  // which is correct for a plain/child category (it has no children to
+  // promote either way) but would silently leave a whole sub-category group
+  // behind for a category the user asked to remove entirely.
+  const handleDelete = async (category, isGroup) => {
+    const childCount = isGroup ? categories.filter((c) => c.parent_id === category.id).length : 0
+    const message = isGroup
+      ? `Delete "${category.name}" and its ${childCount} sub-categor${childCount === 1 ? 'y' : 'ies'}? `
+        + 'Transactions using any of them will become uncategorized.'
+      : 'Delete this category? Transactions using it will become uncategorized.'
+
+    if (!window.confirm(message)) {
       return
     }
     setActionError('')
     try {
-      await api.delete(`/categories/${id}`)
-      if (editingId === id) {
+      await api.delete(`/categories/${category.id}${isGroup ? '?cascade=true' : ''}`)
+      if (editingId === category.id) {
         cancelEdit()
       }
       // A deleted category must not leave a phantom row in the budgets
       // table whose Save/Revert buttons would 404.
-      await Promise.all([refresh(), refreshBudgets()])
+      await Promise.all([refresh(), refreshBudgets(), refreshUsage()])
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Delete failed'
       setActionError(String(message))
     }
   }
 
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((selectedId) => selectedId !== id) : [...prev, id]))
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) {
+      return
+    }
+    const message = (
+      `Delete ${selectedIds.length} categor${selectedIds.length === 1 ? 'y' : 'ies'}? `
+      + 'A selected category that groups others has those sub-categories promoted to top-level, '
+      + 'not deleted - bulk delete never cascades. Transactions using any of them will become uncategorized.'
+    )
+    if (!window.confirm(message)) {
+      return
+    }
+    setActionError('')
+    try {
+      await api.post('/categories/bulk-delete', { category_ids: selectedIds })
+      setSelectedIds([])
+      if (editingId != null && selectedIds.includes(editingId)) {
+        cancelEdit()
+      }
+      await Promise.all([refresh(), refreshBudgets(), refreshUsage()])
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Bulk delete failed'
+      setActionError(String(message))
+    }
+  }
+
+  const handleArchive = async (categoryId) => {
+    setActionError('')
+    try {
+      await api.post(`/categories/${categoryId}/archive`)
+      await Promise.all([refresh(), refreshBudgets(), refreshUsage()])
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Archive failed'
+      setActionError(String(message))
+    }
+  }
+
+  const handleRestore = async (categoryId) => {
+    setActionError('')
+    try {
+      await api.post(`/categories/${categoryId}/restore`)
+      await Promise.all([refresh(), refreshBudgets(), refreshUsage()])
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Restore failed'
+      setActionError(String(message))
+    }
+  }
+
+  const handleArchiveAllUnused = async (unusedCategories) => {
+    if (unusedCategories.length === 0) {
+      return
+    }
+    setActionError('')
+    try {
+      await Promise.all(unusedCategories.map((u) => api.post(`/categories/${u.category_id}/archive`)))
+      await Promise.all([refresh(), refreshBudgets(), refreshUsage()])
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Archive failed'
+      setActionError(String(message))
+    }
+  }
+
   // A parent must itself be top-level (one level only - see
   // api/categories.py), and a category can't be its own parent.
-  const parentOptions = categories.filter((category) => !category.parent_id && category.id !== editingId)
+  // `categories` includes archived rows (see refresh() above) - excluded
+  // here since an archived category should not be pickable as a NEW
+  // parent, and `editingHasChildren` intentionally does NOT exclude
+  // archived (an archived child still counts as a child for the one-level
+  // rule - archiving never changes the parent/child relationship itself).
+  const parentOptions = categories.filter(
+    (category) => !category.parent_id && category.id !== editingId && !category.archived
+  )
   const editingHasChildren = editingId != null && categories.some((category) => category.parent_id === editingId)
-  const sections = buildCategorySections(categories)
+
+  const activeCategories = categories.filter((category) => !category.archived)
+  const archivedCategories = categories.filter((category) => category.archived)
+  const sections = buildCategorySections(activeCategories)
+
+  // A parent's own transaction_count is always 0 (never itself assignable -
+  // see api/categories.py), so it is excluded here rather than evaluated
+  // for "unused" the same way a leaf category is - a group with unused
+  // children isn't itself meaningfully unused. Also excludes anything
+  // already archived (nothing to offer archiving again) and anything a
+  // rule still targets, even with zero transactions so far - a rule
+  // exists specifically to categorize something, so that's active intent,
+  // not clutter.
+  const { groups: parentGroups } = groupByParent(activeCategories)
+  const parentIds = new Set(parentGroups.map((group) => group.parent.id))
+  const unusedCategories = usage.filter(
+    (u) => !u.archived && !parentIds.has(u.category_id) && u.transaction_count === 0 && u.rule_count === 0
+  )
 
   return (
     <section className="card">
@@ -449,12 +596,24 @@ export default function CategoriesPage() {
         {loading && <LoadingState message="Loading categories..." />}
         {!loading && error && <ErrorState label="Failed to load categories:" message={error} />}
 
+        {!loading && !error && (
+          <button
+            type="button"
+            className="button-danger"
+            onClick={handleBulkDelete}
+            disabled={selectedIds.length === 0}
+          >
+            Delete selected ({selectedIds.length})
+          </button>
+        )}
+
         {!loading && !error && sections.map((section) => {
           const table = (
             <table>
               <caption className="visually-hidden">Categories{section.heading ? ` under ${section.heading}` : ''}</caption>
               <thead>
                 <tr>
+                  <th scope="col"></th>
                   <th scope="col">Name</th>
                   <th scope="col">Kind</th>
                   <th scope="col">Standing Budget</th>
@@ -464,6 +623,14 @@ export default function CategoriesPage() {
               <tbody>
                 {section.rows.map(({ category, isGroup, groupTotal }) => (
                   <tr key={category.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${category.name}`}
+                        checked={selectedIds.includes(category.id)}
+                        onChange={() => toggleSelected(category.id)}
+                      />
+                    </td>
                     <td>
                       {category.name}
                       {isGroup && (
@@ -478,7 +645,14 @@ export default function CategoriesPage() {
                       <button type="button" onClick={() => startEdit(category)}>
                         Edit
                       </button>
-                      <button type="button" className="button-danger" onClick={() => handleDelete(category.id)}>
+                      <button type="button" onClick={() => handleArchive(category.id)}>
+                        Archive
+                      </button>
+                      <button
+                        type="button"
+                        className="button-danger"
+                        onClick={() => handleDelete(category, isGroup)}
+                      >
                         Delete
                       </button>
                     </td>
@@ -500,6 +674,83 @@ export default function CategoriesPage() {
             </Card>
           )
         })}
+      </Card>
+
+      <Card id="categories-unused" title="Unused">
+        <p>
+          Categories with no transactions and no rule pointing at them &mdash; candidates to
+          archive and get out of the way of every category picker in the app. Archiving keeps the
+          category and its (nonexistent) history; it can be restored any time.
+        </p>
+
+        {usageLoading && <LoadingState message="Loading usage..." />}
+        {!usageLoading && usageError && <ErrorState label="Failed to load usage:" message={usageError} />}
+
+        {!usageLoading && !usageError && (
+          unusedCategories.length === 0 ? (
+            <p>Nothing unused right now.</p>
+          ) : (
+            <>
+              <button type="button" onClick={() => handleArchiveAllUnused(unusedCategories)}>
+                Archive all unused ({unusedCategories.length})
+              </button>
+              <table>
+                <caption className="visually-hidden">Unused categories</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Standing Budget</th>
+                    <th scope="col"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unusedCategories.map((u) => (
+                    <tr key={u.category_id}>
+                      <td>{u.category_name}</td>
+                      <td><Amount value={u.budget_amount} neutral /></td>
+                      <td>
+                        <button type="button" onClick={() => handleArchive(u.category_id)}>
+                          Archive
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )
+        )}
+      </Card>
+
+      <Card id="categories-archived" title="Archived">
+        {archivedCategories.length === 0 ? (
+          <p>Nothing archived.</p>
+        ) : (
+          <table>
+            <caption className="visually-hidden">Archived categories</caption>
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {archivedCategories.map((category) => (
+                <tr key={category.id}>
+                  <td>
+                    {category.name}
+                    {category.parent_name && <span className="text-muted"> ({category.parent_name})</span>}
+                  </td>
+                  <td>
+                    <button type="button" onClick={() => handleRestore(category.id)}>
+                      Restore
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </Card>
 
       <Card id="categories-monthly-budgets" title="Monthly Budgets">

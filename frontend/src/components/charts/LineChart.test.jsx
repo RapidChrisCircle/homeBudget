@@ -64,13 +64,13 @@ describe('LineChart', () => {
     const { container: spanning } = render(
       <LineChart periods={periods} series={[{ label: 'Net', values: [-50, 10, 30] }]} />
     )
-    const spanningLines = spanning.querySelectorAll('line[stroke="#9ca3af"]')
+    const spanningLines = spanning.querySelectorAll('line[stroke="var(--border-strong)"]')
     expect(spanningLines.length).toBe(1)
 
     const { container: allPositive } = render(
       <LineChart periods={periods} series={[{ label: 'Balance', values: [1000, 1200, 1100] }]} />
     )
-    const positiveLines = allPositive.querySelectorAll('line[stroke="#9ca3af"]')
+    const positiveLines = allPositive.querySelectorAll('line[stroke="var(--border-strong)"]')
     expect(positiveLines.length).toBe(0)
   })
 })
