@@ -353,32 +353,6 @@ input[type='checkbox'] {
   margin-bottom: var(--space-4);
 }
 
-/* TransactionGroups ("Similar Uncategorized") - each group is its own
-   nested .card, so it already gets the standard card-in-card treatment;
-   these only lay out what's inside one. */
-.transaction-group-header {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.transaction-group-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
-}
-
-.transaction-group-actions label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
 /* Ledger row meta (TransactionsPage) - the import filename, the auto badge,
    and the Make rule / Delete actions, all folded under the Category select
    instead of their own columns. Low-frequency and text-heavy, they were
@@ -473,6 +447,23 @@ a:focus-visible {
    horizontal scroll even for columns whose text would happily wrap). */
 .table-scroll {
   overflow-x: auto;
+}
+
+/* The global `input { min-width: 220px }` above is sized for a form field,
+   not a table cell - inside a table it was forcing every row's Category
+   select (and any other table-cell input) wide regardless of the column's
+   actual content, which is what pushed the ledger into horizontal scroll
+   in the first place. Scoped like .filter-grid's own override above. */
+.card table select,
+.card table input {
+  min-width: 0;
+}
+
+/* Narration wraps rather than forcing the table wide - the column sizes to
+   its share of the table instead of to its longest single narration. */
+.ledger-narration {
+  white-space: normal;
+  word-break: break-word;
 }
 
 /* Badges - the app's status/marker convention (auto-categorized, budget

@@ -3,7 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
-from ..models import ACCOUNT_TYPES, BALANCE_SIGNS, Account, SavingsGoal, Transaction
+from ..models import ACCOUNT_TYPES, BALANCE_SIGNS, Account, AccountGroup, SavingsGoal, Transaction
 from ..schemas import (
     AccountCreate,
     AccountResponse,
@@ -13,7 +13,7 @@ from ..schemas import (
     CategoryGridPeriodResponse,
 )
 from ..services.ledger import account_balance, account_balances
-from ..services.net_worth import infer_balance_sign
+from ..services.net_worth import group_contributors_by_period, infer_balance_sign
 from ..services.reporting import DEFAULT_GRID_MONTHS, MAX_GRID_MONTHS, contiguous_periods, default_period
 from ..services.trends import account_balance_history
 
@@ -32,7 +32,7 @@ def _serialize_account(account: Account, balance, balance_as_of) -> AccountRespo
     )
 
 
-def _validate_account_payload(payload):
+def _validate_account_payload(db: Session, payload):
     """account_type NULL/unset means "unclassified" and is always allowed -
     see ACCOUNT_TYPES's own comment in models.py for why that's a valid,
     deliberate state rather than something to reject. Only a NON-null value
@@ -50,6 +50,9 @@ def _validate_account_payload(payload):
             status_code=422,
             detail=f"balance_sign must be one of: {', '.join(BALANCE_SIGNS)}",
         )
+
+    if payload.group_id is not None and db.get(AccountGroup, payload.group_id) is None:
+        raise HTTPException(status_code=404, detail="Account group not found")
 
 
 @router.get("/accounts", response_model=list[AccountResponse])
@@ -76,7 +79,7 @@ def create_account(
     db: Session = Depends(get_db)
 ):
 
-    _validate_account_payload(payload)
+    _validate_account_payload(db, payload)
 
     account = Account(**payload.model_dump())
     db.add(account)
@@ -137,7 +140,7 @@ def update_account(
     if account is None:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    _validate_account_payload(payload)
+    _validate_account_payload(db, payload)
 
     for field, value in payload.model_dump().items():
         setattr(account, field, value)
@@ -200,16 +203,35 @@ def get_account_balance_history(
     then this endpoint reads off just the requested account - see that
     function's docstring for why a month with no transactions carries the
     previous month's balance forward rather than showing a gap or a zero.
+
+    A GROUPED account instead gets its group's STITCHED history: for each
+    period, whichever member was the group's contributor that period (see
+    services/net_worth.group_contributors_by_period) - so a reissued card's
+    chart is one continuous line across the handover, not a line that
+    starts partway through (the replacement) sitting next to one that ends
+    partway through (the original). Every member of the same group shows
+    this identical stitched series, since they represent one logical
+    account regardless of which member's id the page was opened with.
     """
 
-    if db.get(Account, account_id) is None:
+    account = db.get(Account, account_id)
+
+    if account is None:
         raise HTTPException(status_code=404, detail="Account not found")
 
     year, month = default_period(db)
     periods = contiguous_periods(year, month, months)
 
     history = account_balance_history(db, periods)
-    balances = history.get(account_id, {})
+
+    if account.group_id is not None:
+        contributors_by_period = group_contributors_by_period(db, periods)
+        balances = {
+            period: history.get(contributors_by_period[period].get(account.group_id), {}).get(period)
+            for period in periods
+        }
+    else:
+        balances = history.get(account_id, {})
 
     return BalanceHistoryResponse(
         periods=[CategoryGridPeriodResponse(year=y, month=m, label=_label(y, m)) for y, m in periods],

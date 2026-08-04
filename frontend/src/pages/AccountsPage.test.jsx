@@ -39,10 +39,16 @@ const sampleAccount = {
   balance_as_of: '2026-07-24',
 }
 
-function mockLoad(accounts = [sampleAccount], { inference = { inferred_sign: null, sample_size: 0 } } = {}) {
+function mockLoad(
+  accounts = [sampleAccount],
+  { inference = { inferred_sign: null, sample_size: 0 }, groups = [] } = {}
+) {
   api.get.mockImplementation((path) => {
     if (path === '/accounts') {
       return Promise.resolve({ data: accounts })
+    }
+    if (path === '/account-groups') {
+      return Promise.resolve({ data: groups })
     }
     if (path.endsWith('/infer-balance-sign')) {
       return Promise.resolve({ data: inference })
@@ -162,6 +168,101 @@ describe('AccountsPage', () => {
     })
   })
 
+  // --- In-place editing ---------------------------------------------------
+
+  it('opens the edit form beneath the row being edited, not in the top card', async () => {
+    mockLoad([sampleAccount])
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Joint Everyday')).toBeInTheDocument())
+
+    const row = screen.getByText('Joint Everyday').closest('tr')
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }))
+
+    // Exactly one Name field exists - the top card shows a message instead
+    // of a form while an edit is open, not a second copy of it.
+    const nameField = screen.getByLabelText('Name')
+    expect(nameField).toHaveValue('Joint Everyday')
+    expect(nameField.closest('tr')).not.toBeNull()
+
+    expect(screen.getByText('Finish editing the account below to add another.')).toBeInTheDocument()
+  })
+
+  it('keeps the top card titled "Add Account" throughout an edit', async () => {
+    mockLoad([sampleAccount])
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Joint Everyday')).toBeInTheDocument())
+    expect(screen.getAllByText('Add Account').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getAllByText('Add Account').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Edit Account')).not.toBeInTheDocument()
+  })
+
+  it('closes the first row\'s editor when a second row is opened', async () => {
+    const second = { ...sampleAccount, id: 5, name: 'Savings' }
+    mockLoad([sampleAccount, second])
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Savings')).toBeInTheDocument())
+
+    const firstRow = screen.getByRole('link', { name: 'Joint Everyday' }).closest('tr')
+    const secondRow = screen.getByRole('link', { name: 'Savings' }).closest('tr')
+
+    fireEvent.click(within(firstRow).getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Name')).toHaveValue('Joint Everyday')
+
+    fireEvent.click(within(secondRow).getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Name')).toHaveValue('Savings')
+    // Only one edit form exists at a time.
+    expect(screen.getAllByLabelText('Name')).toHaveLength(1)
+  })
+
+  it('cancel leaves the row unchanged and closes the editor', async () => {
+    mockLoad([sampleAccount])
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Joint Everyday')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Changed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    // The row's own edit form is gone - only the top (empty, Add-only) form
+    // remains, so exactly one Name field exists again and it's blank.
+    expect(screen.getAllByLabelText('Name')).toHaveLength(1)
+    expect(screen.getByLabelText('Name')).toHaveValue('')
+    expect(screen.getByRole('link', { name: 'Joint Everyday' })).toBeInTheDocument()
+    expect(api.put).not.toHaveBeenCalled()
+  })
+
+  it('saving an edit posts the same payload as before and closes the editor', async () => {
+    mockLoad([sampleAccount])
+    api.put.mockResolvedValue({ data: sampleAccount })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Joint Everyday')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Renamed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/accounts/1', expect.objectContaining({
+        name: 'Renamed',
+        account_number: sampleAccount.account_number,
+      }))
+    })
+    expect(screen.queryByRole('button', { name: 'Save Changes' })).not.toBeInTheDocument()
+  })
+
   // --- Typed accounts and the balance-sign toggle ------------------------
 
   it('shows friendly type labels in the table, including Unclassified for a null type', async () => {
@@ -258,6 +359,103 @@ describe('AccountsPage', () => {
         account_type: 'credit_card',
         balance_sign: 'inverted',
       }))
+    })
+  })
+
+  // --- Account groups ------------------------------------------------------
+
+  it('nests grouped accounts under their group name, with an Ungrouped section for the rest', async () => {
+    const group = { id: 9, name: 'Visa Group', created_at: '2026-07-24T10:00:00Z' }
+    const grouped = { ...sampleCard, group_id: 9, group_name: 'Visa Group' }
+    mockLoad([sampleAccount, grouped], { groups: [group] })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Visa Group/ })).toBeInTheDocument())
+
+    const groupSection = screen.getByRole('button', { name: /Visa Group/ }).closest('.card')
+    expect(within(groupSection).getByText('9999')).toBeInTheDocument()
+
+    const ungroupedSection = screen.getByText('Ungrouped').closest('.card')
+    expect(within(ungroupedSection).getByText('Joint Everyday')).toBeInTheDocument()
+  })
+
+  it('renders one flat table with no section headings when nothing is grouped', async () => {
+    mockLoad([sampleAccount, sampleCard])
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Joint Everyday')).toBeInTheDocument())
+
+    expect(screen.queryByText('Ungrouped')).not.toBeInTheDocument()
+  })
+
+  it('creates an account group', async () => {
+    mockLoad([])
+    api.post.mockResolvedValue({ data: { id: 1, name: 'Visa', created_at: '2026-07-24T10:00:00Z' } })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.queryByText('Loading accounts...')).not.toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('New group name'), { target: { value: 'Visa' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/account-groups', { name: 'Visa' })
+    })
+  })
+
+  it('renames an account group', async () => {
+    const group = { id: 9, name: 'Visa', created_at: '2026-07-24T10:00:00Z' }
+    mockLoad([], { groups: [group] })
+    api.put.mockResolvedValue({ data: { ...group, name: 'Visa (renamed)' } })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Rename' })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+    fireEvent.change(screen.getByLabelText('Rename Visa'), { target: { value: 'Visa (renamed)' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/account-groups/9', { name: 'Visa (renamed)' })
+    })
+  })
+
+  it('deletes an account group when confirmed', async () => {
+    const group = { id: 9, name: 'Visa', created_at: '2026-07-24T10:00:00Z' }
+    mockLoad([], { groups: [group] })
+    api.delete.mockResolvedValue({})
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(api.delete).toHaveBeenCalledWith('/account-groups/9')
+    })
+  })
+
+  it('assigns an account to a group via the account form', async () => {
+    const group = { id: 9, name: 'Visa Group', created_at: '2026-07-24T10:00:00Z' }
+    mockLoad([sampleCard], { groups: [group] })
+    api.put.mockResolvedValue({ data: sampleCard })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Visa')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Group'), { target: { value: '9' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/accounts/2', expect.objectContaining({ group_id: 9 }))
     })
   })
 })

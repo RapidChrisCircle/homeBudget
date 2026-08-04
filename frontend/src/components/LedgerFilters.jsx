@@ -8,7 +8,13 @@ import CategorySelect from './CategorySelect.jsx'
 //
 // `accounts` is optional: the account detail page omits it because the
 // account is implicit from the route, and that is the only structural
-// difference between the two filter surfaces.
+// difference between the two filter surfaces. `groups` is likewise
+// optional - the Account dropdown offers a group alongside every UNGROUPED
+// account (a grouped account's individual members aren't separately
+// selectable here; filtering to the group is the point of grouping it -
+// see AccountGroup in models.py), mapping this single field to either
+// account_id or account_group_id, the same account/'group-<id>' encoding
+// ledgerFilterParams.js's searchParamsFromFilters expects.
 export default function LedgerFilters({
   values,
   onFieldChange,
@@ -17,7 +23,10 @@ export default function LedgerFilters({
   categories = [],
   transactionTypes = [],
   accounts = null,
+  groups = [],
 }) {
+  const ungroupedAccounts = accounts ? accounts.filter((account) => !account.group_id) : []
+
   return (
     <Card id="ledger-filters" title="Filters">
       <form onSubmit={onApply}>
@@ -26,9 +35,14 @@ export default function LedgerFilters({
             <div>
               <label>
                 Account
-                <select value={values.account_id} onChange={onFieldChange('account_id')}>
+                <select value={values.account} onChange={onFieldChange('account')}>
                   <option value="">All accounts</option>
-                  {accounts.map((account) => (
+                  {groups.map((group) => (
+                    <option key={`group-${group.id}`} value={`group-${group.id}`}>
+                      {group.name}
+                    </option>
+                  ))}
+                  {ungroupedAccounts.map((account) => (
                     <option key={account.id} value={account.id}>
                       {account.name}
                     </option>

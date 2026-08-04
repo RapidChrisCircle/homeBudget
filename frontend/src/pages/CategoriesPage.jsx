@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
+import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
 import { groupByParent } from '../utils/categories.js'
+
+const CATEGORIES_TABLE_COLUMN_COUNT = 5
 
 const EMPTY_FORM = {
   name: '',
@@ -497,6 +500,72 @@ export default function CategoriesPage() {
     (u) => !u.archived && !parentIds.has(u.category_id) && u.transaction_count === 0 && u.rule_count === 0
   )
 
+  const renderFormFields = () => (
+    <>
+      <div>
+        <label>
+          Name
+          <input type="text" value={form.name} onChange={handleFieldChange('name')} required />
+        </label>
+      </div>
+      <div>
+        <label>
+          Kind
+          <select value={form.kind} onChange={handleFieldChange('kind')}>
+            <option value="expense">Expense</option>
+            <option value="income">Income</option>
+            <option value="transfer">Transfer</option>
+          </select>
+        </label>
+        <p>
+          Transfer categories are excluded from every report &mdash; use one for money moving
+          between your own accounts.
+        </p>
+      </div>
+      {editingHasChildren ? (
+        <p>
+          This category groups its own sub-categories, so it cannot be given a parent itself.
+        </p>
+      ) : (
+        <div>
+          <label>
+            Parent category
+            <select value={form.parent_id} onChange={handleFieldChange('parent_id')}>
+              <option value="">No parent (top-level)</option>
+              {parentOptions.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p>
+            Optional &mdash; groups this category for display. A parent cannot itself have a
+            parent (one level only).
+          </p>
+        </div>
+      )}
+      {form.kind === 'expense' && !editingHasChildren && (
+        <div>
+          <label>
+            Standing monthly budget
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={form.budget_amount}
+              onChange={handleFieldChange('budget_amount')}
+            />
+          </label>
+          <p>
+            Applies to every month unless overridden for a specific month in Monthly Budgets
+            below.
+          </p>
+        </div>
+      )}
+    </>
+  )
+
   return (
     <section className="card">
       <h2>Categories</h2>
@@ -518,78 +587,17 @@ export default function CategoriesPage() {
         {presetMessage && <p>{presetMessage}</p>}
       </Card>
 
-      <Card id="categories-form" title={editingId ? 'Edit Category' : 'Add Category'}>
-        <form onSubmit={handleSubmit}>
-          <div>
-            <label>
-              Name
-              <input type="text" value={form.name} onChange={handleFieldChange('name')} required />
-            </label>
-          </div>
-          <div>
-            <label>
-              Kind
-              <select value={form.kind} onChange={handleFieldChange('kind')}>
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
-                <option value="transfer">Transfer</option>
-              </select>
-            </label>
-            <p>
-              Transfer categories are excluded from every report &mdash; use one for money moving
-              between your own accounts.
-            </p>
-          </div>
-          {editingHasChildren ? (
-            <p>
-              This category groups its own sub-categories, so it cannot be given a parent itself.
-            </p>
-          ) : (
-            <div>
-              <label>
-                Parent category
-                <select value={form.parent_id} onChange={handleFieldChange('parent_id')}>
-                  <option value="">No parent (top-level)</option>
-                  {parentOptions.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p>
-                Optional &mdash; groups this category for display. A parent cannot itself have a
-                parent (one level only).
-              </p>
-            </div>
-          )}
-          {form.kind === 'expense' && !editingHasChildren && (
-            <div>
-              <label>
-                Standing monthly budget
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.budget_amount}
-                  onChange={handleFieldChange('budget_amount')}
-                />
-              </label>
-              <p>
-                Applies to every month unless overridden for a specific month in Monthly Budgets
-                below.
-              </p>
-            </div>
-          )}
-          <button type="submit" className="button-primary" disabled={saving}>
-            {editingId ? 'Save Changes' : 'Add Category'}
-          </button>
-          {editingId && (
-            <button type="button" onClick={cancelEdit} disabled={saving}>
-              Cancel
+      <Card id="categories-form" title="Add Category">
+        {editingId ? (
+          <p>Finish editing the category below to add another.</p>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            {renderFormFields()}
+            <button type="submit" className="button-primary" disabled={saving}>
+              Add Category
             </button>
-          )}
-        </form>
+          </form>
+        )}
       </Card>
 
       <Card id="categories-list" title="All Categories">
@@ -621,43 +629,66 @@ export default function CategoriesPage() {
                 </tr>
               </thead>
               <tbody>
-                {section.rows.map(({ category, isGroup, groupTotal }) => (
-                  <tr key={category.id}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${category.name}`}
-                        checked={selectedIds.includes(category.id)}
-                        onChange={() => toggleSelected(category.id)}
-                      />
-                    </td>
-                    <td>
-                      {category.name}
-                      {isGroup && (
-                        <Badge tone="neutral" title="Groups its own sub-categories"> group</Badge>
+                {section.rows.map(({ category, isGroup, groupTotal }) => {
+                  const editId = `category-edit-${category.id}`
+                  const isEditing = editingId === category.id
+
+                  return (
+                    <Fragment key={category.id}>
+                      <tr>
+                        <td>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${category.name}`}
+                            checked={selectedIds.includes(category.id)}
+                            onChange={() => toggleSelected(category.id)}
+                          />
+                        </td>
+                        <td>
+                          {category.name}
+                          {isGroup && (
+                            <Badge tone="neutral" title="Groups its own sub-categories"> group</Badge>
+                          )}
+                        </td>
+                        <td>{category.kind}</td>
+                        <td>
+                          <Amount value={isGroup ? groupTotal : category.budget_amount} neutral />
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            aria-expanded={isEditing}
+                            aria-controls={editId}
+                            onClick={() => startEdit(category)}
+                          >
+                            Edit
+                          </button>
+                          <button type="button" onClick={() => handleArchive(category.id)}>
+                            Archive
+                          </button>
+                          <button
+                            type="button"
+                            className="button-danger"
+                            onClick={() => handleDelete(category, isGroup)}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                      {isEditing && (
+                        <InlineEditRow
+                          id={editId}
+                          colSpan={CATEGORIES_TABLE_COLUMN_COUNT}
+                          onSubmit={handleSubmit}
+                          onCancel={cancelEdit}
+                          saving={saving}
+                        >
+                          {renderFormFields()}
+                        </InlineEditRow>
                       )}
-                    </td>
-                    <td>{category.kind}</td>
-                    <td>
-                      <Amount value={isGroup ? groupTotal : category.budget_amount} neutral />
-                    </td>
-                    <td>
-                      <button type="button" onClick={() => startEdit(category)}>
-                        Edit
-                      </button>
-                      <button type="button" onClick={() => handleArchive(category.id)}>
-                        Archive
-                      </button>
-                      <button
-                        type="button"
-                        className="button-danger"
-                        onClick={() => handleDelete(category, isGroup)}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  )
+                })}
               </tbody>
             </table>
           )

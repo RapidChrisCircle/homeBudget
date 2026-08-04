@@ -10,6 +10,7 @@ bank layout the app knows about.
 
 import csv
 import io
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -72,9 +73,57 @@ def _blank(value: str | None) -> bool:
     return value is None or value.strip() == ""
 
 
+_CURRENCY_SYMBOLS = "$£€¥"
+
+
+def _clean_amount(value: str) -> str:
+    """Strips the formatting bank exports commonly wrap amounts in, so
+    '-AUD 3,742.37', 'AUD -3,742.37', '-$3,742.37' and '(3,742.37)' all
+    reduce to a plain '-3742.37' that Decimal() accepts. Only widens what's
+    ACCEPTED - anything left over that still isn't a valid decimal is
+    reported by the caller against the original, uncleaned value, so a
+    genuinely malformed cell is still identifiable in the rejection list.
+
+    A currency code is only stripped when it's its OWN whitespace-separated
+    token ('AUD 3,742.37') - never when letters are glued directly to
+    digits ('abc123'), which is left alone so it still fails Decimal() as
+    the malformed value it is, rather than being silently truncated into a
+    number that happens to parse.
+    """
+
+    cleaned = value.strip()
+
+    negative = False
+
+    if cleaned.startswith("(") and cleaned.endswith(")"):
+        negative = True
+        cleaned = cleaned[1:-1].strip()
+
+    if "-" in cleaned:
+        negative = True
+        cleaned = cleaned.replace("-", "")
+
+    for symbol in _CURRENCY_SYMBOLS:
+        cleaned = cleaned.replace(symbol, "")
+
+    cleaned = cleaned.strip()
+
+    tokens = cleaned.split()
+    if len(tokens) > 1:
+        tokens = [token for token in tokens if not token.isalpha()]
+    cleaned = "".join(tokens)
+
+    cleaned = cleaned.replace(",", "")
+
+    if negative and cleaned:
+        cleaned = f"-{cleaned}"
+
+    return cleaned
+
+
 def _parse_decimal(value: str, field_name: str, row_number: int, errors: list[tuple[int, str]]) -> Decimal | None:
 
-    cleaned = value.strip().replace(",", "")
+    cleaned = _clean_amount(value)
 
     try:
         return Decimal(cleaned)

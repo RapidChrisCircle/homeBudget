@@ -26,6 +26,7 @@ const sampleTransaction = {
   account_number: '1111',
   transaction_date: '2026-07-24',
   narration: 'Coffee',
+  merchant_label: 'Coffee',
   cheque_number: null,
   debit: '-5.00',
   credit: null,
@@ -63,8 +64,10 @@ function mockLoad({
   batches = [sampleBatch],
   categories = [sampleCategory],
   accounts = [sampleAccount],
+  accountGroups = [],
   transactionTypes = ['WDL'],
   listResponse = envelope(transactions),
+  groups = [],
 } = {}) {
   api.get.mockImplementation((path) => {
     if (path === '/transactions/types') {
@@ -82,21 +85,21 @@ function mockLoad({
     if (path === '/accounts') {
       return Promise.resolve({ data: accounts })
     }
+    if (path === '/account-groups') {
+      return Promise.resolve({ data: accountGroups })
+    }
     if (path.startsWith('/transactions/groups')) {
-      return Promise.resolve({ data: { groups: [] } })
+      return Promise.resolve({ data: { groups } })
     }
     return Promise.reject(new Error(`unexpected path ${path}`))
   })
 }
 
-// The page navigates to /rules, so it needs Router context. The probe route
-// lets tests assert where "Make rule" landed.
 function renderPage(initialEntry = '/transactions') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/transactions" element={<TransactionsPage />} />
-        <Route path="/rules" element={<div>rules page</div>} />
       </Routes>
     </MemoryRouter>
   )
@@ -234,8 +237,20 @@ describe('TransactionsPage', () => {
     })
   })
 
-  it('navigates to the rules page with the row narration when Make rule is clicked', async () => {
+  it('opens the rule editor prefilled from the row, previews, and saves + applies the rule', async () => {
     mockLoad()
+    api.post.mockImplementation((path) => {
+      if (path === '/category-rules/preview') {
+        return Promise.resolve({ data: { match_count: 3, would_categorize_count: 2 } })
+      }
+      if (path === '/category-rules') {
+        return Promise.resolve({ data: { id: 5 } })
+      }
+      if (path === '/category-rules/apply') {
+        return Promise.resolve({ data: { categorized_count: 2 } })
+      }
+      return Promise.reject(new Error(`unexpected post ${path}`))
+    })
 
     renderPage()
 
@@ -244,7 +259,24 @@ describe('TransactionsPage', () => {
     expandRow(screen.getByText('Coffee').closest('tr'))
     fireEvent.click(screen.getByRole('button', { name: 'Make rule from Coffee' }))
 
-    expect(await screen.findByText('rules page')).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog')
+    // Prefilled from the row's merchant label, not the raw narration.
+    expect(within(dialog).getByLabelText('Narration contains')).toHaveValue('Coffee')
+
+    await waitFor(() => {
+      expect(within(dialog).getByText(/Matches 3 transaction\(s\); 2 would be categorized now\./)).toBeInTheDocument()
+    })
+
+    fireEvent.change(within(dialog).getByLabelText('Category'), { target: { value: '1' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save and apply' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/category-rules', expect.objectContaining({
+        narration_pattern: 'Coffee',
+        category_id: 1,
+      }))
+    })
+    expect(api.post).toHaveBeenCalledWith('/category-rules/apply')
   })
 
   it('applies rules and shows the number categorized', async () => {
@@ -261,6 +293,24 @@ describe('TransactionsPage', () => {
       expect(api.post).toHaveBeenCalledWith('/category-rules/apply')
     })
     expect(await screen.findByText('Categorized 3 transaction(s).')).toBeInTheDocument()
+  })
+
+  it('keeps Balance and Type out of the row and shows them in the Details expander', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const row = screen.getByText('Coffee').closest('tr')
+    expect(within(row).queryByText('100.00')).not.toBeInTheDocument()
+    expect(within(row).queryByText('WDL')).not.toBeInTheDocument()
+
+    expandRow(row)
+
+    expect(screen.getByText(/Balance:/)).toBeInTheDocument()
+    expect(screen.getByText('100.00')).toBeInTheDocument()
+    expect(screen.getByText('Type: WDL')).toBeInTheDocument()
   })
 
   it('shows the auto marker for a rule-categorized row', async () => {
@@ -308,20 +358,91 @@ describe('TransactionsPage', () => {
     })
   })
 
-  it('scopes the similar-transactions groups request to the applied filters', async () => {
+  it('does not request merchant groups until the toggle is turned on', async () => {
     mockLoad()
 
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
-    expect(api.get).toHaveBeenCalledWith('/transactions/groups?')
+    expect(api.get).not.toHaveBeenCalledWith(expect.stringMatching(/^\/transactions\/groups/))
+  })
+
+  it('requests merchant groups, including categorized rows, once the toggle is on', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/transactions/groups?include_categorized=true')
+    })
+  })
+
+  it('scopes the merchant groups request to the applied filters', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/transactions/groups?include_categorized=true')
+    })
 
     fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
     fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
 
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/transactions/groups?search=coffee')
+      expect(api.get).toHaveBeenCalledWith('/transactions/groups?search=coffee&include_categorized=true')
     })
+  })
+
+  it('renders a group row expandable to its detail, with Set category and Make rule actions', async () => {
+    const group = {
+      narration_key: 'IGA NEWPORT',
+      merchant: 'IGA Newport',
+      sample_narration: 'IGA NEWPORT              NEWPORT  1234',
+      transaction_count: 3,
+      total_amount: '30.00',
+      direction: 'outflow',
+      first_date: '2026-07-01',
+      last_date: '2026-07-20',
+      account_names: ['Joint Everyday'],
+      transaction_ids: [10, 11, 12],
+    }
+    mockLoad({ groups: [group] })
+    api.post.mockResolvedValue({})
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => expect(screen.getByText('IGA Newport')).toBeInTheDocument())
+
+    const row = screen.getByText('IGA Newport').closest('tr')
+    expect(within(row).getByText('3')).toBeInTheDocument()
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Details' }))
+    expect(screen.getByText(/IGA NEWPORT.*1234/)).toBeInTheDocument()
+
+    fireEvent.change(within(row).getByLabelText('Category for IGA Newport'), { target: { value: '1' } })
+    fireEvent.click(within(row).getByRole('button', { name: 'Set category' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/transactions/bulk-category', {
+        transaction_ids: [10, 11, 12],
+        category_id: 1,
+      })
+    })
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Make rule from IGA Newport' }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByLabelText('Narration contains')).toHaveValue('IGA Newport')
   })
 
   it('clears filters back to an unfiltered request', async () => {
@@ -443,14 +564,12 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    // The groups card's own request (/transactions/groups) is deliberately
-    // excluded here - unlike the four true lookups, it's SUPPOSED to
-    // refetch when a filter changes, since it's scoped to the same filters
-    // as the ledger itself (see groupsQueryFromSearchParams).
+    // /transactions/groups is excluded here too - it isn't fetched at all
+    // unless the Group by merchant toggle is on, which it isn't in this test.
     const isLookupCall = ([path]) => !path.startsWith('/transactions?') && !path.startsWith('/transactions/groups')
 
     const lookupCallsAfterMount = api.get.mock.calls.filter(isLookupCall).length
-    expect(lookupCallsAfterMount).toBe(4)
+    expect(lookupCallsAfterMount).toBe(5)
 
     fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
     fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
@@ -460,7 +579,7 @@ describe('TransactionsPage', () => {
     })
 
     const lookupCallsAfterFilter = api.get.mock.calls.filter(isLookupCall).length
-    expect(lookupCallsAfterFilter).toBe(4)
+    expect(lookupCallsAfterFilter).toBe(5)
   })
 
   it('does refetch the lookups after an import, which can create accounts and batches', async () => {

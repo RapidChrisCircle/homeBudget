@@ -12,8 +12,11 @@ from ..schemas import (
     CategoryRulePreviewResponse,
     CategoryRuleResponse,
     CategoryRuleUpdate,
+    RemoveRedundantRulesResponse,
+    RuleReviewResponse,
 )
 from ..services.categorization import apply_rules_to_existing, preview_rule
+from ..services.rule_review import remove_redundant_rules, review_rules
 
 router = APIRouter()
 
@@ -84,6 +87,18 @@ def preview_category_rule(
 def apply_category_rules(db: Session = Depends(get_db)):
 
     return ApplyRulesResponse(categorized_count=apply_rules_to_existing(db))
+
+
+@router.get("/category-rules/review", response_model=RuleReviewResponse)
+def get_rule_review(db: Session = Depends(get_db)):
+
+    return RuleReviewResponse(findings=review_rules(db))
+
+
+@router.post("/category-rules/review/remove-redundant", response_model=RemoveRedundantRulesResponse)
+def remove_redundant_category_rules(db: Session = Depends(get_db)):
+
+    return RemoveRedundantRulesResponse(removed_count=remove_redundant_rules(db))
 
 
 @router.post("/category-rules", response_model=CategoryRuleResponse, status_code=201)

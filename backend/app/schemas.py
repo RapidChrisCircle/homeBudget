@@ -2,7 +2,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
+
+from .services.narration import merchant_label as _merchant_label
 
 
 class AccountResponse(BaseModel):
@@ -15,6 +17,13 @@ class AccountResponse(BaseModel):
     bsb_number: Optional[str]
     account_number: str
     created_at: datetime
+    # Optional - see AccountGroup in models.py. group_name is read straight
+    # off the relationship (Account.group_name), the same pattern
+    # Transaction.account_name/category_name already establish, so the
+    # frontend never has to cross-reference a separate groups list just to
+    # label a row.
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
     # Not columns on Account - populated from the most recent transaction's
     # running balance (see services/ledger.py). None (not 0.00) means the
     # account has no transactions yet; zero is a real balance and the two
@@ -33,6 +42,7 @@ class AccountCreate(BaseModel):
     balance_sign: str = "natural"
     bsb_number: Optional[str] = None
     account_number: str
+    group_id: Optional[int] = None
 
 
 class AccountUpdate(BaseModel):
@@ -43,6 +53,26 @@ class AccountUpdate(BaseModel):
     balance_sign: str = "natural"
     bsb_number: Optional[str] = None
     account_number: str
+    group_id: Optional[int] = None
+
+
+class AccountGroupResponse(BaseModel):
+
+    id: int
+    name: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AccountGroupCreate(BaseModel):
+
+    name: str
+
+
+class AccountGroupUpdate(BaseModel):
+
+    name: str
 
 
 class BalanceSignInferenceResponse(BaseModel):
@@ -181,6 +211,32 @@ class ApplyRulesResponse(BaseModel):
     categorized_count: int
 
 
+class RuleReviewFinding(BaseModel):
+    """See services/rule_review.py for what `kind` means and why - duplicate
+    and subsumed are safe to auto-remove, shadowed never is.
+    """
+
+    rule_id: int
+    narration_pattern: str
+    category_id: int
+    category_name: Optional[str]
+    kind: str
+    blocking_rule_id: int
+    blocking_narration_pattern: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RuleReviewResponse(BaseModel):
+
+    findings: list[RuleReviewFinding]
+
+
+class RemoveRedundantRulesResponse(BaseModel):
+
+    removed_count: int
+
+
 class TransactionCategoryUpdate(BaseModel):
 
     category_id: Optional[int]
@@ -243,6 +299,17 @@ class TransactionResponse(BaseModel):
     splits: list[TransactionSplitResponse]
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def merchant_label(self) -> str:
+        """The same merchant-name derivation services/narration.py uses for
+        recurring detection and ledger grouping - exposed here so a rule
+        prefilled FROM a transaction (RuleEditor) proposes the same merchant
+        name a "similar transactions" group would, rather than a second,
+        independently-drifting guess at "the merchant".
+        """
+        return _merchant_label(self.narration)
 
 
 class TransactionListResponse(BaseModel):

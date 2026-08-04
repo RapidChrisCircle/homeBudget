@@ -52,6 +52,17 @@ def test_import_valid_csv_inserts_transactions_and_batch(client):
     assert len(client.get("/api/import-batches").json()) == 1
 
 
+def test_transaction_response_includes_merchant_label(client):
+
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"LS Taquiza               Newport      AU",,-98.00,,-4942.16,WDL\n'
+    )
+    upload(client, csv_content)
+
+    transaction = list_transactions(client)[0]
+    assert transaction["merchant_label"] == "LS Taquiza"
+
+
 def test_import_duplicate_rows_within_same_file_are_skipped(client):
 
     csv_content = HEADER + (

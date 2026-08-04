@@ -176,6 +176,94 @@ describe('CategoriesPage', () => {
     expect(screen.getByLabelText('Standing monthly budget')).toHaveValue(250)
   })
 
+  it('opens the edit form beneath the row being edited, not in the top card', async () => {
+    mockLoad()
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    const row = categoryRow(categoriesSection(), 'Groceries')
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }))
+
+    const nameField = screen.getByLabelText('Name')
+    expect(nameField).toHaveValue('Groceries')
+    expect(nameField.closest('tr')).not.toBeNull()
+    expect(screen.getByText('Finish editing the category below to add another.')).toBeInTheDocument()
+  })
+
+  it('keeps the top card titled "Add Category" throughout an edit', async () => {
+    mockLoad()
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+    expect(screen.getAllByText('Add Category').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getAllByText('Add Category').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Edit Category')).not.toBeInTheDocument()
+  })
+
+  it('closes the first row\'s editor when a second row is opened', async () => {
+    const second = { id: 2, name: 'Dining', kind: 'expense', budget_amount: '150.00' }
+    mockLoad({ categories: [sampleCategory, second] })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Dining')).toBeInTheDocument())
+
+    const firstRow = categoryRow(categoriesSection(), 'Groceries')
+    const secondRow = categoryRow(categoriesSection(), 'Dining')
+
+    fireEvent.click(within(firstRow).getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Name')).toHaveValue('Groceries')
+
+    fireEvent.click(within(secondRow).getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Name')).toHaveValue('Dining')
+    expect(screen.getAllByLabelText('Name')).toHaveLength(1)
+  })
+
+  it('cancel leaves the row unchanged and closes the editor', async () => {
+    mockLoad()
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Changed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.getAllByLabelText('Name')).toHaveLength(1)
+    expect(screen.getByLabelText('Name')).toHaveValue('')
+    expect(api.put).not.toHaveBeenCalled()
+  })
+
+  it('saving an edit posts the same payload as before and closes the editor', async () => {
+    mockLoad()
+    api.put.mockResolvedValue({ data: sampleCategory })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Renamed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/categories/1', {
+        name: 'Renamed',
+        kind: 'expense',
+        budget_amount: '250.00',
+        parent_id: null,
+      })
+    })
+    expect(screen.queryByRole('button', { name: 'Save Changes' })).not.toBeInTheDocument()
+  })
+
   it('deletes a category when confirmed', async () => {
     mockLoad()
     api.delete.mockResolvedValue({})

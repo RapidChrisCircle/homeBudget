@@ -10,6 +10,7 @@ import LedgerFilters from '../components/LedgerFilters.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import Pagination from '../components/Pagination.jsx'
 import {
+  DEFAULT_PAGE_SIZE,
   EMPTY_FILTERS,
   filtersFromSearchParams,
   pageSizeFromSearchParams,
@@ -31,7 +32,7 @@ export default function AccountDetailPage() {
   const { accountId } = useParams()
   const [account, setAccount] = useState(null)
   const [transactions, setTransactions] = useState([])
-  const [pageInfo, setPageInfo] = useState({ total: 0, page: 1, page_size: 50, total_pages: 1 })
+  const [pageInfo, setPageInfo] = useState({ total: 0, page: 1, page_size: DEFAULT_PAGE_SIZE, total_pages: 1 })
   const [categories, setCategories] = useState([])
   const [transactionTypes, setTransactionTypes] = useState([])
   const [loading, setLoading] = useState(true)
@@ -205,10 +206,17 @@ export default function AccountDetailPage() {
         <p>Type: {accountTypeLabel(account.account_type)}</p>
         <p>Account Number: {account.account_number}</p>
         <p>Balance: {formatBalance(account)}</p>
+        {account.group_name && <p>Part of group: {account.group_name}</p>}
       </div>
 
       {balanceHistory && (
         <Card id="account-detail-balance-history" title="Balance History">
+          {account.group_name && (
+            <p className="text-muted">
+              This account is part of the &quot;{account.group_name}&quot; group - the chart below
+              is the group&apos;s stitched history, continuous across every member.
+            </p>
+          )}
           <LineChart
             periods={balanceHistory.periods.map((p) => p.label)}
             series={[{

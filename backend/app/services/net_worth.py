@@ -24,15 +24,135 @@ separate fields is what makes that second, very real case expressible.
 An UNCLASSIFIED account (account_type is None) has no signed contribution
 at all - excluded from every total here, never guessed into it. See
 ACCOUNT_TYPES's own comment in models.py for why.
+
+GROUPED accounts (Account.group_id, AccountGroup in models.py) are the
+other case excluded from a straight per-account sum: a group is a
+succession chain (an old card and its replacement), not a bundle of
+concurrently-open accounts, so at any given period exactly ONE member may
+contribute - see group_contributors_now()/group_contributors_by_period()
+below for the "newest member whose first transaction has started" rule
+this enforces, and why it's what keeps a reissued card from double-
+counting the debt its replacement already reports.
 """
 
+from collections import defaultdict
+from datetime import date
 from decimal import Decimal
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import ACCOUNT_CLASSES, Account, Transaction
 from .ledger import account_balances
 from .trends import account_balance_history
+
+
+def _first_transaction_dates(db: Session, account_ids: list[int]) -> dict[int, date]:
+    """{account_id: earliest transaction_date} for the given accounts - the
+    "has this account started being used" signal group contribution is
+    based on. An account with no transactions yet is simply absent.
+    """
+
+    if not account_ids:
+        return {}
+
+    rows = (
+        db.query(Transaction.account_id, func.min(Transaction.transaction_date))
+        .filter(Transaction.account_id.in_(account_ids))
+        .group_by(Transaction.account_id)
+        .all()
+    )
+
+    return {account_id: first_date for account_id, first_date in rows}
+
+
+def _grouped_accounts_by_group(db: Session) -> dict[int, list[Account]]:
+
+    accounts = db.query(Account).filter(Account.group_id.isnot(None)).all()
+
+    by_group: dict[int, list[Account]] = defaultdict(list)
+    for account in accounts:
+        by_group[account.group_id].append(account)
+
+    return by_group
+
+
+def group_contributors_now(db: Session) -> dict[int, int]:
+    """{group_id: contributing account_id} as of today - the newest member
+    (by first transaction date) whose first transaction has already
+    happened. A group with no member that has started yet contributes
+    nothing and is simply absent from the returned dict - there is no
+    account to attribute a (nonexistent) balance to.
+    """
+
+    by_group = _grouped_accounts_by_group(db)
+
+    if not by_group:
+        return {}
+
+    all_ids = [account.id for members in by_group.values() for account in members]
+    first_dates = _first_transaction_dates(db, all_ids)
+    today = date.today()
+
+    contributors: dict[int, int] = {}
+
+    for group_id, members in by_group.items():
+        candidates = [
+            (first_dates[account.id], account.id)
+            for account in members
+            if account.id in first_dates and first_dates[account.id] <= today
+        ]
+        if candidates:
+            # The LATEST first-transaction-date wins - the newest member
+            # that has started supersedes every earlier one, regardless of
+            # id or import order.
+            contributors[group_id] = max(candidates)[1]
+
+    return contributors
+
+
+def group_contributors_by_period(
+    db: Session, periods: list[tuple[int, int]]
+) -> dict[tuple[int, int], dict[int, int]]:
+    """{period: {group_id: contributing account_id}} - the per-period
+    equivalent of group_contributors_now(), for net_worth_history() and for
+    stitching a group's balance history (api/accounts.py's balance-history
+    endpoint) into one continuous series. A member becomes its group's
+    contributor starting the period its own first transaction falls in,
+    and stays the contributor until a newer member's own first period
+    arrives - it never reverts.
+    """
+
+    by_group = _grouped_accounts_by_group(db)
+
+    if not by_group or not periods:
+        return {period: {} for period in periods}
+
+    all_ids = [account.id for members in by_group.values() for account in members]
+    first_dates = _first_transaction_dates(db, all_ids)
+
+    first_periods: dict[int, tuple[int, int]] = {
+        account_id: (first_date.year, first_date.month) for account_id, first_date in first_dates.items()
+    }
+
+    result: dict[tuple[int, int], dict[int, int]] = {}
+
+    for period in periods:
+
+        contributors: dict[int, int] = {}
+
+        for group_id, members in by_group.items():
+            candidates = [
+                (first_periods[account.id], account.id)
+                for account in members
+                if account.id in first_periods and first_periods[account.id] <= period
+            ]
+            if candidates:
+                contributors[group_id] = max(candidates)[1]
+
+        result[period] = contributors
+
+    return result
 
 
 def signed_balance(account: Account, balance: Decimal | None) -> Decimal | None:
@@ -63,12 +183,21 @@ def net_worth_now(db: Session) -> dict:
 
     accounts = db.query(Account).all()
     balances = account_balances(db)
+    contributors = group_contributors_now(db)
 
     assets = Decimal("0")
     liabilities = Decimal("0")
     unclassified_count = 0
 
     for account in accounts:
+
+        # A superseded group member contributes nothing at all - not to
+        # assets/liabilities, and not to unclassified_count either, since
+        # its classification no longer matters once its replacement has
+        # taken over: it has effectively merged into the group's current
+        # representative.
+        if account.group_id is not None and contributors.get(account.group_id) != account.id:
+            continue
 
         balance, _as_of = balances.get(account.id, (None, None))
 
@@ -115,11 +244,13 @@ def net_worth_history(db: Session, periods: list[tuple[int, int]]) -> dict[tuple
 
     accounts = {account.id: account for account in db.query(Account).all()}
     by_account = account_balance_history(db, periods)
+    contributors_by_period = group_contributors_by_period(db, periods)
 
     history: dict[tuple[int, int], Decimal | None] = {}
 
     for period in periods:
 
+        contributors = contributors_by_period[period]
         contributions = []
 
         for account_id, balances_by_period in by_account.items():
@@ -127,6 +258,12 @@ def net_worth_history(db: Session, periods: list[tuple[int, int]]) -> dict[tuple
             account = accounts.get(account_id)
 
             if account is None or account.account_type is None:
+                continue
+
+            # Same exclusion net_worth_now() applies, per-period: a
+            # superseded group member contributes nothing for any period
+            # where a newer member has already taken over.
+            if account.group_id is not None and contributors.get(account.group_id) != account_id:
                 continue
 
             contribution = signed_balance(account, balances_by_period.get(period))

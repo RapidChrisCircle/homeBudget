@@ -116,6 +116,27 @@ describe('AccountDetailPage', () => {
     expect(screen.getByText('Coffee')).toBeInTheDocument()
   })
 
+  it('shows a group indicator and stitched-history note for a grouped account', async () => {
+    mockLoad({ account: { ...sampleAccount, group_id: 3, group_name: 'Visa Group' } })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Joint Everyday' })).toBeInTheDocument())
+
+    expect(screen.getByText('Part of group: Visa Group')).toBeInTheDocument()
+    expect(screen.getByText(/stitched history/)).toBeInTheDocument()
+  })
+
+  it('omits the group indicator for an ungrouped account', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Joint Everyday' })).toBeInTheDocument())
+
+    expect(screen.queryByText(/Part of group/)).not.toBeInTheDocument()
+  })
+
   it('shows "No transactions yet" when the account has no balance', async () => {
     mockLoad({ account: { ...sampleAccount, balance: null, balance_as_of: null }, transactions: [] })
 

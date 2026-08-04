@@ -61,7 +61,7 @@ from sqlalchemy.orm import Query, Session, joinedload
 from ..models import Account, Transaction, TransactionSplit
 from .narration import merchant_label, narration_key
 
-DEFAULT_PAGE_SIZE = 50
+DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 200
 
 # TransactionResponse serializes account_name and category_name, which are
@@ -89,6 +89,12 @@ _AMOUNT_EXPR = func.abs(func.coalesce(Transaction.debit, 0) + func.coalesce(Tran
 class TransactionFilters:
 
     account_id: int | None = None
+    # Mirrors the category_id/uncategorized pattern below: a single form
+    # field maps to either account_id or account_group_id, never both - see
+    # ledgerFilterParams.js's Account dropdown. account_id takes precedence
+    # when both happen to be set, the same way uncategorized wins over
+    # category_id.
+    account_group_id: int | None = None
     category_id: int | None = None
     uncategorized: bool = False
     date_from: date | None = None
@@ -105,6 +111,8 @@ def build_transaction_query(db: Session, filters: TransactionFilters) -> Query:
 
     if filters.account_id is not None:
         query = query.filter(Transaction.account_id == filters.account_id)
+    elif filters.account_group_id is not None:
+        query = query.filter(Transaction.account.has(Account.group_id == filters.account_group_id))
 
     if filters.uncategorized:
         query = query.filter(Transaction.category_id.is_(None), ~Transaction.splits.any())
@@ -241,10 +249,12 @@ class TransactionGroup:
     transaction_ids: list[int]
 
 
-def transaction_groups(db: Session, filters: TransactionFilters) -> list[TransactionGroup]:
-    """Uncategorized rows grouped by narration_key - "similar transactions"
-    for bulk categorization from whatever the caller's ledger view is
-    currently scoped to.
+def transaction_groups(
+    db: Session, filters: TransactionFilters, *, include_categorized: bool = False
+) -> list[TransactionGroup]:
+    """Rows grouped by narration_key - "similar transactions", for bulk
+    categorization AND for the ledger's own Group by merchant view, from
+    whatever the caller's ledger view is currently scoped to.
 
     Deliberately grouped by narration_key ALONE, not (account_id,
     narration_key) as recurring detection groups (services/recurring.py).
@@ -256,16 +266,21 @@ def transaction_groups(db: Session, filters: TransactionFilters) -> list[Transac
     grouping across accounts is a deliberate, different choice about what
     "same" means for this caller.
 
-    `uncategorized` is forced to True regardless of what the caller passed -
-    a group only makes sense for rows that still need a category - and any
-    incoming category_id/uncategorized filter is dropped for the same
-    reason. Every other filter (date range, search, account, ...) passes
-    through untouched, which is what keeps a group's transaction_ids scoped
-    to exactly the caller's current view: "categorise all N" can never reach
-    a row the caller couldn't already see.
+    include_categorized defaults to False, which is the ORIGINAL behaviour
+    this gained the flag on top of: `uncategorized` is forced to True
+    regardless of what the caller passed - a group only makes sense for rows
+    that still need a category - and any incoming category_id/uncategorized
+    filter is dropped for the same reason. Passing True (the ledger's Group
+    by merchant toggle) drops that override entirely and groups the
+    caller's filters as given, so a merchant with a mix of categorized and
+    uncategorized rows shows as one group covering both. Every other filter
+    (date range, search, account, ...) passes through untouched either way,
+    which is what keeps a group's transaction_ids scoped to exactly the
+    caller's current view: "categorise all N" can never reach a row the
+    caller couldn't already see.
     """
 
-    grouped_filters = replace(filters, uncategorized=True, category_id=None)
+    grouped_filters = filters if include_categorized else replace(filters, uncategorized=True, category_id=None)
 
     rows = (
         build_transaction_query(db, grouped_filters)

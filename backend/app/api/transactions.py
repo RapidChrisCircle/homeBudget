@@ -182,6 +182,7 @@ def preview_transaction_import(
 @router.get("/transactions", response_model=TransactionListResponse)
 def list_transactions(
     account_id: int | None = None,
+    account_group_id: int | None = None,
     category_id: int | None = None,
     uncategorized: bool = False,
     date_from: date | None = None,
@@ -206,6 +207,12 @@ def list_transactions(
             detail="uncategorized and category_id are contradictory - use one or the other",
         )
 
+    if account_id is not None and account_group_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="account_id and account_group_id are contradictory - use one or the other",
+        )
+
     if date_from is not None and date_to is not None and date_from > date_to:
         raise HTTPException(
             status_code=422,
@@ -220,6 +227,7 @@ def list_transactions(
 
     filters = TransactionFilters(
         account_id=account_id,
+        account_group_id=account_group_id,
         category_id=category_id,
         uncategorized=uncategorized,
         date_from=date_from,
@@ -275,12 +283,14 @@ def list_transaction_groups(
     transaction_type: str | None = None,
     min_amount: Decimal | None = Query(None, ge=0),
     max_amount: Decimal | None = Query(None, ge=0),
+    include_categorized: bool = False,
     db: Session = Depends(get_db)
 ):
-    """Uncategorized rows grouped by merchant, scoped to the same filters the
-    ledger itself accepts (see services/ledger.transaction_groups) - no
-    category_id/uncategorized params here, since a group is always
-    uncategorized by definition.
+    """Rows grouped by merchant, scoped to the same filters the ledger itself
+    accepts (see services/ledger.transaction_groups) - no category_id/
+    uncategorized params here, since by default a group is always
+    uncategorized. include_categorized=True (the ledger's Group by merchant
+    toggle) covers categorized rows too; the default is unchanged.
     """
 
     if date_from is not None and date_to is not None and date_from > date_to:
@@ -305,7 +315,7 @@ def list_transaction_groups(
         max_amount=max_amount,
     )
 
-    return TransactionGroupListResponse(groups=transaction_groups(db, filters))
+    return TransactionGroupListResponse(groups=transaction_groups(db, filters, include_categorized=include_categorized))
 
 
 @router.patch("/transactions/{transaction_id}/category", response_model=TransactionResponse)

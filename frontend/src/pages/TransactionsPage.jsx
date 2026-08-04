@@ -1,18 +1,20 @@
 import { Fragment, useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
 import CategoryQuickAdd from '../components/CategoryQuickAdd.jsx'
 import CategorySelect from '../components/CategorySelect.jsx'
 import CsvFormatMapper from '../components/CsvFormatMapper.jsx'
+import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LedgerFilters from '../components/LedgerFilters.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import Pagination from '../components/Pagination.jsx'
+import RuleEditor from '../components/RuleEditor.jsx'
 import SplitEditor from '../components/SplitEditor.jsx'
-import TransactionGroups from '../components/TransactionGroups.jsx'
 import {
+  DEFAULT_PAGE_SIZE,
   EMPTY_FILTERS,
   filtersFromSearchParams,
   groupsQueryFromSearchParams,
@@ -33,8 +35,9 @@ export default function TransactionsPage() {
   const [batches, setBatches] = useState([])
   const [categories, setCategories] = useState([])
   const [accounts, setAccounts] = useState([])
+  const [accountGroups, setAccountGroups] = useState([])
   const [transactionTypes, setTransactionTypes] = useState([])
-  const [pageInfo, setPageInfo] = useState({ total: 0, page: 1, page_size: 50, total_pages: 1 })
+  const [pageInfo, setPageInfo] = useState({ total: 0, page: 1, page_size: DEFAULT_PAGE_SIZE, total_pages: 1 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -48,6 +51,7 @@ export default function TransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
   const [splitEditorTransaction, setSplitEditorTransaction] = useState(null)
+  const [ruleEditorTransaction, setRuleEditorTransaction] = useState(null)
   const [mappingPanel, setMappingPanel] = useState(null)
   // Per-row disclosure state for the low-frequency actions (filename, note,
   // Split/Make rule/Delete) - a Set of transaction ids rather than a single
@@ -55,22 +59,39 @@ export default function TransactionsPage() {
   // whenever the page's own contents change (a new page, a changed filter)
   // so an id from a row that's no longer on screen never lingers.
   const [expandedIds, setExpandedIds] = useState(new Set())
-  const navigate = useNavigate()
+  // The ledger's Group by merchant toggle - an in-table view over the SAME
+  // filtered set (see services/ledger.transaction_groups' include_categorized
+  // flag), replacing the old "Similar Uncategorized" card rather than living
+  // alongside it. Server-side over the whole filtered set, not paginated -
+  // grouping within a page would be arbitrary.
+  const [groupByMerchant, setGroupByMerchant] = useState(false)
+  const [groups, setGroups] = useState([])
+  const [groupsLoading, setGroupsLoading] = useState(false)
+  const [groupsError, setGroupsError] = useState('')
+  const [expandedGroupKeys, setExpandedGroupKeys] = useState(new Set())
+  // Keyed on narration_key, same reasoning TransactionGroups (the card this
+  // replaces) used: cleared for a key once its group is successfully
+  // assigned, so a later, unrelated group reusing the same key never
+  // inherits a stale selection.
+  const [groupCategorySelections, setGroupCategorySelections] = useState({})
+  const [assigningGroupKey, setAssigningGroupKey] = useState(null)
 
   // Read straight from the URL, like the page number already is - see
   // ledgerFilterParams.pageSizeFromSearchParams / groupsQueryFromSearchParams.
   const pageSize = pageSizeFromSearchParams(searchParams)
   const groupsQuery = groupsQueryFromSearchParams(searchParams)
+  const groupedLedgerQuery = groupsQuery ? `${groupsQuery}&include_categorized=true` : 'include_categorized=true'
 
   // The lookups that populate the filter dropdowns and the import history.
   // None of them depend on the current filters, so they are deliberately NOT
   // refetched when a filter changes - only when something that can actually
   // change them happens (an import can create both accounts and batches).
   const fetchLookups = async (cancelledRef) => {
-    const [batchesRes, categoriesRes, accountsRes, typesRes] = await Promise.all([
+    const [batchesRes, categoriesRes, accountsRes, groupsRes, typesRes] = await Promise.all([
       api.get('/import-batches'),
       api.get('/categories'),
       api.get('/accounts'),
+      api.get('/account-groups'),
       api.get('/transactions/types'),
     ])
 
@@ -78,6 +99,7 @@ export default function TransactionsPage() {
       setBatches(batchesRes.data)
       setCategories(categoriesRes.data)
       setAccounts(accountsRes.data)
+      setAccountGroups(groupsRes.data)
       setTransactionTypes(typesRes.data)
     }
   }
@@ -96,13 +118,25 @@ export default function TransactionsPage() {
     }
   }
 
+  const fetchGroups = async (cancelledRef) => {
+    const response = await api.get(`/transactions/groups?${groupedLedgerQuery}`)
+
+    if (!cancelledRef?.current) {
+      setGroups(response.data.groups)
+    }
+  }
+
   // Refreshes after a mutation without dropping back to the loading state, so
   // the tables don't flicker away mid-action. `withLookups` is for mutations
   // that can change accounts/batches (import, wipe, batch delete); row-level
   // edits leave the lookups untouched and skip them.
   const refresh = async ({ withLookups = false } = {}) => {
     try {
-      await Promise.all([fetchTransactions(), withLookups ? fetchLookups() : null])
+      await Promise.all([
+        fetchTransactions(),
+        withLookups ? fetchLookups() : null,
+        groupByMerchant ? fetchGroups() : null,
+      ])
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Unknown error'
       setError(String(message))
@@ -156,6 +190,38 @@ export default function TransactionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams.toString()])
 
+  // Only fetches while the toggle is on - switching it off leaves the last
+  // fetched groups in state, unused, rather than paying for a request the
+  // view no longer shows.
+  useEffect(() => {
+    if (!groupByMerchant) {
+      return undefined
+    }
+
+    const cancelledRef = { current: false }
+
+    setGroupsLoading(true)
+    setGroupsError('')
+
+    fetchGroups(cancelledRef)
+      .catch((err) => {
+        if (!cancelledRef.current) {
+          const message = err?.response?.data?.detail || err?.message || 'Unknown error'
+          setGroupsError(String(message))
+        }
+      })
+      .finally(() => {
+        if (!cancelledRef.current) {
+          setGroupsLoading(false)
+        }
+      })
+
+    return () => {
+      cancelledRef.current = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupByMerchant, groupedLedgerQuery])
+
   const handleFilterFieldChange = (field) => (event) => {
     setFilterForm((prev) => ({ ...prev, [field]: event.target.value }))
   }
@@ -164,12 +230,14 @@ export default function TransactionsPage() {
     event.preventDefault()
     setSelectedIds([])
     setExpandedIds(new Set())
+    setExpandedGroupKeys(new Set())
     setSearchParams(searchParamsFromFilters(filterForm, pageSize))
   }
 
   const handleClearFilters = () => {
     setSelectedIds([])
     setExpandedIds(new Set())
+    setExpandedGroupKeys(new Set())
     setFilterForm(EMPTY_FILTERS)
     setSearchParams(searchParamsFromFilters(EMPTY_FILTERS, pageSize))
   }
@@ -203,6 +271,68 @@ export default function TransactionsPage() {
       return next
     })
   }
+
+  const toggleGroupExpanded = (key) => {
+    setExpandedGroupKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
+  const groupCategorySelection = (key) => groupCategorySelections[key] ?? ''
+
+  const setGroupCategorySelection = (key, value) => {
+    setGroupCategorySelections((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const forgetGroupSelection = (key) => {
+    setGroupCategorySelections((prev) => {
+      const { [key]: _discard, ...rest } = prev
+      return rest
+    })
+  }
+
+  const handleGroupSetCategory = async (group) => {
+    const categoryId = groupCategorySelection(group.narration_key)
+
+    if (!categoryId) {
+      return
+    }
+
+    setActionError('')
+    setAssigningGroupKey(group.narration_key)
+
+    try {
+      await api.post('/transactions/bulk-category', {
+        transaction_ids: group.transaction_ids,
+        category_id: Number(categoryId),
+      })
+      forgetGroupSelection(group.narration_key)
+      await Promise.all([refresh(), fetchGroups()])
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Categorize failed'
+      setActionError(String(message))
+    } finally {
+      setAssigningGroupKey(null)
+    }
+  }
+
+  // A group has no single transaction_type or category_id (it can span
+  // both), so RuleEditor's prefill is scoped to what a group actually has:
+  // the merchant name, Any type, and no category. RuleEditor doesn't care
+  // whether it's fed a real transaction or this - only that the shape
+  // matches.
+  const ruleEditorTransactionFromGroup = (group) => ({
+    narration: group.sample_narration,
+    merchant_label: group.merchant,
+    transaction_type: '',
+    category_id: null,
+  })
 
   const handleFileChange = async (event) => {
     const file = event.target.files?.[0]
@@ -342,10 +472,6 @@ export default function TransactionsPage() {
     }
   }
 
-  const handleMakeRule = (narration) => {
-    navigate(`/rules?narration=${encodeURIComponent(narration)}`)
-  }
-
   const handleDeleteTransaction = async (id) => {
     setActionError('')
     try {
@@ -471,13 +597,7 @@ export default function TransactionsPage() {
         categories={categories}
         transactionTypes={transactionTypes}
         accounts={accounts}
-      />
-
-      <TransactionGroups
-        groupsQuery={groupsQuery}
-        categories={categories}
-        onCategoryCreated={handleCategoryCreated}
-        onAssigned={refresh}
+        groups={accountGroups}
       />
 
       <Card id="transactions-ledger" title="Ledger">
@@ -487,22 +607,131 @@ export default function TransactionsPage() {
         {!loading && !error && (
           <>
             <div className="ledger-toolbar">
-              <CategoryQuickAdd
-                categories={categories}
-                value={bulkCategoryId}
-                onChange={setBulkCategoryId}
-                onCategoryCreated={(category) => handleCategoryCreated(category, setBulkCategoryId)}
-                label="Bulk category"
-              />
-              <button type="button" className="button-primary" onClick={handleBulkAssign} disabled={selectedIds.length === 0}>
-                Set category for selected ({selectedIds.length})
-              </button>
+              {!groupByMerchant && (
+                <>
+                  <CategoryQuickAdd
+                    categories={categories}
+                    value={bulkCategoryId}
+                    onChange={setBulkCategoryId}
+                    onCategoryCreated={(category) => handleCategoryCreated(category, setBulkCategoryId)}
+                    label="Bulk category"
+                  />
+                  <button type="button" className="button-primary" onClick={handleBulkAssign} disabled={selectedIds.length === 0}>
+                    Set category for selected ({selectedIds.length})
+                  </button>
+                </>
+              )}
               <button type="button" onClick={handleApplyRules} disabled={applying}>
                 Apply rules now
               </button>
               {applyMessage && <span>{applyMessage}</span>}
+              <label>
+                <input
+                  type="checkbox"
+                  checked={groupByMerchant}
+                  onChange={(e) => setGroupByMerchant(e.target.checked)}
+                />
+                {' '}Group by merchant
+              </label>
             </div>
 
+            {groupByMerchant && groupsLoading && <LoadingState message="Loading merchant groups..." />}
+            {groupByMerchant && !groupsLoading && groupsError && (
+              <ErrorState label="Failed to load merchant groups:" message={groupsError} />
+            )}
+
+            {groupByMerchant && !groupsLoading && !groupsError && groups.length === 0 && (
+              <EmptyState message="No merchant groups in the current view." />
+            )}
+
+            {groupByMerchant && !groupsLoading && !groupsError && groups.length > 0 && (
+              <div className="table-scroll">
+                <table>
+                  <caption className="visually-hidden">Ledger grouped by merchant</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Merchant</th>
+                      <th scope="col">Count</th>
+                      <th scope="col">Total</th>
+                      <th scope="col">Date range</th>
+                      <th scope="col">Category</th>
+                      <th scope="col"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groups.map((group) => {
+                      const isExpanded = expandedGroupKeys.has(group.narration_key)
+                      const detailId = `group-detail-${group.narration_key}`
+                      const signedTotal = group.direction === 'outflow' ? -Number(group.total_amount) : Number(group.total_amount)
+
+                      return (
+                        <Fragment key={group.narration_key}>
+                          <tr>
+                            <td>{group.merchant}</td>
+                            <td>{group.transaction_count}</td>
+                            <td><Amount value={signedTotal} /></td>
+                            <td>{group.first_date} to {group.last_date}</td>
+                            <td>
+                              <CategoryQuickAdd
+                                categories={categories}
+                                value={groupCategorySelection(group.narration_key)}
+                                onChange={(value) => setGroupCategorySelection(group.narration_key, value)}
+                                onCategoryCreated={(category) => {
+                                  handleCategoryCreated(category)
+                                  setGroupCategorySelection(group.narration_key, String(category.id))
+                                }}
+                                label={`Category for ${group.merchant}`}
+                                includeUncategorized={false}
+                              />
+                              <button
+                                type="button"
+                                className="button-primary"
+                                onClick={() => handleGroupSetCategory(group)}
+                                disabled={!groupCategorySelection(group.narration_key) || assigningGroupKey === group.narration_key}
+                              >
+                                Set category
+                              </button>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="button-ghost"
+                                aria-label={`Make rule from ${group.merchant}`}
+                                onClick={() => setRuleEditorTransaction(ruleEditorTransactionFromGroup(group))}
+                              >
+                                Make rule
+                              </button>
+                              <button
+                                type="button"
+                                className="button-ghost"
+                                aria-expanded={isExpanded}
+                                aria-controls={detailId}
+                                onClick={() => toggleGroupExpanded(group.narration_key)}
+                              >
+                                {isExpanded ? 'Hide' : 'Details'}
+                              </button>
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr id={detailId} className="ledger-detail-row">
+                              <td colSpan={6}>
+                                <div className="ledger-row-meta">
+                                  <span>{group.sample_narration}</span>
+                                  <span className="text-muted">Accounts: {group.account_names.join(', ')}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {!groupByMerchant && (
+            <>
             <div className="table-scroll">
               <table>
                 <caption className="visually-hidden">Ledger</caption>
@@ -528,8 +757,6 @@ export default function TransactionsPage() {
                     <th scope="col">Narration</th>
                     <th scope="col">Debit</th>
                     <th scope="col">Credit</th>
-                    <th scope="col">Balance</th>
-                    <th scope="col">Type</th>
                     <th scope="col">Category</th>
                     <th scope="col"></th>
                   </tr>
@@ -551,11 +778,9 @@ export default function TransactionsPage() {
                           </td>
                           <td>{transaction.transaction_date}</td>
                           <td>{transaction.account_name || formatAccount(transaction)}</td>
-                          <td>{transaction.narration}</td>
+                          <td className="ledger-narration">{transaction.narration}</td>
                           <td><Amount value={transaction.debit} /></td>
                           <td><Amount value={transaction.credit} /></td>
-                          <td><Amount value={transaction.balance} neutral /></td>
-                          <td>{transaction.transaction_type}</td>
                           <td>
                             {transaction.is_split ? (
                               <div className="split-summary">
@@ -609,8 +834,12 @@ export default function TransactionsPage() {
                         </tr>
                         {isExpanded && (
                           <tr id={detailId} className="ledger-detail-row">
-                            <td colSpan={10}>
+                            <td colSpan={7}>
                               <div className="ledger-row-meta">
+                                <span>
+                                  Balance: <Amount value={transaction.balance} neutral />
+                                </span>
+                                <span>Type: {transaction.transaction_type}</span>
                                 <span className="text-muted">{batchFilename(transaction.import_batch_id)}</span>
                                 <input
                                   type="text"
@@ -631,7 +860,7 @@ export default function TransactionsPage() {
                                   type="button"
                                   className="button-ghost"
                                   aria-label={`Make rule from ${transaction.narration}`}
-                                  onClick={() => handleMakeRule(transaction.narration)}
+                                  onClick={() => setRuleEditorTransaction(transaction)}
                                 >
                                   Make rule
                                 </button>
@@ -659,6 +888,8 @@ export default function TransactionsPage() {
               pageSize={pageSize}
               onPageSizeChange={handlePageSizeChange}
             />
+            </>
+            )}
           </>
         )}
       </Card>
@@ -671,6 +902,20 @@ export default function TransactionsPage() {
           onClose={() => setSplitEditorTransaction(null)}
           onSaved={() => {
             setSplitEditorTransaction(null)
+            refresh()
+          }}
+        />
+      )}
+
+      {ruleEditorTransaction && (
+        <RuleEditor
+          transaction={ruleEditorTransaction}
+          categories={categories}
+          transactionTypes={transactionTypes}
+          onCategoryCreated={handleCategoryCreated}
+          onClose={() => setRuleEditorTransaction(null)}
+          onSaved={() => {
+            setRuleEditorTransaction(null)
             refresh()
           }}
         />

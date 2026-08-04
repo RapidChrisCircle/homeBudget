@@ -11,7 +11,7 @@
 // Mirrors services/ledger.py's DEFAULT_PAGE_SIZE/MAX_PAGE_SIZE - kept as a
 // small, fixed set of choices rather than free entry, so a value can never
 // slip past the backend's 1-200 bound.
-export const DEFAULT_PAGE_SIZE = 50
+export const DEFAULT_PAGE_SIZE = 10
 export const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200]
 
 // Page size lives in the URL alongside the filters, so a resized view is
@@ -24,7 +24,10 @@ export function pageSizeFromSearchParams(searchParams) {
 }
 
 export const EMPTY_FILTERS = {
-  account_id: '',
+  // '' = all, 'group-<id>' = an account group, else a plain account id -
+  // the same single-field-stands-for-two-params shape `category` below
+  // already uses for uncategorized/category_id.
+  account: '',
   category: '', // '' = all, 'uncategorized' = uncategorized only, else a category id
   date_from: '',
   date_to: '',
@@ -35,8 +38,10 @@ export const EMPTY_FILTERS = {
 }
 
 export function filtersFromSearchParams(searchParams) {
+  const accountGroupId = searchParams.get('account_group_id')
+
   return {
-    account_id: searchParams.get('account_id') || '',
+    account: accountGroupId ? `group-${accountGroupId}` : (searchParams.get('account_id') || ''),
     category: searchParams.get('uncategorized') === 'true'
       ? 'uncategorized'
       : searchParams.get('category_id') || '',
@@ -61,7 +66,11 @@ export function filtersFromSearchParams(searchParams) {
 export function searchParamsFromFilters(filters, pageSize) {
   const params = new URLSearchParams()
 
-  if (filters.account_id) params.set('account_id', filters.account_id)
+  if (filters.account?.startsWith('group-')) {
+    params.set('account_group_id', filters.account.slice('group-'.length))
+  } else if (filters.account) {
+    params.set('account_id', filters.account)
+  }
 
   if (filters.category === 'uncategorized') {
     params.set('uncategorized', 'true')

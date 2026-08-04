@@ -10,7 +10,7 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 |---|---|
 | `/` | Dashboard — account balances, net worth, a 6-month cash flow chart and a net worth chart, this month's totals, over-budget categories, goals summary, uncategorized count, recent activity |
 | `/transactions` | Import CSVs, and the filterable, paginated ledger |
-| `/accounts` | Manage accounts, their type and balance sign; `/accounts/:id` is one account's balance and transactions |
+| `/accounts` | Manage accounts, their type, balance sign, and groups; `/accounts/:id` is one account's balance and transactions |
 | `/categories` | Manage categories, their kind, and their monthly budgets (standing + per-month overrides) |
 | `/rules` | Auto-categorization rules |
 | `/reports` | Monthly summary, budget vs actual, category totals over time |
@@ -30,6 +30,7 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 - **`<ErrorBoundary>`** (`frontend/src/components/ErrorBoundary.jsx`) wraps the routed page area only, not the header/nav/footer, so a render crash on one page leaves navigation to a working page intact. Keyed on the route path in `App.jsx`, so navigating away from a crashed page always gets a fresh attempt rather than staying stuck on the same fallback.
 - **Every data table** has a visually-hidden `<caption>` and `scope="col"`/`scope="row"` on its header cells — the surrounding heading is enough context for a sighted user, but a screen reader user jumping straight into table navigation mode never passes it, so the table needs its own accessible name too.
 - **`<CategorySelect>`** (`frontend/src/components/CategorySelect.jsx`) is the one category `<select>` the app uses everywhere a transaction, split, group or rule needs to name a category. Children render grouped under their parent via a native `<optgroup>` — the label is inert by construction, which **is** the "a parent can never itself be assigned" rule, enforced by markup instead of a filter every call site has to remember. A `fallbackOption` prop covers a category that's since been archived: it's absent from the normal list, so the component can't look its name up itself and the caller passes `{id, name}` from whatever record (a transaction, a split, a rule) already has it.
+- **In-place editing** (`InlineEditRow.jsx`) — Accounts, Categories and Rules all edit a row by opening a form **directly beneath it**, not in a card at the top of the page: click Edit, a row expands with Save/Cancel, full width via `colSpan`. This is the same disclosure idiom the ledger's own Details row already established (`aria-expanded`/`aria-controls` on the toggle, a sibling `<tr>` for the content), reused rather than inventing a second one. The top-of-page form card is Add-only on all three pages now — editing never scrolls you away from the row you were looking at, and only one row is editable at a time.
 - **Chart series colors** (`frontend/src/components/charts/chartConstants.js`) are `--series-1` through `--series-7` in `index.css`, not literal hex values — a chart's series colors follow the active theme the same way every other themed color does. Each set (light default, the no-JS `prefers-color-scheme` fallback, and both explicit Light/Dark picks) is independently validated for colorblind separation, a chroma floor, and contrast against its own surface, rather than chosen by eye. Deliberately a *different* palette from the semantic `--danger`/`--success`/`--warning` tokens that color `<Amount>` and `<Badge>` — series identity and status are different jobs, and conflating them is how an earlier palette ended up pairing income-green against spending-red at a contrast level indistinguishable under deuteranopia.
 
 ## Importing
@@ -44,6 +45,8 @@ BSB Number,Account Number,Transaction Date,Narration,Cheque Number,Debit,Credit,
 
 Two amount layouts are supported per mapping: separate Debit/Credit columns (the built-in format's own convention), or a single signed Amount column, split by sign at parse time (negative → debit, positive → credit) so nothing downstream of import ever knows which kind a file was.
 
+Amount cells tolerate common bank-export formatting rather than requiring a bare number: a leading/trailing currency code (`AUD 3,742.37`), a currency symbol (`$`, `£`, `€`, `¥`), thousands separators, and accounting-style parentheses for negative (`(3,742.37)` → `-3742.37`) — the sign is recognized on either side of a currency code. This only widens what's *accepted*; a cell that's still not a valid number after that normalization is rejected exactly as before, quoting the original raw text in the error so a genuinely malformed row stays identifiable (`services/csv_import._clean_amount`).
+
 **A running Balance column is always required**, for every format, mapped or built in. The app never sums debits and credits to derive a balance — it reads the bank's own figure — because there's no captured opening balance and a derived one would just be net change, not a balance (see `services/ledger.py`). A bank export with no balance column (some CommBank, Up and NAB exports) is out of scope for this reason, not an oversight; deriving one would quietly break the Accounts page, the balance-history chart, and the forecast, all three of which trust `Transaction.balance` completely.
 
 If **any** row fails validation the whole file is rejected with a per-row error list — nothing is imported until the file is clean. Rows exactly matching an already-imported transaction (same account, date, narration, debit, credit, and balance) are skipped as duplicates and counted separately.
@@ -54,25 +57,28 @@ Saved mappings are managed via `GET`/`POST`/`DELETE /api/csv-formats` (`backend/
 
 ## The ledger
 
-`/transactions` shows transactions newest first (`transaction_date DESC, id DESC`), paginated at 50 per page by default (10/20/100/200 also selectable, max 200 either way). Filters and the chosen page size both live in the URL, so a filtered, sized view is reloadable and shareable, and other pages deep-link into it:
+`/transactions` shows transactions newest first (`transaction_date DESC, id DESC`), paginated at **10 per page by default** (20/50/100/200 also selectable, max 200 either way — chosen deliberately low so the common case fits a screen with no scroll). Filters and the chosen page size both live in the URL, so a filtered, sized view is reloadable and shareable, and other pages deep-link into it:
 
 | Filter | Semantics |
 |---|---|
-| Account, Category | exact match, and Category also matches a **split** transaction with an allocation in that category (see Splits, below); **Uncategorized only** is a distinct mode from "all categories" and excludes split transactions entirely — a split row is never uncategorized even though its own `category_id` is null |
+| Account | exact match to one account, **or** one account group (see [Account groups](#account-groups)) — one dropdown, mapped to either `account_id` or `account_group_id` depending on which kind of thing is picked; a grouped account's individual members aren't separately selectable here, only their group |
+| Category | exact match, and also matches a **split** transaction with an allocation in that category (see Splits, below); **Uncategorized only** is a distinct mode from "all categories" and excludes split transactions entirely — a split row is never uncategorized even though its own `category_id` is null |
 | From / To date | **inclusive on both ends** |
 | Narration contains | case-insensitive; `%` and `_` are literal, not wildcards |
 | Type | case-insensitive exact match |
 | Min / Max amount | **positive dollars** compared against the absolute value of the debit or credit |
 
-Contradictory combinations are rejected with a 422 rather than quietly returning nothing — `uncategorized` with a `category_id`, an inverted date range, or an inverted amount range.
+Contradictory combinations are rejected with a 422 rather than quietly returning nothing — `uncategorized` with a `category_id`, `account_id` with `account_group_id`, an inverted date range, or an inverted amount range.
 
 Rows can be categorized individually or in bulk. Selection applies to the current page only and clears when you change pages, so a bulk assign can never touch rows you can't see.
 
-**Similar Uncategorized**, above the ledger table, groups still-uncategorized rows by merchant (`GET /api/transactions/groups`, `services/ledger.transaction_groups`) so a batch of the same recurring charge can be cleared in one action instead of row by row. A group is scoped to whatever the ledger's own filters currently show — narrowing the date range or account shrinks the group counts to match, and "Categorize all N" can only ever touch rows that were actually visible. Optionally also creates a rule from the group's merchant name, so the same charge is auto-categorized on the next import.
+**Group by merchant**, a toggle on the ledger toolbar, replaces the per-row table with one row per merchant (`GET /api/transactions/groups?include_categorized=true`, `services/ledger.transaction_groups`) — count, total, date range, expandable to the sample narration and involved accounts, with **Set category** and **Make rule** actions per group. Unlike the plain ledger view, it covers categorized rows too, not just uncategorized ones — the point is bulk categorization *and* bulk rule-making from whatever's already on screen. A group is scoped to whatever the ledger's own filters currently show — narrowing the date range or account shrinks the group counts to match, and its bulk actions can only ever touch rows that were actually visible. Grouping is computed server-side over the whole filtered set, not just the current page (groups aren't themselves paginated), and is off by default — the plain per-row table is unaffected either way.
 
-A category that doesn't exist yet can be created inline from either the ledger toolbar or a group's own row (**+ New category**) — it's available in every category dropdown on the page immediately, no reload or trip to `/categories` required.
+A category that doesn't exist yet can be created inline from the ledger toolbar, a merchant group's own row, or the rule editor below (**+ New category**) — it's available in every category dropdown on the page immediately, no reload or trip to `/categories` required.
 
-Each row's filename, note, and Split/Make rule/Delete actions sit behind a **Details** disclosure rather than always on screen — low-frequency and text-heavy, and what used to push every row to three lines tall and the whole table into horizontal scroll. The category picker and its badges (`auto`, `split`) stay visible without opening anything, since categorizing is what the ledger is for.
+Each row's Balance, Type, filename, note, and Split/Make rule/Delete actions sit behind a **Details** disclosure rather than always on screen — low-frequency and text-heavy, and what used to push every row to three lines tall and the whole table into horizontal scroll. The category picker and its badges (`auto`, `split`) stay visible without opening anything, since categorizing is what the ledger is for.
+
+**Make rule**, from either a row's Details or a merchant group, opens an in-place rule editor (`RuleEditor.jsx`) instead of navigating away to `/rules`: narration pattern prefilled from the merchant name (not the raw, reference-number-laden narration), type and category prefilled from the row (amount bounds stay blank — one transaction is a poor guess at a range), with a live match count (`POST /api/category-rules/preview`) before you commit. Saving creates the rule **and** applies it (`POST /api/category-rules` then `/apply`) without leaving the ledger. `/rules` still has its own full editor for reordering and bulk management — this is the fast path, not a replacement.
 
 ### Splits and notes
 
@@ -91,6 +97,18 @@ Categories have a **kind** (`expense`, `income`, or `transfer`) and expense cate
 **On auto-categorization from an external source:** nothing is integrated, and nothing free is worth integrating. The commercial merchant-enrichment APIs (Basiq, Plaid Enrich, Ntropy, Yodlee) are all paid per-transaction and require sending narration text — effectively your spending history — to a third party; there's no credible free or offline equivalent, since the value in those services is a proprietary merchant-name dataset that can't be self-hosted. The strongest no-cost option — suggesting a category from your own past categorizations of the same merchant — is not built, but the merchant-key logic it would need (`services/narration.py`) already exists and is shared with both recurring detection and the ledger's own transaction grouping above.
 
 Rules on `/rules` auto-categorize on import and can be re-run over existing transactions from the ledger's **Apply rules now**. A rule matches on narration, transaction type, and/or an amount range; rows it categorizes are marked `auto`. Setting a category by hand clears that marker, so a later rule run won't overwrite your decision.
+
+### Rule review
+
+Rules are evaluated **top to bottom, first match wins** (`services/categorization.py`), so a rule can end up permanently unreachable — shadowed by a broader one ranked above it — with no way to notice short of reading the whole list by hand. The **Review Rules** card on `/rules` (`GET /api/category-rules/review`, `services/rule_review.py`) reads that same ordering and reports what it makes provable, changing nothing on its own. Three kinds of finding, keyed off whether an earlier rule's pattern is a substring of a later one's *and* that earlier rule's other criteria are absent-or-broader (its type is null-or-equal, its min is null-or-lower, its max is null-or-higher — a narrower amount band is never reported, however generic the pattern):
+
+| Kind | Meaning | Action |
+|---|---|---|
+| `duplicate` | Identical pattern (case-insensitive), type, amount range **and** category as an earlier rule | Safe to remove — provably a no-op |
+| `subsumed` | An earlier, broader-or-equal rule already targets the **same** category | Safe to remove — dead code, the earlier rule already catches everything this one would |
+| `shadowed` | Same shape, but the earlier rule targets a **different** category | **Never auto-removed** — this is almost certainly a bug (the rule was written intending to win and silently doesn't), reported with the blocking rule named so it can be reordered with the existing move up/down controls |
+
+Because a rule's narration pattern is a single case-insensitive substring with no OR, two rules with genuinely unrelated patterns can't be combined — the schema can't express it. "Merge" therefore means *remove the rule that can never fire*, the only merge these semantics honestly support. **Remove all duplicate/subsumed rules** (`POST /api/category-rules/review/remove-redundant`) deletes every `duplicate`/`subsumed` finding in one action and never touches a `shadowed` one; each finding can also be removed individually. Since both auto-removable kinds are provably no-ops, deleting them cannot change how a single transaction categorizes — re-running **Apply rules now** afterward recategorizes exactly the same rows.
 
 ### Sub-categories
 
@@ -145,6 +163,19 @@ An account can also be **unclassified** (no type set — the default for anythin
 **Inferring the sign**: editing a liability account (`GET /accounts/{id}/infer-balance-sign`) looks at that account's own balance history and suggests whichever convention predominates, showing "Inferred from N past balances: natural/inverted" with a **Use this** button. It is never applied automatically — the account keeps its own stored value until you explicitly accept the suggestion.
 
 **Net worth** (`GET /api/net-worth`, `services/net_worth.py`) is the one place any signed sum of account balances happens — `assets - liabilities = net`, both display buckets shown as positive-reading figures, with `net` the only figure that has to be exactly right (the two buckets can never disagree with the total they're drawn from, by construction). The Dashboard's Accounts card and its Net Worth chart both read from this service, so they can never disagree with each other either — there is no second, independent "combine the balances" implementation anywhere in the frontend.
+
+### Account groups
+
+An **account group** (`/accounts`, `AccountGroup` in `models.py`) is one logical account across a **succession** of physical ones — e.g. a credit card and the replacement it was reissued as. It is deliberately **not a folder**: grouping is for accounts that supersede each other, not for accounts you simply want filed together, and using it that way produces the surprising behaviour described next.
+
+The reason it isn't display-only: without a rule, an old card and its replacement both reporting a balance would double-count the same debt (an account and its replacement each showing -$500 would read as -$1,000 owed, not -$500). The rule that prevents it — at any given period, **exactly the newest member whose first transaction has started counts toward net worth** (`services/net_worth.group_contributors_now` / `group_contributors_by_period`) — is derived live from each member's own first transaction date, never a stored "is current" flag there'd be no way to keep in sync. A replacement supersedes its predecessor from the moment it starts being used, in `net_worth_now`, `net_worth_history`, and the Dashboard's Net Worth chart alike, since all three read through the same service.
+
+Two more places this reaches:
+
+- **`/accounts/:id` for a grouped account shows the group's stitched balance history** — for each month, whichever member was the period's contributor, so a reissued card's chart is one continuous line across the handover rather than two lines that don't meet. Every member of the same group shows this identical stitched series.
+- **The ledger's Account filter** offers a group alongside every ungrouped account (`account_group_id`, alongside the existing `account_id`) — filtering to "every transaction from this logical account" regardless of which physical account number it landed under.
+
+Deleting a group unlinks its member accounts rather than deleting them (`DELETE /api/account-groups/{id}`) — a group is a label over otherwise-ordinary accounts, not a container that owns them.
 
 ## Trends
 

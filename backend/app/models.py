@@ -51,6 +51,50 @@ ACCOUNT_CLASSES = {
 BALANCE_SIGNS = ("natural", "inverted")
 
 
+class AccountGroup(Base):
+    """One logical account across a SUCCESSION of physical ones - e.g. a
+    credit card and the replacement it was reissued as. This is a
+    succession chain, not a folder for concurrently-open accounts: grouping
+    two accounts that are both actively used at once would still only let
+    the newer one contribute to net worth (see services/net_worth.py),
+    which is correct for "one logical account" but a bad fit for "these are
+    related, unrelated things I want to see filed together" - the Accounts
+    page says so where a group is created.
+
+    The rule that makes this safe rather than merely cosmetic: at any given
+    period, exactly one member contributes to net worth - the newest member
+    whose first transaction date has started by that period (see
+    services/net_worth.py's group-contribution functions). Without that
+    rule, an old card and its replacement both having a balance would
+    double-count the same debt. Derived live from each member's own first
+    transaction date - never a stored "is current" flag, which would have
+    no way to stay in sync as new statements are imported.
+    """
+
+    __tablename__ = "account_groups"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    name = Column(
+        String,
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )
+
+    accounts = relationship(
+        "Account",
+        back_populates="group"
+    )
+
+
 class Account(Base):
     """A bank account, imported from CSV rows and never entered by hand
     beyond its name/type/sign.
@@ -61,6 +105,14 @@ class Account(Base):
     BALANCE_SIGNS ("natural" by default) and is what services/net_worth.py
     actually applies - see that module and BALANCE_SIGNS's comment above
     for why type and sign are deliberately two separate fields.
+
+    group_id is optional and points at an AccountGroup - see that class's
+    own docstring for what grouping means and the double-counting rule it
+    exists to enforce. ondelete="SET NULL" so deleting a group unlinks its
+    members rather than deleting the accounts themselves (also enforced in
+    Python in delete_account_group, since SQLite ignores ondelete without
+    PRAGMA foreign_keys=ON - the same reasoning as every other cascade in
+    this codebase).
     """
 
     __tablename__ = "accounts"
@@ -108,6 +160,18 @@ class Account(Base):
         server_default=func.now()
     )
 
+    group_id = Column(
+        Integer,
+        ForeignKey("account_groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    group = relationship(
+        "AccountGroup",
+        back_populates="accounts"
+    )
+
     transactions = relationship(
         "Transaction",
         back_populates="account"
@@ -122,6 +186,11 @@ class Account(Base):
         back_populates="account",
         cascade="all, delete-orphan"
     )
+
+    @property
+    def group_name(self):
+
+        return self.group.name if self.group else None
 
     __table_args__ = (
         UniqueConstraint(

@@ -73,4 +73,37 @@ describe('LedgerFilters', () => {
 
     expect(handler).toHaveBeenCalledWith('search', 'woolworths')
   })
+
+  it('offers groups alongside ungrouped accounts, excluding a grouped account\'s own individual entry', () => {
+    const groups = [{ id: 3, name: 'Visa Group' }]
+    const mixedAccounts = [
+      { id: 7, name: 'Joint Everyday' },
+      { id: 8, name: 'Old Visa', group_id: 3 },
+    ]
+    renderFilters({ accounts: mixedAccounts, groups })
+
+    const options = Array.from(screen.getByLabelText('Account').options).map((o) => ({
+      value: o.value, label: o.textContent,
+    }))
+
+    expect(options).toEqual([
+      { value: '', label: 'All accounts' },
+      { value: 'group-3', label: 'Visa Group' },
+      { value: '7', label: 'Joint Everyday' },
+    ])
+  })
+
+  it('reports a group selection as the account field, prefixed for searchParamsFromFilters to decode', () => {
+    const groups = [{ id: 3, name: 'Visa Group' }]
+    const handler = vi.fn()
+    renderFilters({
+      accounts,
+      groups,
+      onFieldChange: (field) => (event) => handler(field, event.target.value),
+    })
+
+    fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'group-3' } })
+
+    expect(handler).toHaveBeenCalledWith('account', 'group-3')
+  })
 })

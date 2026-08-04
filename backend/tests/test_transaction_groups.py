@@ -200,6 +200,70 @@ def test_groups_endpoint_returns_the_same_shape(client, db_session):
     assert len(group["transaction_ids"]) == 2
 
 
+def test_include_categorized_covers_categorized_rows_too(db_session):
+
+    account = make_account(db_session)
+    category = make_category(db_session)
+
+    make_transaction(db_session, account.id, date(2026, 7, 1), "IGA NEWPORT              NEWPORT", -4.45)
+    make_transaction(
+        db_session, account.id, date(2026, 7, 8), "IGA NEWPORT              NEWPORT", -5.00,
+        category_id=category.id,
+    )
+
+    default_groups = transaction_groups(db_session, no_filters())
+    assert default_groups == []
+
+    all_groups = transaction_groups(db_session, no_filters(), include_categorized=True)
+    assert len(all_groups) == 1
+    assert all_groups[0].transaction_count == 2
+
+
+def test_include_categorized_does_not_override_an_incoming_category_filter(db_session):
+    """Unlike the default (uncategorized-only) mode, include_categorized=True
+    passes the caller's own category_id/uncategorized filters through
+    untouched rather than overriding them.
+    """
+
+    account = make_account(db_session)
+    category = make_category(db_session)
+    other_category = make_category(db_session, name="Other", kind="expense")
+
+    make_transaction(
+        db_session, account.id, date(2026, 7, 1), "IGA NEWPORT              NEWPORT", -4.45,
+        category_id=category.id,
+    )
+    make_transaction(
+        db_session, account.id, date(2026, 7, 8), "IGA NEWPORT              NEWPORT", -5.00,
+        category_id=other_category.id,
+    )
+
+    groups = transaction_groups(
+        db_session, no_filters(category_id=category.id), include_categorized=True
+    )
+
+    assert len(groups) == 0  # only 1 row matches category_id=category.id - below MIN_GROUP_SIZE
+
+
+def test_groups_endpoint_include_categorized_query_param(client, db_session):
+
+    account = make_account(db_session)
+    category = make_category(db_session)
+
+    make_transaction(db_session, account.id, date(2026, 7, 1), "IGA NEWPORT              NEWPORT", -4.45)
+    make_transaction(
+        db_session, account.id, date(2026, 7, 8), "IGA NEWPORT              NEWPORT", -5.00,
+        category_id=category.id,
+    )
+    db_session.commit()
+
+    default_response = client.get("/api/transactions/groups")
+    assert default_response.json()["groups"] == []
+
+    included_response = client.get("/api/transactions/groups", params={"include_categorized": "true"})
+    assert len(included_response.json()["groups"]) == 1
+
+
 def test_groups_endpoint_rejects_inverted_date_range(client):
 
     response = client.get(
