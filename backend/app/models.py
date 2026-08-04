@@ -20,8 +20,48 @@ from .database import Base
 # (services/reporting.py) so the set of valid kinds is defined exactly once.
 CATEGORY_KINDS = ("expense", "income", "transfer")
 
+# Shared by Account validation (api/accounts.py) and services/net_worth.py,
+# so the set of valid types - and which side of the balance sheet each one
+# sits on - is defined exactly once. NULL account_type means "unclassified":
+# net_worth.py deliberately EXCLUDES an unclassified account from the total
+# rather than guessing it's an asset - an incomplete number the app admits
+# to beats a complete one it invented. There is no "other" bucket for
+# exactly this reason.
+ACCOUNT_TYPES = ("everyday", "savings", "investment", "credit_card", "loan", "mortgage")
+
+ACCOUNT_CLASSES = {
+    "everyday": "asset",
+    "savings": "asset",
+    "investment": "asset",
+    "credit_card": "liability",
+    "loan": "liability",
+    "mortgage": "liability",
+}
+
+# Whether an account's stored balance already means what the ledger's own
+# convention expects (an asset's balance is positive when in credit, a
+# liability's balance is negative when money is owed - "natural", and the
+# default), or the OPPOSITE (a bank that reports a credit card's owing
+# amount as a positive number - "inverted"). Type decides an account's
+# CLASS (asset vs liability) and the inferred default for this; this field
+# is what actually flips the sign in net_worth.signed_balance() - kept as
+# a separate field specifically so "a credit card whose bank reports debt
+# as a positive number" is expressible, which a single type-implies-sign
+# rule could never be for every bank.
+BALANCE_SIGNS = ("natural", "inverted")
+
 
 class Account(Base):
+    """A bank account, imported from CSV rows and never entered by hand
+    beyond its name/type/sign.
+
+    account_type is one of ACCOUNT_TYPES or NULL ("unclassified" - see
+    that tuple's own comment for why an unclassified account is excluded
+    from net worth rather than guessed). balance_sign is one of
+    BALANCE_SIGNS ("natural" by default) and is what services/net_worth.py
+    actually applies - see that module and BALANCE_SIGNS's comment above
+    for why type and sign are deliberately two separate fields.
+    """
 
     __tablename__ = "accounts"
 
@@ -43,6 +83,13 @@ class Account(Base):
     account_type = Column(
         String,
         nullable=True
+    )
+
+    balance_sign = Column(
+        String,
+        nullable=False,
+        default="natural",
+        server_default="natural"
     )
 
     bsb_number = Column(
@@ -744,3 +791,100 @@ class CategoryBudget(Base):
             name="uq_category_budgets_category_year_month"
         ),
     )
+
+
+# Shared by SavingsGoal validation (api/goals.py) and progress computation
+# (services/goals.py).
+GOAL_MODES = ("account_balance", "envelope")
+
+
+class SavingsGoal(Base):
+    """A savings target, tracked one of two ways - see services/goals.py for
+    the full reasoning, this is the schema half.
+
+    "account_balance" mode: account_id is REQUIRED and progress is that
+    account's own signed_balance() (services/net_worth.py) - honest by
+    construction, since the number comes straight from the bank rather
+    than anything this app tracks separately. allocated_amount is unused
+    (coerced to NULL) in this mode.
+
+    "envelope" mode: allocated_amount is a figure the household maintains
+    by hand - what they've earmarked toward this goal, independent of
+    which account (if any) actually holds it. account_id is OPTIONAL here,
+    purely informational (which account this envelope's money sits in);
+    when set, services/goals.account_envelope_summaries() checks that
+    account's real balance against the sum of every envelope goal pointed
+    at it, and flags over-allocation - envelopes can commit money that
+    isn't there, and that check is the mitigation, not a schema constraint
+    (deliberately not enforced at write time, so a temporary over-
+    allocation - about to be resolved by an incoming transfer - isn't
+    outright rejected).
+
+    Progress is NEVER stored - both modes are computed fresh on every read
+    (services/goals.goal_progress). There is no contribution ledger; the
+    user's own transactions already are the ledger.
+
+    ondelete="SET NULL", not CASCADE: deleting an account leaves its goals
+    intact but unlinked, rather than deleting the goals themselves - a
+    goal is the household's own record of intent, not a derived view of
+    one account. Also enforced explicitly in api/accounts.py's
+    delete_account, since SQLite ignores ondelete without PRAGMA
+    foreign_keys=ON (the same reason every other cascade in this file is
+    explicit too).
+    """
+
+    __tablename__ = "savings_goals"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    name = Column(
+        String,
+        nullable=False
+    )
+
+    target_amount = Column(
+        Numeric(12, 2),
+        nullable=False
+    )
+
+    target_date = Column(
+        Date,
+        nullable=True
+    )
+
+    mode = Column(
+        String,
+        nullable=False,
+        default="account_balance",
+        server_default="account_balance"
+    )
+
+    account_id = Column(
+        Integer,
+        ForeignKey("accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    allocated_amount = Column(
+        Numeric(12, 2),
+        nullable=True
+    )
+
+    archived = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false()
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )
+
+    account = relationship("Account")

@@ -89,6 +89,13 @@ const sampleTrends = {
   ],
 }
 
+const sampleNetWorth = {
+  assets: '1200.50',
+  liabilities: '300.50',
+  net: '900.00',
+  unclassified_count: 0,
+}
+
 const sampleTransaction = {
   id: 1,
   account_id: 1,
@@ -130,10 +137,14 @@ const emptyRecurring = {
   as_of: null,
 }
 
+const emptyGoals = { goals: [], account_envelope_summaries: [] }
+
 function mockLoad({
   accounts = sampleAccounts,
   report = sampleReport,
   trends = sampleTrends,
+  netWorth = sampleNetWorth,
+  goals = emptyGoals,
   transactions = [sampleTransaction],
   listResponse = null,
   recurring = emptyRecurring,
@@ -149,6 +160,12 @@ function mockLoad({
     }
     if (path.startsWith('/trends')) {
       return Promise.resolve({ data: trends })
+    }
+    if (path === '/net-worth') {
+      return Promise.resolve({ data: netWorth })
+    }
+    if (path === '/goals') {
+      return Promise.resolve({ data: goals })
     }
     if (path === '/recurring') {
       return Promise.resolve({ data: recurring })
@@ -195,34 +212,112 @@ describe('DashboardPage', () => {
     expect(screen.getByRole('link', { name: 'Credit Card' })).toHaveAttribute('href', '/accounts/2')
   })
 
-  it('shows a combined balance summing the account balances', async () => {
+  it('shows net worth from the /net-worth endpoint, not a client-side sum', async () => {
     mockLoad()
 
     renderPage()
 
-    // "Combined balance: " and the amount are separate DOM nodes now that
-    // the amount renders via <Amount>, so match on the paragraph's full
-    // text content rather than a single text node.
+    // "Net worth: " and the amount are separate DOM nodes now that the
+    // amount renders via <Amount>, so match on the paragraph's full text
+    // content rather than a single text node. The figure comes straight
+    // from sampleNetWorth (services/net_worth.py's own computation), not
+    // from summing sampleAccounts - the whole point of this iteration.
     await waitFor(() => {
       expect(
-        screen.getByText((_, el) => el?.tagName === 'P' && el.textContent.includes('Combined balance: 900.00'))
+        screen.getByText((_, el) => el?.tagName === 'P' && el.textContent.includes('Net worth: 900.00'))
       ).toBeInTheDocument()
     })
   })
 
-  it('omits accounts with no balance from the combined total', async () => {
-    mockLoad({
-      accounts: [sampleAccounts[0], { id: 3, name: 'New Account', balance: null, balance_as_of: null }],
-    })
+  it('shows the assets and liabilities split alongside net worth', async () => {
+    mockLoad()
 
     renderPage()
 
     await waitFor(() => {
       expect(
-        screen.getByText((_, el) => el?.tagName === 'P' && el.textContent.includes('Combined balance: 1200.50'))
+        screen.getByText((_, el) =>
+          el?.tagName === 'P'
+          && el.textContent.includes('assets 1200.50')
+          && el.textContent.includes('liabilities 300.50')
+        )
       ).toBeInTheDocument()
     })
-    expect(screen.getByText('No transactions yet')).toBeInTheDocument()
+  })
+
+  it('shows an unclassified-accounts note only when there is one', async () => {
+    mockLoad({ netWorth: { ...sampleNetWorth, unclassified_count: 2 } })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Excludes 2 unclassified accounts/)).toBeInTheDocument()
+    })
+  })
+
+  it('shows no unclassified-accounts note when every account is classified', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(
+        screen.getByText((_, el) => el?.tagName === 'P' && el.textContent.includes('Net worth: 900.00'))
+      ).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText(/unclassified/)).not.toBeInTheDocument()
+  })
+
+  // --- Goals summary card ------------------------------------------------
+
+  it('does not render the Goals card when there are no goals', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+
+    expect(screen.queryByRole('heading', { name: 'Goals' })).not.toBeInTheDocument()
+  })
+
+  it('lists goals with their progress and links to the full Goals page', async () => {
+    mockLoad({
+      goals: {
+        goals: [{
+          id: 1, name: 'Emergency Fund', current_amount: '1500.00', target_amount: '5000.00', percent: '30',
+        }],
+        account_envelope_summaries: [],
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Goals' })).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Emergency Fund/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'See all goals' })).toHaveAttribute('href', '/goals')
+  })
+
+  it('shows an over-allocation note when an envelope account is over-allocated', async () => {
+    mockLoad({
+      goals: {
+        goals: [{
+          id: 1, name: 'Holiday', current_amount: '400.00', target_amount: '2000.00', percent: '20',
+        }],
+        account_envelope_summaries: [{
+          account_id: 1, account_name: 'Shared Savings', account_balance: '600.00',
+          allocated_total: '800.00', over_allocated: true, over_allocated_by: '200.00',
+        }],
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('over-allocated')).toBeInTheDocument()
+    })
   })
 
   it('shows the month summary labelled with the month it covers', async () => {
@@ -357,18 +452,21 @@ describe('DashboardPage', () => {
     expect(screen.getByText('Income — 2026-07: 5000.00')).toBeInTheDocument()
   })
 
-  it('shows a net balance chart when there is balance history, with a not-net-worth caption', async () => {
+  it('shows a net worth chart when there is balance history', async () => {
     mockLoad()
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Net Balance' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Net Worth' })).toBeInTheDocument()
     })
-    expect(screen.getByText(/not net worth/)).toBeInTheDocument()
+    // The old "not net worth" caveat is gone entirely - the chart's data
+    // IS net worth now (services/net_worth.net_worth_history), so there is
+    // nothing left to caveat.
+    expect(screen.queryByText(/not net worth/)).not.toBeInTheDocument()
   })
 
-  it('hides the net balance chart when no account has any balance history yet', async () => {
+  it('hides the net worth chart when no account has any balance history yet', async () => {
     mockLoad({
       trends: {
         ...sampleTrends,
@@ -381,7 +479,7 @@ describe('DashboardPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument()
     })
-    expect(screen.queryByRole('heading', { name: 'Net Balance' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Net Worth' })).not.toBeInTheDocument()
   })
 
   it('shows an empty state when nothing has been imported', async () => {

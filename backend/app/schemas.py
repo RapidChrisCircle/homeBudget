@@ -11,6 +11,7 @@ class AccountResponse(BaseModel):
     name: str
     institution: Optional[str]
     account_type: Optional[str]
+    balance_sign: str
     bsb_number: Optional[str]
     account_number: str
     created_at: datetime
@@ -29,6 +30,7 @@ class AccountCreate(BaseModel):
     name: str
     institution: Optional[str] = None
     account_type: Optional[str] = None
+    balance_sign: str = "natural"
     bsb_number: Optional[str] = None
     account_number: str
 
@@ -38,8 +40,21 @@ class AccountUpdate(BaseModel):
     name: str
     institution: Optional[str] = None
     account_type: Optional[str] = None
+    balance_sign: str = "natural"
     bsb_number: Optional[str] = None
     account_number: str
+
+
+class BalanceSignInferenceResponse(BaseModel):
+    """GET /accounts/{id}/infer-balance-sign - a suggestion, never applied
+    automatically (see services/net_worth.infer_balance_sign). sample_size
+    is how many balances the inference actually looked at, so the frontend
+    can show "based on 12 transactions" rather than a bare guess with no
+    indication of how much evidence backs it.
+    """
+
+    inferred_sign: Optional[str]
+    sample_size: int
 
 
 class CategoryResponse(BaseModel):
@@ -504,11 +519,13 @@ class TrendBudgetResponse(BaseModel):
 
 
 class TrendBalanceResponse(BaseModel):
+    """A net worth figure per period (services.net_worth.net_worth_history),
+    sign-aware across every classified account - not a straight sum."""
 
     label: str
-    # None for a period before EVERY account has any history yet (a real
-    # gap - see services.trends.combined_balance_history) - never a false
-    # 0 for "the whole ledger has no data this far back".
+    # None for a period before EVERY classified account has any history
+    # yet (a real gap) - never a false 0 for "the whole ledger has no data
+    # this far back".
     balance: Optional[Decimal]
 
 
@@ -531,6 +548,22 @@ class BalanceHistoryResponse(BaseModel):
     # lockstep. None (not 0.00) means no data yet for that month - the same
     # "no transactions" distinction AccountResponse.balance already makes.
     balances: dict[str, Optional[Decimal]]
+
+
+class NetWorthResponse(BaseModel):
+    """GET /api/net-worth - a thin wrapper over services.net_worth.
+    net_worth_now(). assets and liabilities are both positive-reading
+    display figures (liabilities is "how much is owed"); net = assets -
+    liabilities always, by construction of that function. unclassified_count
+    is how many accounts (with a real balance) are excluded from every
+    figure here - never guessed into assets, see ACCOUNT_TYPES's own
+    comment in models.py.
+    """
+
+    assets: Decimal
+    liabilities: Decimal
+    net: Decimal
+    unclassified_count: int
 
 
 class BudgetPeriodCategoryResponse(BaseModel):
@@ -642,3 +675,61 @@ class VersionResponse(BaseModel):
 
     version: str
     commit: str
+
+
+class GoalCreate(BaseModel):
+
+    name: str
+    target_amount: Decimal
+    target_date: Optional[date] = None
+    mode: str = "account_balance"
+    account_id: Optional[int] = None
+    allocated_amount: Optional[Decimal] = None
+
+
+class GoalUpdate(GoalCreate):
+    pass
+
+
+class GoalResponse(BaseModel):
+    """Progress fields (current_amount/percent/remaining/monthly_required)
+    are computed fresh on every read by services/goals.goal_progress - see
+    that function's own docstring for exactly what each one means and
+    when monthly_required is None.
+    """
+
+    id: int
+    name: str
+    target_amount: Decimal
+    target_date: Optional[date]
+    mode: str
+    account_id: Optional[int]
+    account_name: Optional[str]
+    allocated_amount: Optional[Decimal]
+    archived: bool
+    current_amount: Decimal
+    percent: Decimal
+    remaining: Decimal
+    monthly_required: Optional[Decimal]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AccountEnvelopeSummaryResponse(BaseModel):
+    """See services.goals.account_envelope_summaries - the envelope
+    over-allocation check. account_balance is None only when the account
+    has no transactions yet, in which case over_allocated is always False
+    (there is nothing yet to compare against, not proof of a problem)."""
+
+    account_id: int
+    account_name: str
+    account_balance: Optional[Decimal]
+    allocated_total: Decimal
+    over_allocated: bool
+    over_allocated_by: Optional[Decimal]
+
+
+class GoalListResponse(BaseModel):
+
+    goals: list[GoalResponse]
+    account_envelope_summaries: list[AccountEnvelopeSummaryResponse]

@@ -184,36 +184,3 @@ def account_balance_history(
         history[account_id] = filled
 
     return history
-
-
-def combined_balance_history(
-    db: Session, periods: list[tuple[int, int]]
-) -> dict[tuple[int, int], Decimal | None]:
-    """{period: combined balance | None} - every account's own
-    account_balance_history() summed together per period, for the
-    Dashboard's net-balance chart. Same straight-sum convention the
-    Dashboard's "Combined balance" figure already uses for TODAY
-    (DashboardPage.jsx's own tooltip: "a straight sum of each account's
-    latest bank balance... not net worth"), extended across a window.
-
-    An account with no history yet AT a given period (None - before its
-    first-ever transaction) contributes 0 to that period's sum, not a gap -
-    it hasn't been opened, matching how DashboardPage already excludes a
-    None-balance account from its own current combined figure rather than
-    treating the whole total as unknown. The one real gap is a period
-    where EVERY account is still None - the whole ledger has no history
-    that far back - which stays None so LineChart breaks the line instead
-    of drawing a false $0.
-    """
-
-    by_account = account_balance_history(db, periods)
-
-    combined: dict[tuple[int, int], Decimal | None] = {}
-
-    for period in periods:
-        known = [history[period] for history in by_account.values() if history[period] is not None]
-        combined[period] = sum(known, Decimal("0")) if known else None
-
-    return combined
-
-    return history

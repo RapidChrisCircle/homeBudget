@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
+import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
 import BarChart from '../components/charts/BarChart.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
@@ -20,6 +21,9 @@ export default function DashboardPage() {
   const [accounts, setAccounts] = useState([])
   const [report, setReport] = useState(null)
   const [trends, setTrends] = useState(null)
+  const [netWorth, setNetWorth] = useState(null)
+  const [goals, setGoals] = useState([])
+  const [overAllocatedAccounts, setOverAllocatedAccounts] = useState([])
   const [recent, setRecent] = useState([])
   const [transactionTotal, setTransactionTotal] = useState(0)
   const [recurringSeries, setRecurringSeries] = useState([])
@@ -36,19 +40,28 @@ export default function DashboardPage() {
 
     // No dashboard-specific endpoint: everything here is already served by
     // the pages it summarizes. months=1 keeps the report from computing the
-    // six-month category grid the dashboard doesn't show.
+    // six-month category grid the dashboard doesn't show. Net worth comes
+    // from /net-worth (services/net_worth.py) rather than being summed
+    // client-side here - that service is the ONE place any signed sum of
+    // account balances happens, so this card and the Net Worth chart below
+    // (whose /trends balances are sign-aware too) can never disagree.
     Promise.all([
       api.get('/accounts'),
       api.get('/reports/monthly?months=1'),
       api.get(`/trends?months=${CHART_MONTHS}`),
+      api.get('/net-worth'),
+      api.get('/goals'),
       api.get(`/transactions?page_size=${RECENT_LIMIT}`),
       api.get('/recurring'),
     ])
-      .then(([accountsRes, reportRes, trendsRes, transactionsRes, recurringRes]) => {
+      .then(([accountsRes, reportRes, trendsRes, netWorthRes, goalsRes, transactionsRes, recurringRes]) => {
         if (!cancelled) {
           setAccounts(accountsRes.data)
           setReport(reportRes.data)
           setTrends(trendsRes.data)
+          setNetWorth(netWorthRes.data)
+          setGoals(goalsRes.data.goals)
+          setOverAllocatedAccounts(goalsRes.data.account_envelope_summaries.filter((s) => s.over_allocated))
           setRecent(transactionsRes.data.items)
           setTransactionTotal(transactionsRes.data.total)
           setRecurringSeries(recurringRes.data.series)
@@ -103,8 +116,6 @@ export default function DashboardPage() {
   }
 
   const { summary, budgets, uncategorized } = report
-  const withBalances = accounts.filter((account) => account.balance !== null)
-  const combined = withBalances.reduce((sum, account) => sum + Number(account.balance), 0)
   const overBudget = budgets.filter((line) => line.difference !== null && Number(line.difference) < 0)
 
   // Deliberately NOT monthly.length > 0 - /trends outer-joins its grid (see
@@ -121,9 +132,9 @@ export default function DashboardPage() {
   // history (an account with an opening balance) through a month with no
   // categorized income/spending activity at all, and the reverse. Gated on
   // the same "is there anything real to plot" principle, just against its
-  // own data: at least one period in the window has a known combined
-  // balance (see services/trends.combined_balance_history - null means
-  // NO account has any history that far back yet, a real gap, not $0).
+  // own data: at least one period in the window has a known net worth (see
+  // services/net_worth.net_worth_history - null means NO classified
+  // account has any history that far back yet, a real gap, not $0).
   const balanceHistory = trends?.balances || []
   const hasBalanceHistory = balanceHistory.some((b) => b.balance !== null)
   const dueSoon = recurringSeries
@@ -158,12 +169,23 @@ export default function DashboardPage() {
             </tbody>
           </table>
         )}
-        {withBalances.length > 0 && (
+        {netWorth && accounts.length > 0 && (
           <p>
-            Combined balance: <Amount value={combined} />{' '}
-            <span title="A straight sum of each account's latest bank balance — an everyday account and a credit card are added together as-is, so this is not net worth.">
-              (sum of raw bank balances)
+            Net worth: <Amount value={netWorth.net} />{' '}
+            <span className="text-muted">
+              (assets <Amount value={netWorth.assets} neutral />, liabilities{' '}
+              <Amount value={netWorth.liabilities} neutral />)
             </span>
+            {netWorth.unclassified_count > 0 && (
+              <>
+                {' '}
+                <span className="text-muted">
+                  Excludes {netWorth.unclassified_count} unclassified account
+                  {netWorth.unclassified_count === 1 ? '' : 's'} &mdash; set a type on{' '}
+                  <Link to="/accounts">Accounts</Link> to include {netWorth.unclassified_count === 1 ? 'it' : 'them'}.
+                </span>
+              </>
+            )}
           </p>
         )}
       </Card>
@@ -195,20 +217,40 @@ export default function DashboardPage() {
       )}
 
       {hasBalanceHistory && (
-        <Card id="dashboard-net-balance" title="Net Balance">
+        <Card id="dashboard-net-worth-chart" title="Net Worth">
           <LineChart
             periods={balanceHistory.map((b) => b.label)}
             series={[{
-              label: 'Combined balance',
+              label: 'Net worth',
               values: balanceHistory.map((b) => (b.balance === null ? null : Number(b.balance))),
             }]}
             formatValue={formatAmount}
-            title="Combined balance over time"
+            title="Net worth over time"
           />
-          <p className="text-muted">
-            A straight sum of each account&apos;s balance each month &mdash; an everyday account
-            and a credit card are added together as-is, so this is not net worth.
-          </p>
+        </Card>
+      )}
+
+      {goals.length > 0 && (
+        <Card id="dashboard-goals" title="Goals">
+          {overAllocatedAccounts.length > 0 && (
+            <p>
+              <Badge tone="warning" title="Envelope goals on this account add up to more than it holds">
+                over-allocated
+              </Badge>{' '}
+              {overAllocatedAccounts.length} account{overAllocatedAccounts.length === 1 ? '' : 's'} committed
+              more than {overAllocatedAccounts.length === 1 ? 'it holds' : 'they hold'} &mdash; see{' '}
+              <Link to="/goals">Goals</Link> for details.
+            </p>
+          )}
+          <ul>
+            {goals.slice(0, RECENT_LIMIT).map((goal) => (
+              <li key={goal.id}>
+                {goal.name}: <Amount value={goal.current_amount} neutral /> of{' '}
+                <Amount value={goal.target_amount} neutral /> ({Number(goal.percent).toFixed(0)}%)
+              </li>
+            ))}
+          </ul>
+          <Link to="/goals">See all goals</Link>
         </Card>
       )}
 

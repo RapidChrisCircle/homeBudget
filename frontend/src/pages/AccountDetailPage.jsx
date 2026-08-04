@@ -16,6 +16,7 @@ import {
   searchParamsFromFilters,
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
+import { accountTypeLabel } from '../utils/accountTypes.js'
 import { formatAmount, formatBalance } from '../utils/format.js'
 
 // account_id is implicit from the route here, so it is never a form field and
@@ -201,7 +202,7 @@ export default function AccountDetailPage() {
 
       <div className="card">
         <p>Institution: {account.institution || '—'}</p>
-        <p>Type: {account.account_type || '—'}</p>
+        <p>Type: {accountTypeLabel(account.account_type)}</p>
         <p>Account Number: {account.account_number}</p>
         <p>Balance: {formatBalance(account)}</p>
       </div>

@@ -10,8 +10,9 @@ from ..schemas import (
     TrendMonthlySummaryResponse,
     TrendsResponse,
 )
+from ..services.net_worth import net_worth_history
 from ..services.reporting import DEFAULT_GRID_MONTHS, MAX_GRID_MONTHS, category_grid, default_period
-from ..services.trends import budget_totals, combined_balance_history, monthly_summaries
+from ..services.trends import budget_totals, monthly_summaries
 
 router = APIRouter()
 
@@ -36,7 +37,7 @@ def get_trends(
         year, month = default_period(db)
 
     periods, grid_rows = category_grid(db, year, month, months=months)
-    balances = combined_balance_history(db, periods)
+    net_worth_by_period = net_worth_history(db, periods)
 
     return TrendsResponse(
         periods=[CategoryGridPeriodResponse(year=y, month=m, label=_label(y, m)) for y, m in periods],
@@ -65,7 +66,7 @@ def get_trends(
             for b in budget_totals(periods, grid_rows)
         ],
         balances=[
-            TrendBalanceResponse(label=_label(*period), balance=balances[period])
+            TrendBalanceResponse(label=_label(*period), balance=net_worth_by_period[period])
             for period in periods
         ],
     )

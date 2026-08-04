@@ -8,15 +8,16 @@ Backend: FastAPI + SQLAlchemy + Postgres, schema managed by Alembic. Frontend: R
 
 | Page | What it does |
 |---|---|
-| `/` | Dashboard — account balances, a 6-month cash flow chart and a net balance chart, this month's totals, over-budget categories, uncategorized count, recent activity |
+| `/` | Dashboard — account balances, net worth, a 6-month cash flow chart and a net worth chart, this month's totals, over-budget categories, goals summary, uncategorized count, recent activity |
 | `/transactions` | Import CSVs, and the filterable, paginated ledger |
-| `/accounts` | Manage accounts; `/accounts/:id` is one account's balance and transactions |
+| `/accounts` | Manage accounts, their type and balance sign; `/accounts/:id` is one account's balance and transactions |
 | `/categories` | Manage categories, their kind, and their monthly budgets (standing + per-month overrides) |
 | `/rules` | Auto-categorization rules |
 | `/reports` | Monthly summary, budget vs actual, category totals over time |
 | `/recurring` | Detected subscriptions and regular bills, next due dates, price changes |
 | `/trends` | Multi-month charts: spending by category, income vs spending, budget vs actual |
 | `/forecast` | Projected account balances for the next few months |
+| `/goals` | Savings goals — account-balance or envelope-tracked, with progress and over-allocation warnings |
 
 ## UI conventions
 
@@ -132,6 +133,19 @@ An account's balance is the `balance` column of its most recent transaction — 
 
 Note that reporting uses **half-open** month bounds (`[start, end)`) internally while the ledger's date filters are **inclusive** on both ends. Both are documented in their modules; they serve different callers and are not meant to match.
 
+## Accounts and net worth
+
+Every account has a **type** (`/accounts` — Everyday, Savings, Investment, Credit Card, Loan, Mortgage) and a **balance sign** (`services/net_worth.py`), and these decide two genuinely different things:
+
+- **Type** is which side of the balance sheet an account counts toward — an asset (Everyday, Savings, Investment) or a liability (Credit Card, Loan, Mortgage) — and the inferred default for the field below.
+- **Balance sign** (`natural` or `inverted`) is what actually does the arithmetic. Banks disagree on how they report a liability: some (this app's own sample data) report a card's balance as **negative when you owe money** — "natural", the raw figure already subtracts correctly. Others report the amount owed as a **positive** number — "inverted", which must be negated to subtract correctly. These are kept as two separate fields specifically because collapsing them into one "type implies sign" rule can't express both conventions at once.
+
+An account can also be **unclassified** (no type set — the default for anything just imported). An unclassified account is **excluded from net worth entirely, never guessed into it** — an incomplete figure the app admits to beats a complete one it invented. The Dashboard names how many accounts are excluded when any are.
+
+**Inferring the sign**: editing a liability account (`GET /accounts/{id}/infer-balance-sign`) looks at that account's own balance history and suggests whichever convention predominates, showing "Inferred from N past balances: natural/inverted" with a **Use this** button. It is never applied automatically — the account keeps its own stored value until you explicitly accept the suggestion.
+
+**Net worth** (`GET /api/net-worth`, `services/net_worth.py`) is the one place any signed sum of account balances happens — `assets - liabilities = net`, both display buckets shown as positive-reading figures, with `net` the only figure that has to be exactly right (the two buckets can never disagree with the total they're drawn from, by construction). The Dashboard's Accounts card and its Net Worth chart both read from this service, so they can never disagree with each other either — there is no second, independent "combine the balances" implementation anywhere in the frontend.
+
 ## Trends
 
 `/trends` charts the same data `/reports` shows for one month, across many: spending by category (the top 6 categories by total, everything else summed as "Other" — the Reports grid remains the complete, un-summarized view), income vs spending vs net, and budget vs actual. An account's balance-history chart lives on its own detail page (`/accounts/:id`) instead, since it's the only place that needs it.
@@ -140,9 +154,9 @@ The multi-month numbers are derived from the **same** query the single-month Rep
 
 Charts are hand-rolled SVG (`src/components/charts/`), not a library — this keeps the frontend at four runtime dependencies. Two things worth knowing if you're extending them: a `null` value in a series is a genuine gap (no data for that period) and breaks the line rather than drawing through it as zero — this is how an account's balance history renders the months before its first transaction; and bar charts always include zero in their scale so a negative month (a refund, a loss) draws sensibly below the baseline instead of needing special-case handling.
 
-`GET /api/trends` also returns `balances` — every account's own balance history (`services/trends.account_balance_history`), summed per period the same way the Dashboard's "Combined balance" figure sums today's balances. `/trends` itself doesn't chart this (an account's own balance history already lives on its detail page); it's there for the Dashboard's own **Net Balance** chart, below.
+`GET /api/trends` also returns `balances` — every classified account's own balance history (`services/trends.account_balance_history`), combined sign-aware per period by `services/net_worth.net_worth_history` (see [Accounts and net worth](#accounts-and-net-worth) below) rather than a straight sum. `/trends` itself doesn't chart this (an account's own balance history already lives on its detail page); it's there for the Dashboard's own **Net Worth** chart, below.
 
-The Dashboard (`/`) shows two charts sharing the same months rather than combining them: **Cash Flow** (income and spending as a bar chart, spending drawn as a negative value so it falls below the zero line opposite income) and **Net Balance** (the combined-balance line above, carrying the same "not net worth" caveat as the Accounts card's own combined figure). Deliberately never one dual-axis chart — cash flow (thousands) and a combined balance (tens of thousands) are different scales, and a shared axis would invent a correlation from an arbitrary alignment rather than show a real one. The two gate independently: a quiet month with no categorized activity can still show a balance trend, and vice versa.
+The Dashboard (`/`) shows two charts sharing the same months rather than combining them: **Cash Flow** (income and spending as a bar chart, spending drawn as a negative value so it falls below the zero line opposite income) and **Net Worth** (the sign-aware line above — genuinely net worth, not a caveated straight sum). Deliberately never one dual-axis chart — cash flow (thousands) and net worth (tens of thousands) are different scales, and a shared axis would invent a correlation from an arbitrary alignment rather than show a real one. The two gate independently: a quiet month with no categorized activity can still show a balance trend, and vice versa.
 
 ## Recurring payments
 
@@ -166,6 +180,21 @@ Each bucket has two components, shown separately rather than as one number so a 
 Cash flow deliberately counts what `/reports` deliberately excludes — **uncategorized transactions** and **transfers** both represent real money moving, which is exactly what a balance projection needs, even though neither belongs in a categorized spending report. This is a real, intentional divergence from every other money query in the app; see `services/forecast.py`'s docstring before "fixing" it to match `reporting.py`.
 
 The page also lists the specific **upcoming commitments** behind the numbers, so the projection is checkable rather than opaque. Monthly resolution means the forecast cannot show an intra-month dip — a month that closes comfortably can still run short on the 20th.
+
+The forecast's own **"Combined cash position"** series is deliberately labelled to *not* say net worth — it is a straight sum of projected closing balances (`services/forecast.py`), not run through `services/net_worth.py`'s sign-aware combination. Netting a projected credit card balance against a projected everyday balance here would answer "what will I be worth", a different question than the one this page exists to answer: "will I run short of cash".
+
+## Savings goals
+
+`/goals` (`services/goals.py`) tracks progress toward a target, one of two ways:
+
+- **Account balance** — the goal is linked to a real account, and progress is that account's own **signed balance** (the same `services/net_worth.py` calculation net worth uses) against the target. Honest by construction: the number comes straight from the bank, not from anything this app tracks separately. Because it's signed, a goal linked to a liability account reads its progress the same way net worth does, never as a misleadingly positive figure.
+- **Envelope** — progress is an `allocated_amount` the household sets by hand, for several goals sharing one account (e.g. "Holiday" and "New Laptop" both drawing from the one savings account). There is no automatic contribution ledger — the user's own transactions already are the ledger, and adding a second one to keep in sync would be one more thing to drift.
+
+**Over-allocation** is the mitigation for the real risk in the envelope model: allocated amounts are figures a household maintains by hand and can add up to more than an account actually holds. Every response from `GET /api/goals` includes, per account carrying envelope goals, that account's real balance alongside the sum of its envelopes — the page flags it rather than quietly showing every goal as on track when the account can only cover some of them. The same "surface the discrepancy, never hide it" pattern as the split editor's live remainder and the frontend/API version mismatch.
+
+`monthly_required` (remaining ÷ whole months to `target_date`) is only shown when a target date is set and the goal isn't already met — there's no honest answer to "how much per month" for a goal with no deadline, or one that's already there. Deleting a linked account leaves a goal intact but unlinked, the same `ondelete="SET NULL"` pattern `Category.parent_id` uses.
+
+Goals follow the same reversible archive pattern as categories (`archived`, excluded from the default list, restorable) rather than being deleted outright.
 
 ## Local development
 

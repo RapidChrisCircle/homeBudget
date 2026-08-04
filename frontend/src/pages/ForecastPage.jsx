@@ -79,7 +79,16 @@ export default function ForecastPage() {
       label: account.account_name || `Account ${account.account_id}`,
       values: account.months.map((m) => Number(m.closing)),
     })),
-    { label: 'Combined', values: combined.months.map((m) => Number(m.closing)) },
+    // "Combined cash position", not "Net worth" - deliberate. The forecast
+    // is a projection of cash on hand, built from raw closing balances
+    // (services/forecast.py), not signed by account type/balance_sign the
+    // way services/net_worth.py is - netting a projected credit card
+    // balance against a projected everyday balance here would answer a
+    // different question ("what will I be worth") than the one this page
+    // exists to answer ("will I run short of cash"). The label says so
+    // explicitly so the two figures - this one and the Dashboard's Net
+    // Worth chart - are never mistaken for the same thing.
+    { label: 'Combined cash position', values: combined.months.map((m) => Number(m.closing)) },
   ]
 
   return (

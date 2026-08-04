@@ -194,8 +194,15 @@ def test_get_trends_endpoint_returns_periods_categories_monthly_and_budget(clien
         "/api/transactions/import",
         files={"file": ("t.csv", io.BytesIO((header + row).encode("utf-8")), "text/csv")},
     )
-    transaction_id = client.get("/api/transactions?page_size=1").json()["items"][0]["id"]
-    client.patch(f"/api/transactions/{transaction_id}/category", json={"category_id": category_id})
+    transaction = client.get("/api/transactions?page_size=1").json()["items"][0]
+    client.patch(f"/api/transactions/{transaction['id']}/category", json={"category_id": category_id})
+
+    # An imported account starts UNCLASSIFIED (account_type NULL) and is
+    # excluded from net worth until classified - see services/net_worth.py.
+    # Classify it here so `balances` (now net-worth-aware, not a straight
+    # sum) has something real to report for this test's own assertion.
+    account = client.get(f"/api/accounts/{transaction['account_id']}").json()
+    client.put(f"/api/accounts/{transaction['account_id']}", json={**account, "account_type": "everyday"})
 
     response = client.get("/api/trends?months=2")
 
