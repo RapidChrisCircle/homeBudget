@@ -413,6 +413,9 @@ describe('TransactionsPage', () => {
       last_date: '2026-07-20',
       account_names: ['Joint Everyday'],
       transaction_ids: [10, 11, 12],
+      uncategorized_count: 3,
+      category_names: [],
+      split_count: 0,
     }
     mockLoad({ groups: [group] })
     api.post.mockResolvedValue({})
@@ -426,6 +429,7 @@ describe('TransactionsPage', () => {
 
     const row = screen.getByText('IGA Newport').closest('tr')
     expect(within(row).getByText('3')).toBeInTheDocument()
+    expect(within(row).getByText('3 uncategorized')).toBeInTheDocument()
 
     fireEvent.click(within(row).getByRole('button', { name: 'Details' }))
     expect(screen.getByText(/IGA NEWPORT.*1234/)).toBeInTheDocument()
@@ -443,6 +447,103 @@ describe('TransactionsPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Make rule from IGA Newport' }))
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByLabelText('Narration contains')).toHaveValue('IGA Newport')
+  })
+
+  it('regression: the Categorized column reflects Set category after the refetch, not just the posted payload', async () => {
+    // The reported bug: the write succeeds but nothing on screen changes.
+    // This pins that the row's own Categorized cell flips from
+    // "N uncategorized" to the assigned category's name once the groups
+    // refetch that already happens after a successful assign resolves.
+    let currentGroup = {
+      narration_key: 'IGA NEWPORT',
+      merchant: 'IGA Newport',
+      sample_narration: 'IGA NEWPORT              NEWPORT  1234',
+      transaction_count: 3,
+      total_amount: '30.00',
+      direction: 'outflow',
+      first_date: '2026-07-01',
+      last_date: '2026-07-20',
+      account_names: ['Joint Everyday'],
+      transaction_ids: [10, 11, 12],
+      uncategorized_count: 3,
+      category_names: [],
+      split_count: 0,
+    }
+
+    mockLoad()
+    const baseGet = api.get.getMockImplementation()
+    api.get.mockImplementation((path) => {
+      if (path.startsWith('/transactions/groups')) {
+        return Promise.resolve({ data: { groups: [currentGroup] } })
+      }
+      return baseGet(path)
+    })
+    api.post.mockImplementation((path) => {
+      if (path === '/transactions/bulk-category') {
+        currentGroup = { ...currentGroup, uncategorized_count: 0, category_names: ['Groceries'] }
+        return Promise.resolve({})
+      }
+      return Promise.reject(new Error(`unexpected post ${path}`))
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => expect(screen.getByText('IGA Newport')).toBeInTheDocument())
+    const row = screen.getByText('IGA Newport').closest('tr')
+    expect(within(row).getByText('3 uncategorized')).toBeInTheDocument()
+
+    fireEvent.change(within(row).getByLabelText('Category for IGA Newport'), { target: { value: '1' } })
+    fireEvent.click(within(row).getByRole('button', { name: 'Set category' }))
+
+    await waitFor(() => {
+      const updatedRow = screen.getByText('IGA Newport').closest('tr')
+      expect(within(updatedRow).getByText('Groceries')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('3 uncategorized')).not.toBeInTheDocument()
+    expect(screen.getByText('Categorized 3 transaction(s) as Groceries.')).toBeInTheDocument()
+  })
+
+  it('renders a group assign failure next to the grouped table, not just at the top of the page', async () => {
+    const group = {
+      narration_key: 'IGA NEWPORT',
+      merchant: 'IGA Newport',
+      sample_narration: 'IGA NEWPORT              NEWPORT  1234',
+      transaction_count: 3,
+      total_amount: '30.00',
+      direction: 'outflow',
+      first_date: '2026-07-01',
+      last_date: '2026-07-20',
+      account_names: ['Joint Everyday'],
+      transaction_ids: [10, 11, 12],
+      uncategorized_count: 3,
+      category_names: [],
+      split_count: 0,
+    }
+    mockLoad({ groups: [group] })
+    api.post.mockRejectedValue({ response: { data: { detail: 'Category not found' } } })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => expect(screen.getByText('IGA Newport')).toBeInTheDocument())
+    const row = screen.getByText('IGA Newport').closest('tr')
+
+    fireEvent.change(within(row).getByLabelText('Category for IGA Newport'), { target: { value: '1' } })
+    fireEvent.click(within(row).getByRole('button', { name: 'Set category' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Category not found/)).toBeInTheDocument()
+    })
+    // Rendered beside the grouped table (a sibling of the merchant row),
+    // not only the page-top actionError slot.
+    const errorMessage = screen.getByText(/Category not found/)
+    const groupedTable = screen.getByText('IGA Newport').closest('table')
+    expect(errorMessage.compareDocumentPosition(groupedTable) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('clears filters back to an unfiltered request', async () => {

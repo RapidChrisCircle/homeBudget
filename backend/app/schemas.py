@@ -333,6 +333,9 @@ class TransactionGroupResponse(BaseModel):
     last_date: date
     account_names: list[str]
     transaction_ids: list[int]
+    uncategorized_count: int
+    category_names: list[str]
+    split_count: int
 
     model_config = ConfigDict(from_attributes=True)
 

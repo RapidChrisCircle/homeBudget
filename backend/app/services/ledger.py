@@ -58,7 +58,7 @@ from decimal import Decimal
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 
-from ..models import Account, Transaction, TransactionSplit
+from ..models import Account, Category, Transaction, TransactionSplit
 from .narration import merchant_label, narration_key
 
 DEFAULT_PAGE_SIZE = 10
@@ -247,6 +247,17 @@ class TransactionGroup:
     last_date: date
     account_names: list[str]
     transaction_ids: list[int]
+    # What actually changes when a category is assigned - without these the
+    # grouped row (Merchant/Count/Total/Date range) never visibly reacts to
+    # "Set category", which is exactly what prompted adding them. A split
+    # row's own category_id is NULL but it IS categorized (via its
+    # allocations - see TransactionSplit's docstring) so it must never be
+    # counted as uncategorized; it has its own split_count instead, the same
+    # distinction the ledger's `uncategorized` filter and categorization.py
+    # already both make.
+    uncategorized_count: int
+    category_names: list[str]
+    split_count: int
 
 
 def transaction_groups(
@@ -285,13 +296,20 @@ def transaction_groups(
     rows = (
         build_transaction_query(db, grouped_filters)
         .outerjoin(Account, Transaction.account_id == Account.id)
+        .outerjoin(Category, Transaction.category_id == Category.id)
         .with_entities(
             Transaction.id,
             Transaction.narration,
             Transaction.transaction_date,
             Transaction.debit,
             Transaction.credit,
-            Account.name,
+            Transaction.category_id,
+            Account.name.label("account_name"),
+            Category.name.label("category_name"),
+            # Correlated EXISTS, not a join - a row can have any number of
+            # splits and this must stay one row per transaction regardless.
+            # Same shape categorization._eligible_rows already uses.
+            Transaction.splits.any().label("has_splits"),
         )
         .all()
     )
@@ -329,8 +347,13 @@ def transaction_groups(
                 direction=direction,
                 first_date=min(dates),
                 last_date=max(dates),
-                account_names=sorted({row.name for row in bucket_rows if row.name}),
+                account_names=sorted({row.account_name for row in bucket_rows if row.account_name}),
                 transaction_ids=[row.id for row in bucket_rows],
+                uncategorized_count=sum(
+                    1 for row in bucket_rows if row.category_id is None and not row.has_splits
+                ),
+                category_names=sorted({row.category_name for row in bucket_rows if row.category_name}),
+                split_count=sum(1 for row in bucket_rows if row.has_splits),
             )
         )
 

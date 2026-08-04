@@ -22,6 +22,7 @@ import {
   searchParamsFromFilters,
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
+import { groupCategorySummary } from '../utils/transactionGroups.js'
 
 function formatAccount(transaction) {
   if (transaction.bsb_number) {
@@ -75,6 +76,13 @@ export default function TransactionsPage() {
   // inherits a stale selection.
   const [groupCategorySelections, setGroupCategorySelections] = useState({})
   const [assigningGroupKey, setAssigningGroupKey] = useState(null)
+  // A group assign failure gets its own error slot rather than sharing
+  // `actionError`, which renders at the very top of the page - invisible to
+  // someone scrolled down to the grouped table. `groupAssignMessage` is the
+  // success counterpart: confirms what happened right next to the toggle,
+  // since a changed cell further down the table is easy to miss.
+  const [groupActionError, setGroupActionError] = useState('')
+  const [groupAssignMessage, setGroupAssignMessage] = useState('')
 
   // Read straight from the URL, like the page number already is - see
   // ledgerFilterParams.pageSizeFromSearchParams / groupsQueryFromSearchParams.
@@ -304,7 +312,8 @@ export default function TransactionsPage() {
       return
     }
 
-    setActionError('')
+    setGroupActionError('')
+    setGroupAssignMessage('')
     setAssigningGroupKey(group.narration_key)
 
     try {
@@ -313,10 +322,15 @@ export default function TransactionsPage() {
         category_id: Number(categoryId),
       })
       forgetGroupSelection(group.narration_key)
-      await Promise.all([refresh(), fetchGroups()])
+      // refresh() already refetches groups whenever groupByMerchant is on
+      // (see its own definition) - a second, separate fetchGroups() call
+      // here was a redundant round trip.
+      await refresh()
+      const categoryName = categories.find((c) => String(c.id) === categoryId)?.name || 'the selected category'
+      setGroupAssignMessage(`Categorized ${group.transaction_ids.length} transaction(s) as ${categoryName}.`)
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Categorize failed'
-      setActionError(String(message))
+      setGroupActionError(String(message))
     } finally {
       setAssigningGroupKey(null)
     }
@@ -633,7 +647,12 @@ export default function TransactionsPage() {
                 />
                 {' '}Group by merchant
               </label>
+              {groupByMerchant && groupAssignMessage && <span>{groupAssignMessage}</span>}
             </div>
+
+            {groupByMerchant && groupActionError && (
+              <ErrorState label="Action failed:" message={groupActionError} />
+            )}
 
             {groupByMerchant && groupsLoading && <LoadingState message="Loading merchant groups..." />}
             {groupByMerchant && !groupsLoading && groupsError && (
@@ -654,7 +673,8 @@ export default function TransactionsPage() {
                       <th scope="col">Count</th>
                       <th scope="col">Total</th>
                       <th scope="col">Date range</th>
-                      <th scope="col">Category</th>
+                      <th scope="col">Categorized</th>
+                      <th scope="col">Set category</th>
                       <th scope="col"></th>
                     </tr>
                   </thead>
@@ -671,6 +691,7 @@ export default function TransactionsPage() {
                             <td>{group.transaction_count}</td>
                             <td><Amount value={signedTotal} /></td>
                             <td>{group.first_date} to {group.last_date}</td>
+                            <td>{groupCategorySummary(group)}</td>
                             <td>
                               <CategoryQuickAdd
                                 categories={categories}
@@ -714,7 +735,7 @@ export default function TransactionsPage() {
                           </tr>
                           {isExpanded && (
                             <tr id={detailId} className="ledger-detail-row">
-                              <td colSpan={6}>
+                              <td colSpan={7}>
                                 <div className="ledger-row-meta">
                                   <span>{group.sample_narration}</span>
                                   <span className="text-muted">Accounts: {group.account_names.join(', ')}</span>

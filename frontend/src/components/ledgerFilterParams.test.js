@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   EMPTY_FILTERS,
   filtersFromSearchParams,
+  groupsQueryFromSearchParams,
   searchParamsFromFilters,
 } from './ledgerFilterParams.js'
 
@@ -48,5 +49,38 @@ describe('ledgerFilterParams account/account_group_id encoding', () => {
     const decoded = filtersFromSearchParams(encoded)
 
     expect(decoded.account).toBe('group-3')
+  })
+})
+
+// The merchant-grouping view (Group by merchant, TransactionsPage.jsx) reads
+// this query too - without carrying category_id/uncategorized/
+// account_group_id through, "Uncategorized only" + grouping showed groups
+// spanning rows the ledger itself was hiding, and an account-group filter
+// was silently ignored by the grouped view.
+describe('groupsQueryFromSearchParams', () => {
+  it('carries uncategorized through to the groups query', () => {
+    const query = groupsQueryFromSearchParams(new URLSearchParams({ uncategorized: 'true' }))
+
+    expect(query).toContain('uncategorized=true')
+  })
+
+  it('carries category_id through to the groups query', () => {
+    const query = groupsQueryFromSearchParams(new URLSearchParams({ category_id: '5' }))
+
+    expect(query).toContain('category_id=5')
+  })
+
+  it('carries account_group_id through to the groups query', () => {
+    const query = groupsQueryFromSearchParams(new URLSearchParams({ account_group_id: '3' }))
+
+    expect(query).toContain('account_group_id=3')
+  })
+
+  it('still omits page and page_size - groups are not paginated', () => {
+    const query = groupsQueryFromSearchParams(new URLSearchParams({ page: '2', page_size: '50', search: 'coffee' }))
+
+    expect(query).not.toContain('page=')
+    expect(query).not.toContain('page_size=')
+    expect(query).toContain('search=coffee')
   })
 })

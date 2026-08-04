@@ -277,6 +277,9 @@ def list_transaction_types(db: Session = Depends(get_db)):
 @router.get("/transactions/groups", response_model=TransactionGroupListResponse)
 def list_transaction_groups(
     account_id: int | None = None,
+    account_group_id: int | None = None,
+    category_id: int | None = None,
+    uncategorized: bool = False,
     date_from: date | None = None,
     date_to: date | None = None,
     search: str | None = None,
@@ -287,11 +290,34 @@ def list_transaction_groups(
     db: Session = Depends(get_db)
 ):
     """Rows grouped by merchant, scoped to the same filters the ledger itself
-    accepts (see services/ledger.transaction_groups) - no category_id/
-    uncategorized params here, since by default a group is always
-    uncategorized. include_categorized=True (the ledger's Group by merchant
-    toggle) covers categorized rows too; the default is unchanged.
+    accepts (see services/ledger.transaction_groups).
+
+    By default (include_categorized=False) a group is always uncategorized
+    regardless of what account_group_id/category_id/uncategorized were
+    passed - services.ledger.transaction_groups overrides them the same way
+    it always has. include_categorized=True (the ledger's Group by merchant
+    toggle) is what makes them matter: without accepting and forwarding
+    them here, a caller with "Uncategorized only" or an account group
+    applied would see groups spanning rows outside that filter, and a
+    group's own "categorize all N" could reach a row the caller couldn't
+    actually see - exactly the guarantee transaction_groups' own docstring
+    promises and this endpoint used to silently break for these three.
     """
+
+    # Same two contradiction checks list_transactions applies, for the same
+    # reason: a 422 surfaces the mistake instead of quietly grouping the
+    # wrong rows.
+    if uncategorized and category_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="uncategorized and category_id are contradictory - use one or the other",
+        )
+
+    if account_id is not None and account_group_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="account_id and account_group_id are contradictory - use one or the other",
+        )
 
     if date_from is not None and date_to is not None and date_from > date_to:
         raise HTTPException(
@@ -307,6 +333,9 @@ def list_transaction_groups(
 
     filters = TransactionFilters(
         account_id=account_id,
+        account_group_id=account_group_id,
+        category_id=category_id,
+        uncategorized=uncategorized,
         date_from=date_from,
         date_to=date_to,
         search=search,

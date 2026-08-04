@@ -90,14 +90,20 @@ export function searchParamsFromFilters(filters, pageSize) {
   return params
 }
 
-// The subset of ledger filters GET /transactions/groups accepts - excludes
-// category_id/uncategorized (a group is always uncategorized, forced
-// server-side regardless of what's asked for - see
-// services/ledger.transaction_groups) and page/page_size (groups aren't
-// paginated). Kept separate from searchParamsFromFilters so changing pages
-// or the category filter doesn't needlessly refetch the groups card.
+// The subset of ledger filters GET /transactions/groups accepts - every
+// filter except page/page_size (groups aren't paginated). category_id/
+// uncategorized and account_id/account_group_id ARE included despite the
+// default (include_categorized=false) request forcing uncategorized-only
+// server-side regardless of what's asked for - the ledger's own Group by
+// merchant toggle passes include_categorized=true, and once it does, these
+// matter: without forwarding them, "Uncategorized only" + grouping would
+// show groups spanning rows the ledger itself is hiding, and an account-
+// group filter would be silently ignored by the grouped view. Kept
+// separate from searchParamsFromFilters so changing pages doesn't
+// needlessly refetch the groups view.
 const GROUPS_FILTER_KEYS = [
-  'account_id', 'date_from', 'date_to', 'search', 'transaction_type', 'min_amount', 'max_amount',
+  'account_id', 'account_group_id', 'category_id', 'uncategorized',
+  'date_from', 'date_to', 'search', 'transaction_type', 'min_amount', 'max_amount',
 ]
 
 export function groupsQueryFromSearchParams(searchParams) {
