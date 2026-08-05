@@ -106,18 +106,41 @@
   font-weight: 500;
 }
 
+/* Page wrapper - every page is one <section className="page">, the outer
+   container everything else (cards, tables, forms) lives inside. Layout
+   only: no border, shadow or background of its own, so the page background
+   (--surface-0) shows straight through it. This used to BE a .card, which
+   meant every real .card on the page was nested one level deeper than it
+   looked - the .card .card rule below (meant for an actual nested group)
+   was silently styling every page's TOP-level cards instead, rendering
+   them as flat grey panels rather than elevated white ones. Changing this
+   class is the entire fix: the .card/.card .card/.card .card .card tiering
+   below is unchanged and already produces the right result once a real
+   .card is genuinely the first one in its ancestor chain again. */
+.page {
+  text-align: left;
+}
+
 /* Cards - the app's one layout primitive, nested up to 3 deep. Each nesting
    level gets a slightly different surface so the hierarchy is visible
    without relying on shadows alone. */
 
 .card {
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  /* --radius-lg, not -md - now that a top-level card is genuinely the
+     first elevated surface on the page (see .page above) rather than one
+     more level of box-in-a-box, a slightly softer corner reads as a
+     deliberate panel rather than a generic rectangle. */
+  border-radius: var(--radius-lg);
   padding: var(--space-5);
   text-align: left;
   background: var(--surface-1);
   box-shadow: var(--shadow-sm);
-  margin-bottom: var(--space-5);
+  /* --space-6, not -5 - top-level cards get a little more breathing room
+     between them now that they float on the page background instead of
+     sitting inside a shared bordered box; nested cards keep the tighter
+     --space-4 below via .card .card, unaffected by this. */
+  margin-bottom: var(--space-6);
 }
 
 .card:last-child {
@@ -168,6 +191,22 @@
   font-size: 0.7em;
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+/* A Card's content is unmounted when collapsed, not just hidden (see
+   Card.jsx), so there's no element to animate a height transition on -
+   this fades it in on mount instead, a cheap cue that something just
+   appeared rather than the content just snapping into place. Disabled
+   entirely under prefers-reduced-motion below, along with every other
+   animation in this file. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.card-body {
+  animation: fade-in 0.15s ease;
 }
 
 .card ul {
@@ -316,27 +355,80 @@ input[type='checkbox'] {
   margin-bottom: 0;
 }
 
-/* Ledger toolbar (TransactionsPage) - the bulk-assign CategoryQuickAdd
-   plus its neighbouring buttons, kept as one aligned row. */
+/* Import upload control (TransactionsPage) - wraps the native
+   <input type="file">, which is otherwise raw unstyled browser chrome
+   sitting directly in a card. The whole box is the <label>, so clicking
+   anywhere in it opens the file picker, not just the browser's own small
+   "Choose File" button inside it. */
+.import-upload-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.import-upload-control:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+/* Wipe all sits with the history table it acts on, not with the upload
+   control above - a destructive, whole-history action reads differently
+   next to "choose a file" than it does next to what it's about to erase. */
+.import-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.import-history-header h4 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* Ledger toolbar (TransactionsPage) - the DATA actions: bulk-assign
+   CategoryQuickAdd, Set category, Apply rules now. Everything here changes
+   the ledger's data, which is what separates it from .ledger-filter-bar
+   above (which only changes what's SHOWN) - two rows with different jobs,
+   not one ragged one, with a rule between them making the split visible
+   rather than just implied by grouping. */
 .ledger-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-3);
+  padding-top: var(--space-3);
   margin-bottom: var(--space-4);
 }
 
-/* Ledger filter bar (TransactionsPage) - the slim leftover strip above the
-   table for what has no column of its own (Transaction type) plus one
-   Clear all filters, now that every other filter lives in its own
-   column's header (see .header-filter-cell below). Same aligned-row
-   idiom as .ledger-toolbar, sitting directly above it. */
+/* Ledger filter bar (TransactionsPage) - what's left over once every filter
+   that maps to a column moved into that column's own header (see
+   .header-filter-cell below): Transaction type, which has no column, one
+   Clear all filters, and Group by merchant - a VIEW over the same filtered
+   set, not a data action, which is why it lives here and not in
+   .ledger-toolbar below despite both being "a control near the table". */
 .ledger-filter-bar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-3);
-  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3);
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .ledger-filter-bar label {
@@ -381,11 +473,49 @@ a:focus-visible {
   margin-top: var(--space-3);
 }
 
+/* white-space: nowrap by default - a table is mostly short fields (dates,
+   account names, types, figures), and without this the odd long value
+   (an account name, a category) wraps onto a second line, dragging every
+   short neighbouring cell in the row down with it and roughly doubling row
+   height for no reason. The few genuinely long free-text columns (ledger
+   narration, a rule's pattern, a recurring merchant name) opt back into
+   wrapping explicitly via .cell-wrap below, rather than every short column
+   needing its own nowrap rule. */
 .card table th,
 .card table td {
   text-align: left;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+/* Explicit opt-out for the handful of columns that should wrap - free text
+   with no natural width, where nowrap would just push the table wide and
+   force horizontal scroll instead of using the vertical space every other
+   column already has. .ledger-narration is the original, longstanding
+   name for the one place this started (the main ledger); .cell-wrap is the
+   same rule under a generic name for every other page's own long-text
+   column (a rule's pattern, a recurring/forecast merchant name, Dashboard's
+   Recent Activity narration). */
+.ledger-narration,
+.cell-wrap {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Numeric columns (money, counts) - the header's own label right-aligns to
+   sit directly above the right-aligned figures the column actually holds
+   (see td .amount below), rather than a left-aligned label over right-
+   aligned numbers. Applied via the `numeric` prop on SortableHeader/
+   HeaderFilter, or the class by hand on a plain <th>/<td> that never
+   passes through either (a raw count like Imported/Skipped Duplicates). */
+.card table th.numeric,
+.card table td.numeric {
+  text-align: right;
+}
+
+.card table th.numeric .header-filter-heading {
+  justify-content: flex-end;
 }
 
 /* Column headers (<thead> th) only - a <tbody> th (scope="row", a few
@@ -461,30 +591,62 @@ a:focus-visible {
   gap: var(--space-1);
 }
 
+/* A real button - not text. At the old 0.7em/no-border/no-background size
+   this read as a stray character next to the header label rather than a
+   clickable control, and it's the whole entry point to the header
+   filtering feature. Sized and bordered like the app's own small
+   buttons (.button-ghost), with a resting shape visible before any hover. */
 .header-filter-toggle {
   position: relative;
-  padding: 0 2px;
-  border: none;
-  background: none;
-  font-size: 0.7em;
-  color: inherit;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  font-size: 0.7rem;
+  line-height: 1;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
 .header-filter-toggle:hover {
+  background: var(--surface-2);
+  border-color: var(--text-muted);
   color: var(--text-primary);
+}
+
+/* Open state gets the same treatment a pressed/active control gets
+   elsewhere (.nav-links a.active) - filled with the accent rather than
+   just a border tweak, so it's obvious which header's popover is open. */
+.header-filter-toggle[aria-expanded='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
 }
 
 /* A small dot rather than text - the column header is already narrow, and
    the dot reads at a glance without competing with the label for space. */
 .header-filter-marker {
   position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 6px;
-  height: 6px;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--accent);
+  border: 1.5px solid var(--surface-1);
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 .header-filter-popover {
@@ -495,10 +657,13 @@ a:focus-visible {
   margin-top: var(--space-1);
   padding: var(--space-3);
   min-width: 220px;
+  animation: popover-in 0.12s ease;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--surface-1);
-  box-shadow: var(--shadow-sm);
+  /* --shadow-md, not -sm - a popover floats above the card it's anchored
+     to, so it reads as more elevated than the card's own resting shadow. */
+  box-shadow: var(--shadow-md);
   /* Column headers are upper-cased/letter-spaced/small (see thead th
      above) - reset all three so the popover's own fields and buttons
      read like the rest of the app's forms, not like a header. */
@@ -550,9 +715,40 @@ a:focus-visible {
 
 /* Table cells wide enough to scroll (rather than the whole table forcing
    nowrap on every column, which was pushing every data-dense page into
-   horizontal scroll even for columns whose text would happily wrap). */
+   horizontal scroll even for columns whose text would happily wrap).
+   Bounded height + overflow on both axes, not just overflow-x - this is
+   what makes it a genuine scrollPORT for `position: sticky` below to stick
+   against; overflow-x: auto alone never scrolls vertically, so `top: 0`
+   would otherwise resolve against a container that never moves. The 220px
+   subtracted is roughly the header/toolbar chrome above the table on the
+   ledger (the tallest case) - a shorter table above that chrome just never
+   grows tall enough to hit its own scrollbar. */
 .table-scroll {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: calc(100svh - 220px);
+}
+
+/* Sticky column headers - stay in view while a long, paginated table (the
+   ledger at 200 rows/page is the case this exists for) scrolls underneath
+   them. The background has to be set explicitly, not left to inherit -
+   without an opaque background behind it a sticky header would let
+   scrolling rows show through it - and it has to match whichever card
+   surface actually contains the table, so it's set at each nesting level
+   the same way .card/.card .card/.card .card .card already tier surfaces
+   above, not just once. */
+.card table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-1);
+}
+
+.card .card table thead th {
+  background: var(--surface-2);
+}
+
+.card .card .card table thead th {
+  background: var(--surface-1);
 }
 
 /* The global `input { min-width: 220px }` above is sized for a form field,
@@ -565,11 +761,13 @@ a:focus-visible {
   min-width: 0;
 }
 
-/* Narration wraps rather than forcing the table wide - the column sizes to
-   its share of the table instead of to its longest single narration. */
-.ledger-narration {
-  white-space: normal;
-  word-break: break-word;
+/* A <select> sizes to its widest option regardless of min-width - the
+   ledger's category dropdown (every category name, some long) was the
+   worst offender, dominating the row width next to short date/account/
+   amount cells. Capped rather than left to size itself, in every table
+   cell that holds one. */
+.card table td select {
+  max-width: 220px;
 }
 
 /* Badges - the app's status/marker convention (auto-categorized, budget
@@ -592,7 +790,7 @@ a:focus-visible {
 }
 
 .badge-info {
-  background: rgba(37, 99, 235, 0.12);
+  background: var(--accent-bg);
   color: var(--accent);
 }
 
@@ -673,9 +871,44 @@ th .amount {
   color: var(--danger);
 }
 
+/* Skeleton loading (LoadingState's `rows` variant) - a shimmering
+   row-shaped bar per expected row, so a table's own shape holds its
+   place while data is still in flight instead of the page jumping from
+   one line of "Loading..." text to a full table the moment it resolves. */
+@keyframes skeleton-shimmer {
+  from {
+    background-position: -200px 0;
+  }
+  to {
+    background-position: 200px 0;
+  }
+}
+
+.skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.skeleton-row {
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-1) 37%, var(--surface-2) 63%);
+  background-size: 400px 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
 /* Split editor modal (SplitEditor.jsx) - the app's only modal, so no
    general-purpose Modal component exists yet; if a second one is ever
    needed, extract .modal-overlay/.modal into one. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -685,6 +918,7 @@ th .amount {
   justify-content: center;
   padding: var(--space-4);
   z-index: 100;
+  animation: fade-in 0.15s ease;
 }
 
 .modal {
@@ -692,6 +926,10 @@ th .amount {
   max-width: 640px;
   max-height: 90vh;
   overflow-y: auto;
+  /* The most elevated surface in the app - a dialog sitting above
+     everything else, not just another card. */
+  box-shadow: var(--shadow-md);
+  animation: modal-in 0.15s ease;
 }
 
 .split-row {
@@ -739,4 +977,19 @@ th .amount {
   font-size: 0.75rem;
   min-width: 100px;
   flex: 1 1 140px;
+}
+
+/* Every animation in this file, turned off in one place - a card
+   appearing, a filter popover opening, a modal entering. Not chasing
+   accessibility conformance for its own sake here, but this one costs four
+   lines and directly serves people who've told their OS motion makes them
+   unwell, so it stays. */
+@media (prefers-reduced-motion: reduce) {
+  .card-body,
+  .header-filter-popover,
+  .modal-overlay,
+  .modal,
+  .skeleton-row {
+    animation: none;
+  }
 }

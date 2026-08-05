@@ -336,7 +336,7 @@ export default function RulesPage() {
   )
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>Rules</h2>
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
@@ -435,8 +435,8 @@ export default function RulesPage() {
                 <th scope="col">Order</th>
                 <th scope="col">Narration contains</th>
                 <th scope="col">Type</th>
-                <th scope="col">Min</th>
-                <th scope="col">Max</th>
+                <th scope="col" className="numeric">Min</th>
+                <th scope="col" className="numeric">Max</th>
                 <th scope="col">Category</th>
                 <th scope="col"></th>
               </tr>
@@ -467,7 +467,7 @@ export default function RulesPage() {
                           ▼
                         </button>
                       </td>
-                      <td>{rule.narration_pattern}</td>
+                      <td className="cell-wrap">{rule.narration_pattern}</td>
                       <td>{rule.transaction_type}</td>
                       <td><Amount value={rule.min_amount} neutral /></td>
                       <td><Amount value={rule.max_amount} neutral /></td>

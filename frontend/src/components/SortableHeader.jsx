@@ -9,12 +9,16 @@
 // in SQL - see services/ledger.py) drive it from the `sort`/`direction` URL
 // params instead. Either way this component only ever renders state and
 // reports a click - it has no sorting logic of its own.
-export default function SortableHeader({ label, sortKey, activeSortKey, activeDirection, onSort }) {
+// `numeric` right-aligns the header (and, via .numeric in App.css, the
+// column button/arrow it contains) so it sits over the right-aligned
+// figures a money/count column actually renders - CSS has no way to infer
+// this from content, so it's an explicit prop rather than a selector.
+export default function SortableHeader({ label, sortKey, activeSortKey, activeDirection, onSort, numeric = false }) {
   const isActive = sortKey === activeSortKey
   const ariaSort = isActive ? (activeDirection === 'asc' ? 'ascending' : 'descending') : 'none'
 
   return (
-    <th scope="col" aria-sort={ariaSort}>
+    <th scope="col" aria-sort={ariaSort} className={numeric ? 'numeric' : undefined}>
       <button type="button" className="sortable-header" onClick={() => onSort(sortKey)}>
         {label}
         {isActive && (

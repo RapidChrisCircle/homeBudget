@@ -10,6 +10,22 @@ describe('LoadingState', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('Loading transactions...')
   })
+
+  it('renders a skeleton of that many rows when `rows` is given, keeping the message accessible', () => {
+    const { container } = render(<LoadingState message="Loading transactions..." rows={4} />)
+
+    // The message is still announced to a screen reader (role="status"
+    // still carries the text) even though it's visually replaced by the
+    // skeleton shape.
+    expect(screen.getByRole('status')).toHaveTextContent('Loading transactions...')
+    expect(container.querySelectorAll('.skeleton-row')).toHaveLength(4)
+  })
+
+  it('renders the plain message with no skeleton when rows is omitted', () => {
+    const { container } = render(<LoadingState message="Loading transactions..." />)
+
+    expect(container.querySelectorAll('.skeleton-row')).toHaveLength(0)
+  })
 })
 
 describe('ErrorState', () => {

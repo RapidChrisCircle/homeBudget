@@ -27,7 +27,7 @@ function persist(id, open) {
 }
 
 // A collapsible nested card. Wraps every page's `<div className="card">`
-// content sections (NOT the outer page `<section className="card">` a page
+// content sections (NOT the outer page `<section className="page">` a page
 // itself lives in - that one stays fixed, since collapsing a whole page
 // reads as a broken page rather than a tidied one).
 //

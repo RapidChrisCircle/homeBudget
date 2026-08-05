@@ -612,13 +612,24 @@ export default function TransactionsPage() {
   const visibleGroups = groupsSort.sortedRows.slice((groupPage - 1) * groupPageSize, groupPage * groupPageSize)
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>Transactions</h2>
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
       <Card id="transactions-import" title="Import">
-        <input type="file" accept=".csv" onChange={handleFileChange} disabled={uploading} />
+        {/* The native <input type="file"> is kept, not replaced with a
+            hidden-input-plus-fake-button trick - it stays fully native and
+            functional, just wrapped in a labelled box so it reads as an
+            intentional drop target instead of raw, unstyled browser chrome
+            sitting directly in the card. Block-level, so it also can't end
+            up sharing a visual row with Wipe all below the way it did when
+            both were bare inline elements with nothing forcing a line
+            break between them. */}
+        <label className="import-upload-control">
+          <span>Choose a CSV file to import</span>
+          <input type="file" accept=".csv" onChange={handleFileChange} disabled={uploading} />
+        </label>
 
         {uploading && <p>Importing...</p>}
 
@@ -647,9 +658,16 @@ export default function TransactionsPage() {
           </div>
         )}
 
-        <button type="button" className="button-danger" onClick={handleWipeAll} disabled={loading}>
-          Wipe all
-        </button>
+        {/* Paired with the history table it acts on, not with the upload
+            control above it - a destructive, whole-history action reads
+            differently sitting next to "choose a file" than it does
+            sitting next to what it's about to erase. */}
+        <div className="import-history-header">
+          <h4>History</h4>
+          <button type="button" className="button-danger" onClick={handleWipeAll} disabled={loading}>
+            Wipe all
+          </button>
+        </div>
 
         <table>
           <caption className="visually-hidden">Import history</caption>
@@ -657,18 +675,18 @@ export default function TransactionsPage() {
             <tr>
               <th scope="col">Filename</th>
               <th scope="col">Imported At</th>
-              <th scope="col">Imported</th>
-              <th scope="col">Skipped Duplicates</th>
+              <th scope="col" className="numeric">Imported</th>
+              <th scope="col" className="numeric">Skipped Duplicates</th>
               <th scope="col"></th>
             </tr>
           </thead>
           <tbody>
             {batches.map((batch) => (
               <tr key={batch.id}>
-                <td>{batch.filename}</td>
+                <td className="cell-wrap">{batch.filename}</td>
                 <td>{new Date(batch.imported_at).toLocaleString()}</td>
-                <td>{batch.row_count}</td>
-                <td>{batch.skipped_duplicate_count}</td>
+                <td className="numeric">{batch.row_count}</td>
+                <td className="numeric">{batch.skipped_duplicate_count}</td>
                 <td>
                   <button type="button" className="button-danger" onClick={() => handleDeleteBatch(batch.id)}>
                     Delete
@@ -681,7 +699,7 @@ export default function TransactionsPage() {
       </Card>
 
       <Card id="transactions-ledger" title="Ledger">
-        {loading && <LoadingState message="Loading transactions..." />}
+        {loading && <LoadingState message="Loading transactions..." rows={8} />}
         {!loading && error && <ErrorState label="Failed to load transactions:" message={error} />}
 
         {!loading && !error && (
@@ -845,6 +863,18 @@ export default function TransactionsPage() {
               <button type="button" onClick={clearAllFilters}>
                 Clear all filters
               </button>
+              {/* Grouping is a view over the same filtered set, not a data
+                  action - it belongs with Type and Clear all filters
+                  (narrowing/reshaping what's shown), not with the bulk
+                  actions below (changing the data itself). */}
+              <label>
+                <input
+                  type="checkbox"
+                  checked={groupByMerchant}
+                  onChange={(e) => setGroupByMerchant(e.target.checked)}
+                />
+                {' '}Group by merchant
+              </label>
             </div>
 
             <div className="ledger-toolbar">
@@ -866,14 +896,6 @@ export default function TransactionsPage() {
                 Apply rules now
               </button>
               {applyMessage && <span>{applyMessage}</span>}
-              <label>
-                <input
-                  type="checkbox"
-                  checked={groupByMerchant}
-                  onChange={(e) => setGroupByMerchant(e.target.checked)}
-                />
-                {' '}Group by merchant
-              </label>
               {groupByMerchant && groupAssignMessage && <span>{groupAssignMessage}</span>}
             </div>
 
@@ -881,7 +903,7 @@ export default function TransactionsPage() {
               <ErrorState label="Action failed:" message={groupActionError} />
             )}
 
-            {groupByMerchant && groupsLoading && <LoadingState message="Loading merchant groups..." />}
+            {groupByMerchant && groupsLoading && <LoadingState message="Loading merchant groups..." rows={5} />}
             {groupByMerchant && !groupsLoading && groupsError && (
               <ErrorState label="Failed to load merchant groups:" message={groupsError} />
             )}
@@ -897,8 +919,8 @@ export default function TransactionsPage() {
                   <thead>
                     <tr>
                       <SortableHeader label="Merchant" sortKey="merchant" activeSortKey={groupsSort.sortKey} activeDirection={groupsSort.sortDirection} onSort={handleGroupSort} />
-                      <SortableHeader label="Count" sortKey="count" activeSortKey={groupsSort.sortKey} activeDirection={groupsSort.sortDirection} onSort={handleGroupSort} />
-                      <SortableHeader label="Total" sortKey="total" activeSortKey={groupsSort.sortKey} activeDirection={groupsSort.sortDirection} onSort={handleGroupSort} />
+                      <SortableHeader label="Count" sortKey="count" activeSortKey={groupsSort.sortKey} activeDirection={groupsSort.sortDirection} onSort={handleGroupSort} numeric />
+                      <SortableHeader label="Total" sortKey="total" activeSortKey={groupsSort.sortKey} activeDirection={groupsSort.sortDirection} onSort={handleGroupSort} numeric />
                       <th scope="col">Date range</th>
                       <th scope="col">Categorized</th>
                       <th scope="col">Set category</th>
@@ -914,8 +936,8 @@ export default function TransactionsPage() {
                       return (
                         <Fragment key={group.narration_key}>
                           <tr>
-                            <td>{group.merchant}</td>
-                            <td>{group.transaction_count}</td>
+                            <td className="cell-wrap">{group.merchant}</td>
+                            <td className="numeric">{group.transaction_count}</td>
                             <td><Amount value={signedTotal} /></td>
                             <td>{group.first_date} to {group.last_date}</td>
                             <td>{groupCategorySummary(group)}</td>
@@ -1106,6 +1128,7 @@ export default function TransactionsPage() {
                       activeSortKey={activeSort}
                       activeDirection={activeDirection}
                       onSort={handleSort}
+                      numeric
                     >
                       {(draft, setDraft) => (
                         <>
@@ -1142,6 +1165,7 @@ export default function TransactionsPage() {
                       activeSortKey={activeSort}
                       activeDirection={activeDirection}
                       onSort={handleSort}
+                      numeric
                     >
                       {(draft, setDraft) => (
                         <>

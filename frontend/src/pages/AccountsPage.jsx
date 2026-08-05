@@ -420,7 +420,7 @@ export default function AccountsPage() {
           <SortableHeader label="Type" sortKey="type" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
           <SortableHeader label="BSB" sortKey="bsb" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
           <SortableHeader label="Account Number" sortKey="account_number" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
-          <SortableHeader label="Balance" sortKey="balance" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
+          <SortableHeader label="Balance" sortKey="balance" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} numeric />
           <th scope="col"></th>
         </tr>
       </thead>
@@ -439,7 +439,7 @@ export default function AccountsPage() {
                 <td>{accountTypeLabel(account.account_type)}</td>
                 <td>{account.bsb_number}</td>
                 <td>{account.account_number}</td>
-                <td>{formatBalance(account)}</td>
+                <td className="numeric">{formatBalance(account)}</td>
                 <td>
                   <button
                     type="button"
@@ -473,7 +473,7 @@ export default function AccountsPage() {
   )
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>Accounts</h2>
 
       {actionError && (

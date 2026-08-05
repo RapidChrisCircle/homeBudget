@@ -47,6 +47,7 @@
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --accent-contrast: #ffffff;
+  --accent-bg: #dbe6fd;
 
   /* Semantic - a DIFFERENT job from --series-1..7 below (status/meaning vs.
      series identity) and deliberately not the same hues, so a chart legend
@@ -97,8 +98,14 @@
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
+  /* 16px, not 18px - this is a dense financial app, not an article. Every
+     rem-based size in App.css scales down with it (table headers, buttons,
+     inputs); the --space-* scale is absolute px, so padding and hit areas
+     are untouched - this tightens type without cramping touch targets.
+     letter-spacing drops too: positive tracking reads as prose, and it was
+     fighting table density everywhere numbers and short labels need to sit
+     close together. */
+  font: 16px/145% var(--sans);
   color-scheme: light dark;
   color: var(--text-secondary);
   background: var(--surface-0);
@@ -106,10 +113,6 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -128,6 +131,7 @@
     --accent: #5b8def;
     --accent-hover: #7ba3f2;
     --accent-contrast: #0b1220;
+    --accent-bg: #1f2a44;
 
     --danger: #f87171;
     --danger-bg: #3f1414;
@@ -172,6 +176,7 @@
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --accent-contrast: #ffffff;
+  --accent-bg: #dbe6fd;
 
   --danger: #dc2626;
   --danger-bg: #fee2e2;
@@ -208,6 +213,7 @@
   --accent: #5b8def;
   --accent-hover: #7ba3f2;
   --accent-contrast: #0b1220;
+  --accent-bg: #1f2a44;
 
   --danger: #f87171;
   --danger-bg: #3f1414;

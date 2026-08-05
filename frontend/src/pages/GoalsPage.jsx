@@ -185,7 +185,7 @@ export default function GoalsPage() {
   const archivedGoalsSort = useTableSort(archivedGoals, ARCHIVED_GOALS_SORT_COLUMNS)
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>Goals</h2>
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
@@ -310,8 +310,8 @@ export default function GoalsPage() {
                 <SortableHeader label="Name" sortKey="name" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} />
                 <SortableHeader label="Method" sortKey="method" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} />
                 <SortableHeader label="Progress" sortKey="progress" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} />
-                <SortableHeader label="Remaining" sortKey="remaining" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} />
-                <SortableHeader label="Monthly needed" sortKey="monthly_needed" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} />
+                <SortableHeader label="Remaining" sortKey="remaining" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} numeric />
+                <SortableHeader label="Monthly needed" sortKey="monthly_needed" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} numeric />
                 <th scope="col"></th>
               </tr>
             </thead>

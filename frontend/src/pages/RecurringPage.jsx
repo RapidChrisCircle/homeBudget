@@ -123,7 +123,7 @@ export default function RecurringPage() {
 
   if (loading) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Recurring</h2>
         <LoadingState message="Loading recurring payments..." />
       </section>
@@ -132,7 +132,7 @@ export default function RecurringPage() {
 
   if (error) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Recurring</h2>
         <ErrorState label="Failed to load recurring payments:" message={error} />
       </section>
@@ -140,7 +140,7 @@ export default function RecurringPage() {
   }
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>Recurring</h2>
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
@@ -165,10 +165,10 @@ export default function RecurringPage() {
                 <SortableHeader label="Merchant" sortKey="merchant" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
                 <SortableHeader label="Account" sortKey="account" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
                 <SortableHeader label="Cadence" sortKey="cadence" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
-                <SortableHeader label="Typical amount" sortKey="typical_amount" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
+                <SortableHeader label="Typical amount" sortKey="typical_amount" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} numeric />
                 <SortableHeader label="Last seen" sortKey="last_seen" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
                 <SortableHeader label="Next due" sortKey="next_due" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
-                <SortableHeader label="Annual cost" sortKey="annual_cost" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
+                <SortableHeader label="Annual cost" sortKey="annual_cost" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} numeric />
                 <SortableHeader label="Status" sortKey="status" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
                 <th scope="col"></th>
               </tr>
@@ -176,7 +176,7 @@ export default function RecurringPage() {
             <tbody>
               {activeSort.sortedRows.map((item) => (
                 <tr key={`${item.account_id}-${item.narration_key}`}>
-                  <td>{item.merchant}</td>
+                  <td className="cell-wrap">{item.merchant}</td>
                   <td>{item.account_name}</td>
                   <td>{cadenceLabel(item)}</td>
                   <td>
@@ -225,7 +225,7 @@ export default function RecurringPage() {
               <tbody>
                 {dismissedSort.sortedRows.map((item) => (
                   <tr key={`${item.account_id}-${item.narration_key}`}>
-                    <td>{item.merchant}</td>
+                    <td className="cell-wrap">{item.merchant}</td>
                     <td>{item.account_name}</td>
                     <td>{cadenceLabel(item)}</td>
                     <td>

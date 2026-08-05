@@ -135,7 +135,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Dashboard</h2>
         <LoadingState message="Loading dashboard..." />
       </section>
@@ -144,7 +144,7 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Dashboard</h2>
         <ErrorState label="Failed to load dashboard:" message={error} />
       </section>
@@ -153,7 +153,7 @@ export default function DashboardPage() {
 
   if (transactionTotal === 0) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Dashboard</h2>
         <EmptyState message="No transactions imported yet.">
           <Link to="/transactions">Import a bank statement to get started</Link>
@@ -185,7 +185,7 @@ export default function DashboardPage() {
   const hasBalanceHistory = balanceHistory.some((b) => b.balance !== null)
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>Dashboard</h2>
 
       <Card id="dashboard-accounts" title="Accounts">
@@ -196,7 +196,7 @@ export default function DashboardPage() {
             <thead>
               <tr>
                 <SortableHeader label="Account" sortKey="name" activeSortKey={accountsSort.sortKey} activeDirection={accountsSort.sortDirection} onSort={accountsSort.toggleSort} />
-                <SortableHeader label="Balance" sortKey="balance" activeSortKey={accountsSort.sortKey} activeDirection={accountsSort.sortDirection} onSort={accountsSort.toggleSort} />
+                <SortableHeader label="Balance" sortKey="balance" activeSortKey={accountsSort.sortKey} activeDirection={accountsSort.sortDirection} onSort={accountsSort.toggleSort} numeric />
               </tr>
             </thead>
             <tbody>
@@ -205,7 +205,7 @@ export default function DashboardPage() {
                   <td>
                     <Link to={`/accounts/${account.id}`}>{account.name}</Link>
                   </td>
-                  <td>{formatBalance(account)}</td>
+                  <td className="numeric">{formatBalance(account)}</td>
                 </tr>
               ))}
             </tbody>
@@ -329,9 +329,9 @@ export default function DashboardPage() {
             <thead>
               <tr>
                 <SortableHeader label="Category" sortKey="category" activeSortKey={overBudgetSort.sortKey} activeDirection={overBudgetSort.sortDirection} onSort={overBudgetSort.toggleSort} />
-                <SortableHeader label="Budget" sortKey="budget" activeSortKey={overBudgetSort.sortKey} activeDirection={overBudgetSort.sortDirection} onSort={overBudgetSort.toggleSort} />
-                <SortableHeader label="Actual" sortKey="actual" activeSortKey={overBudgetSort.sortKey} activeDirection={overBudgetSort.sortDirection} onSort={overBudgetSort.toggleSort} />
-                <SortableHeader label="Over by" sortKey="over_by" activeSortKey={overBudgetSort.sortKey} activeDirection={overBudgetSort.sortDirection} onSort={overBudgetSort.toggleSort} />
+                <SortableHeader label="Budget" sortKey="budget" activeSortKey={overBudgetSort.sortKey} activeDirection={overBudgetSort.sortDirection} onSort={overBudgetSort.toggleSort} numeric />
+                <SortableHeader label="Actual" sortKey="actual" activeSortKey={overBudgetSort.sortKey} activeDirection={overBudgetSort.sortDirection} onSort={overBudgetSort.toggleSort} numeric />
+                <SortableHeader label="Over by" sortKey="over_by" activeSortKey={overBudgetSort.sortKey} activeDirection={overBudgetSort.sortDirection} onSort={overBudgetSort.toggleSort} numeric />
               </tr>
             </thead>
             <tbody>
@@ -363,13 +363,13 @@ export default function DashboardPage() {
                   <tr>
                     <SortableHeader label="Merchant" sortKey="merchant" activeSortKey={dueSoonSort.sortKey} activeDirection={dueSoonSort.sortDirection} onSort={dueSoonSort.toggleSort} />
                     <SortableHeader label="Due" sortKey="due" activeSortKey={dueSoonSort.sortKey} activeDirection={dueSoonSort.sortDirection} onSort={dueSoonSort.toggleSort} />
-                    <SortableHeader label="Amount" sortKey="amount" activeSortKey={dueSoonSort.sortKey} activeDirection={dueSoonSort.sortDirection} onSort={dueSoonSort.toggleSort} />
+                    <SortableHeader label="Amount" sortKey="amount" activeSortKey={dueSoonSort.sortKey} activeDirection={dueSoonSort.sortDirection} onSort={dueSoonSort.toggleSort} numeric />
                   </tr>
                 </thead>
                 <tbody>
                   {dueSoonSort.sortedRows.map((item) => (
                     <tr key={`${item.account_id}-${item.narration_key}`}>
-                      <td>{item.merchant}</td>
+                      <td className="cell-wrap">{item.merchant}</td>
                       <td>{item.next_due_date}</td>
                       <td><Amount value={item.typical_amount} neutral /></td>
                     </tr>
@@ -410,8 +410,8 @@ export default function DashboardPage() {
               <SortableHeader label="Date" sortKey="date" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} />
               <SortableHeader label="Account" sortKey="account" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} />
               <SortableHeader label="Narration" sortKey="narration" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} />
-              <SortableHeader label="Debit" sortKey="debit" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} />
-              <SortableHeader label="Credit" sortKey="credit" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} />
+              <SortableHeader label="Debit" sortKey="debit" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} numeric />
+              <SortableHeader label="Credit" sortKey="credit" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} numeric />
               <SortableHeader label="Category" sortKey="category" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} />
             </tr>
           </thead>
@@ -420,7 +420,7 @@ export default function DashboardPage() {
               <tr key={transaction.id}>
                 <td>{transaction.transaction_date}</td>
                 <td>{transaction.account_name || transaction.account_number}</td>
-                <td>{transaction.narration}</td>
+                <td className="cell-wrap">{transaction.narration}</td>
                 <td><Amount value={transaction.debit} /></td>
                 <td><Amount value={transaction.credit} /></td>
                 {/* A split transaction's own category_name is always null

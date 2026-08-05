@@ -140,4 +140,22 @@ describe('HeaderFilter', () => {
 
     expect(screen.getByRole('columnheader')).not.toHaveAttribute('aria-sort')
   })
+
+  it('numeric right-aligns the header without disturbing the filter popover', () => {
+    const onSort = vi.fn()
+    renderFilter({ sortKey: 'narration', activeSortKey: 'narration', activeDirection: 'asc', onSort, numeric: true })
+
+    const header = screen.getByRole('columnheader')
+    expect(header).toHaveClass('numeric')
+    expect(header).toHaveAttribute('aria-sort', 'ascending')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Narration' }))
+    expect(screen.getByLabelText('Narration contains')).toBeInTheDocument()
+  })
+
+  it('omits the numeric class by default', () => {
+    renderFilter()
+
+    expect(screen.getByRole('columnheader')).not.toHaveClass('numeric')
+  })
 })

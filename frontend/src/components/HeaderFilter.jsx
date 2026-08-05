@@ -30,6 +30,9 @@ import { useEffect, useRef, useState } from 'react'
 // OUTSIDE a <thead> row: TransactionsPage's grouped-by-merchant view, whose
 // table has no Date/Account/Narration/Amount/Category columns to hang
 // these on. `sortKey` is meaningless there and simply isn't passed.
+//
+// `numeric` right-aligns the header for a money column (Debit/Credit here) -
+// same reasoning and same class as SortableHeader.jsx's own `numeric` prop.
 export default function HeaderFilter({
   label,
   value,
@@ -42,6 +45,7 @@ export default function HeaderFilter({
   activeDirection = null,
   onSort = null,
   as = 'th',
+  numeric = false,
 }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(value)
@@ -106,7 +110,11 @@ export default function HeaderFilter({
     ? { scope: 'col', 'aria-sort': ariaSort }
     : {}
 
-  const className = as === 'th' ? 'header-filter-cell' : 'header-filter-cell header-filter-inline'
+  const className = [
+    'header-filter-cell',
+    as === 'div' && 'header-filter-inline',
+    numeric && 'numeric',
+  ].filter(Boolean).join(' ')
 
   return (
     <Tag className={className} ref={containerRef} {...tagProps}>

@@ -188,7 +188,7 @@ export default function AccountDetailPage() {
 
   if (loading) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Account</h2>
         <LoadingState message="Loading account..." />
       </section>
@@ -197,7 +197,7 @@ export default function AccountDetailPage() {
 
   if (error) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Account</h2>
         <ErrorState label="Failed to load account:" message={error} />
       </section>
@@ -205,7 +205,7 @@ export default function AccountDetailPage() {
   }
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>{account.name}</h2>
 
       <div className="card">
@@ -311,6 +311,7 @@ export default function AccountDetailPage() {
                   activeSortKey={activeSort}
                   activeDirection={activeDirection}
                   onSort={handleSort}
+                  numeric
                 >
                   {(draft, setDraft) => (
                     <>
@@ -347,6 +348,7 @@ export default function AccountDetailPage() {
                   activeSortKey={activeSort}
                   activeDirection={activeDirection}
                   onSort={handleSort}
+                  numeric
                 >
                   {(draft, setDraft) => (
                     <>
@@ -375,7 +377,7 @@ export default function AccountDetailPage() {
                 </HeaderFilter>
                 {/* Sortable only - there is no balance filter, and this
                     doesn't add one. */}
-                <SortableHeader label="Balance" sortKey="balance" activeSortKey={activeSort} activeDirection={activeDirection} onSort={handleSort} />
+                <SortableHeader label="Balance" sortKey="balance" activeSortKey={activeSort} activeDirection={activeDirection} onSort={handleSort} numeric />
                 <HeaderFilter
                   label="Type"
                   value={committedFilters.transaction_type}
@@ -428,7 +430,7 @@ export default function AccountDetailPage() {
               {transactions.map((transaction) => (
                 <tr key={transaction.id}>
                   <td>{transaction.transaction_date}</td>
-                  <td>{transaction.narration}</td>
+                  <td className="cell-wrap">{transaction.narration}</td>
                   <td><Amount value={transaction.debit} /></td>
                   <td><Amount value={transaction.credit} /></td>
                   <td><Amount value={transaction.balance} neutral /></td>

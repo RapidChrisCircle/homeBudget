@@ -89,7 +89,7 @@ export default function ReportsPage() {
 
   if (loading) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Reports</h2>
         <LoadingState message="Loading report..." />
       </section>
@@ -98,7 +98,7 @@ export default function ReportsPage() {
 
   if (error) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Reports</h2>
         <ErrorState label="Failed to load report:" message={error} />
       </section>
@@ -107,7 +107,7 @@ export default function ReportsPage() {
 
   if (periods.length === 0) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Reports</h2>
         <EmptyState message="No transactions imported yet." />
       </section>
@@ -117,7 +117,7 @@ export default function ReportsPage() {
   const { summary, budgets, grid, uncategorized } = report
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>Reports</h2>
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
@@ -183,9 +183,9 @@ export default function ReportsPage() {
             <thead>
               <tr>
                 <SortableHeader label="Category" sortKey="category" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} />
-                <SortableHeader label="Budget" sortKey="budget" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} />
-                <SortableHeader label="Actual" sortKey="actual" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} />
-                <SortableHeader label="Difference" sortKey="difference" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} />
+                <SortableHeader label="Budget" sortKey="budget" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} numeric />
+                <SortableHeader label="Actual" sortKey="actual" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} numeric />
+                <SortableHeader label="Difference" sortKey="difference" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} numeric />
               </tr>
             </thead>
             <tbody>
@@ -221,9 +221,9 @@ export default function ReportsPage() {
               <tr>
                 <SortableHeader label="Category" sortKey="category" activeSortKey={categoryTotalsSort.sortKey} activeDirection={categoryTotalsSort.sortDirection} onSort={categoryTotalsSort.toggleSort} />
                 {grid.periods.map((period) => (
-                  <th scope="col" key={period.label}>{period.label}</th>
+                  <th scope="col" className="numeric" key={period.label}>{period.label}</th>
                 ))}
-                <SortableHeader label="Total" sortKey="total" activeSortKey={categoryTotalsSort.sortKey} activeDirection={categoryTotalsSort.sortDirection} onSort={categoryTotalsSort.toggleSort} />
+                <SortableHeader label="Total" sortKey="total" activeSortKey={categoryTotalsSort.sortKey} activeDirection={categoryTotalsSort.sortDirection} onSort={categoryTotalsSort.toggleSort} numeric />
               </tr>
             </thead>
             <tbody>

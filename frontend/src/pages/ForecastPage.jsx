@@ -64,7 +64,7 @@ export default function ForecastPage() {
 
   if (loading) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Forecast</h2>
         <LoadingState message="Loading forecast..." />
       </section>
@@ -73,7 +73,7 @@ export default function ForecastPage() {
 
   if (error) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Forecast</h2>
         <ErrorState label="Failed to load forecast:" message={error} />
       </section>
@@ -82,7 +82,7 @@ export default function ForecastPage() {
 
   if (!forecast.as_of || forecast.accounts.length === 0) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Forecast</h2>
         <EmptyState message="Not enough history yet - import a few months of statements and check back." />
       </section>
@@ -110,7 +110,7 @@ export default function ForecastPage() {
   ]
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>Forecast</h2>
 
       <p>
@@ -142,11 +142,11 @@ export default function ForecastPage() {
             <thead>
               <tr>
                 <th scope="col">Month</th>
-                <th scope="col">Opening</th>
-                <th scope="col">Recurring In</th>
-                <th scope="col">Recurring Out</th>
-                <th scope="col">Estimated Other</th>
-                <th scope="col">Closing</th>
+                <th scope="col" className="numeric">Opening</th>
+                <th scope="col" className="numeric">Recurring In</th>
+                <th scope="col" className="numeric">Recurring Out</th>
+                <th scope="col" className="numeric">Estimated Other</th>
+                <th scope="col" className="numeric">Closing</th>
               </tr>
             </thead>
             <tbody>
@@ -177,7 +177,7 @@ export default function ForecastPage() {
               <tr>
                 <SortableHeader label="Due" sortKey="due" activeSortKey={upcomingSort.sortKey} activeDirection={upcomingSort.sortDirection} onSort={upcomingSort.toggleSort} />
                 <SortableHeader label="Merchant" sortKey="merchant" activeSortKey={upcomingSort.sortKey} activeDirection={upcomingSort.sortDirection} onSort={upcomingSort.toggleSort} />
-                <SortableHeader label="Amount" sortKey="amount" activeSortKey={upcomingSort.sortKey} activeDirection={upcomingSort.sortDirection} onSort={upcomingSort.toggleSort} />
+                <SortableHeader label="Amount" sortKey="amount" activeSortKey={upcomingSort.sortKey} activeDirection={upcomingSort.sortDirection} onSort={upcomingSort.toggleSort} numeric />
                 <SortableHeader label="Direction" sortKey="direction" activeSortKey={upcomingSort.sortKey} activeDirection={upcomingSort.sortDirection} onSort={upcomingSort.toggleSort} />
               </tr>
             </thead>
@@ -185,7 +185,7 @@ export default function ForecastPage() {
               {upcomingSort.sortedRows.map((item, index) => (
                 <tr key={`${item.due_date}-${item.account_id}-${item.merchant}-${index}`}>
                   <td>{item.due_date}</td>
-                  <td>{item.merchant}</td>
+                  <td className="cell-wrap">{item.merchant}</td>
                   <td>
                     <Amount
                       value={item.amount}

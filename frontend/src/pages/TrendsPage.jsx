@@ -88,7 +88,7 @@ export default function TrendsPage() {
 
   if (loading) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Trends</h2>
         <LoadingState message="Loading trends..." />
       </section>
@@ -97,7 +97,7 @@ export default function TrendsPage() {
 
   if (error) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Trends</h2>
         <ErrorState label="Failed to load trends:" message={error} />
       </section>
@@ -129,7 +129,7 @@ export default function TrendsPage() {
 
   if (!hasHistory) {
     return (
-      <section className="card">
+      <section className="page">
         <h2>Trends</h2>
         {monthLabel}
         <EmptyState message="Not enough history yet - import a few months of statements and check back." />
@@ -150,7 +150,7 @@ export default function TrendsPage() {
   const hasBudget = budget.some((b) => Number(b.budgeted) !== 0)
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>Trends</h2>
       {monthLabel}
 

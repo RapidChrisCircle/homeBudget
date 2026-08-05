@@ -53,4 +53,26 @@ describe('SortableHeader', () => {
 
     expect(onSort).toHaveBeenCalledWith('date')
   })
+
+  it('numeric right-aligns the header without disturbing aria-sort', () => {
+    render(
+      <table>
+        <thead>
+          <tr>
+            <SortableHeader label="Amount" sortKey="amount" activeSortKey="amount" activeDirection="asc" onSort={vi.fn()} numeric />
+          </tr>
+        </thead>
+      </table>
+    )
+
+    const header = screen.getByRole('columnheader', { name: /Amount/ })
+    expect(header).toHaveClass('numeric')
+    expect(header).toHaveAttribute('aria-sort', 'ascending')
+  })
+
+  it('omits the numeric class by default', () => {
+    renderHeaders()
+
+    expect(screen.getByRole('columnheader', { name: 'Date' })).not.toHaveClass('numeric')
+  })
 })

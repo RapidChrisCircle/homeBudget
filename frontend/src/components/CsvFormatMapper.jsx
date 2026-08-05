@@ -313,16 +313,16 @@ export default function CsvFormatMapper({ file, header, sampleRows, onClose, onI
                   <tr>
                     <th scope="col">Date</th>
                     <th scope="col">Narration</th>
-                    <th scope="col">Debit</th>
-                    <th scope="col">Credit</th>
-                    <th scope="col">Balance</th>
+                    <th scope="col" className="numeric">Debit</th>
+                    <th scope="col" className="numeric">Credit</th>
+                    <th scope="col" className="numeric">Balance</th>
                   </tr>
                 </thead>
                 <tbody>
                   {previewRows.map((row, index) => (
                     <tr key={index}>
                       <td>{row.transaction_date}</td>
-                      <td>{row.narration}</td>
+                      <td className="cell-wrap">{row.narration}</td>
                       <td><Amount value={row.debit} /></td>
                       <td><Amount value={row.credit} /></td>
                       <td><Amount value={row.balance} neutral /></td>

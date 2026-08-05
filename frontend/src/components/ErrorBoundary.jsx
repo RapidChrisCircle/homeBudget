@@ -31,7 +31,7 @@ export default class ErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <section className="card">
+        <section className="page">
           <h2>Something went wrong</h2>
           <p className="state-message state-message-error" role="alert">
             This page hit an unexpected error and couldn&apos;t render.

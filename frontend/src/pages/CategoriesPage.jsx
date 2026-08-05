@@ -620,7 +620,7 @@ export default function CategoriesPage() {
   )
 
   return (
-    <section className="card">
+    <section className="page">
       <h2>Categories</h2>
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
@@ -677,7 +677,7 @@ export default function CategoriesPage() {
                   <th scope="col"></th>
                   <SortableHeader label="Name" sortKey="name" activeSortKey={categorySortKey} activeDirection={categorySortDirection} onSort={toggleCategorySort} />
                   <SortableHeader label="Kind" sortKey="kind" activeSortKey={categorySortKey} activeDirection={categorySortDirection} onSort={toggleCategorySort} />
-                  <SortableHeader label="Standing Budget" sortKey="budget" activeSortKey={categorySortKey} activeDirection={categorySortDirection} onSort={toggleCategorySort} />
+                  <SortableHeader label="Standing Budget" sortKey="budget" activeSortKey={categorySortKey} activeDirection={categorySortDirection} onSort={toggleCategorySort} numeric />
                   <th scope="col"></th>
                 </tr>
               </thead>
@@ -783,7 +783,7 @@ export default function CategoriesPage() {
                 <thead>
                   <tr>
                     <SortableHeader label="Name" sortKey="name" activeSortKey={unusedSortKey} activeDirection={unusedSortDirection} onSort={toggleUnusedSort} />
-                    <SortableHeader label="Standing Budget" sortKey="budget" activeSortKey={unusedSortKey} activeDirection={unusedSortDirection} onSort={toggleUnusedSort} />
+                    <SortableHeader label="Standing Budget" sortKey="budget" activeSortKey={unusedSortKey} activeDirection={unusedSortDirection} onSort={toggleUnusedSort} numeric />
                     <th scope="col"></th>
                   </tr>
                 </thead>
@@ -864,10 +864,10 @@ export default function CategoriesPage() {
                 <thead>
                   <tr>
                     <SortableHeader label="Category" sortKey="category" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
-                    <SortableHeader label="Standing" sortKey="standing" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
-                    <SortableHeader label="This Month" sortKey="this_month" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
-                    <SortableHeader label="Actual" sortKey="actual" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
-                    <SortableHeader label="Difference" sortKey="difference" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
+                    <SortableHeader label="Standing" sortKey="standing" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} numeric />
+                    <SortableHeader label="This Month" sortKey="this_month" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} numeric />
+                    <SortableHeader label="Actual" sortKey="actual" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} numeric />
+                    <SortableHeader label="Difference" sortKey="difference" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} numeric />
                     <th scope="col"></th>
                   </tr>
                 </thead>
