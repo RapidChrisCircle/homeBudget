@@ -20,7 +20,7 @@ import {
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
 import { accountTypeLabel } from '../utils/accountTypes.js'
-import { formatAmount, formatBalance } from '../utils/format.js'
+import { formatAmount, formatBalance, formatDate, transactionAmount } from '../utils/format.js'
 
 // account_id is implicit from the route here, so it is never a form field and
 // never carried in this page's own URL - it is added only when calling the API.
@@ -299,47 +299,13 @@ export default function AccountDetailPage() {
                     </label>
                   )}
                 </HeaderFilter>
-                {/* Debit and Credit share one "amount" filter AND sort, same
-                    reasoning as the main ledger table. */}
+                {/* Debit and Credit are shown as one Amount column - see
+                    transactionAmount()'s own docstring in utils/format.js
+                    for why merging them is lossless, not a display
+                    compromise. One header now carries the filter and sort
+                    that two headers used to share. */}
                 <HeaderFilter
-                  label="Debit"
-                  value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
-                  isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
-                  onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
-                  onClear={() => applyFilterPatch({ min_amount: '', max_amount: '' })}
-                  sortKey="amount"
-                  activeSortKey={activeSort}
-                  activeDirection={activeDirection}
-                  onSort={handleSort}
-                  numeric
-                >
-                  {(draft, setDraft) => (
-                    <>
-                      <label>
-                        Min amount
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={draft.min}
-                          onChange={(event) => setDraft({ ...draft, min: event.target.value })}
-                        />
-                      </label>
-                      <label>
-                        Max amount
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={draft.max}
-                          onChange={(event) => setDraft({ ...draft, max: event.target.value })}
-                        />
-                      </label>
-                    </>
-                  )}
-                </HeaderFilter>
-                <HeaderFilter
-                  label="Credit"
+                  label="Amount"
                   value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
                   isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
                   onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
@@ -429,10 +395,9 @@ export default function AccountDetailPage() {
             <tbody>
               {transactions.map((transaction) => (
                 <tr key={transaction.id}>
-                  <td>{transaction.transaction_date}</td>
+                  <td>{formatDate(transaction.transaction_date)}</td>
                   <td className="cell-wrap">{transaction.narration}</td>
-                  <td><Amount value={transaction.debit} /></td>
-                  <td><Amount value={transaction.credit} /></td>
+                  <td><Amount value={transactionAmount(transaction)} /></td>
                   <td><Amount value={transaction.balance} neutral /></td>
                   <td>{transaction.transaction_type}</td>
                   <td>

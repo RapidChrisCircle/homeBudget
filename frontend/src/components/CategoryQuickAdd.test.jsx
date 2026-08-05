@@ -122,4 +122,20 @@ describe('CategoryQuickAdd', () => {
     expect(screen.queryByLabelText('New category name')).not.toBeInTheDocument()
     expect(api.post).not.toHaveBeenCalled()
   })
+
+  it('hideSelect renders only the + New category affordance, no select of its own', () => {
+    // For the one caller (the ledger toolbar while grouped by merchant)
+    // with no single action a toolbar-level pick could apply to across
+    // every group row - value/onChange are not even passed here.
+    render(
+      <CategoryQuickAdd
+        categories={categories}
+        onCategoryCreated={vi.fn()}
+        hideSelect
+      />
+    )
+
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '+ New category' })).toBeInTheDocument()
+  })
 })

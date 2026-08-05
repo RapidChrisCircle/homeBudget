@@ -378,14 +378,14 @@ describe('TransactionsPage', () => {
     expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/search=woolworths.*account_id=1|account_id=1.*search=woolworths/))
   })
 
-  it('Debit and Credit headers share one amount filter', async () => {
+  it('filters by the shared Amount header (Debit/Credit are shown as one column)', async () => {
     mockLoad()
 
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    applyHeaderFilter('Debit', () => {
+    applyHeaderFilter('Amount', () => {
       fireEvent.change(screen.getByLabelText('Min amount'), { target: { value: '10' } })
       fireEvent.change(screen.getByLabelText('Max amount'), { target: { value: '50' } })
     })
@@ -394,13 +394,9 @@ describe('TransactionsPage', () => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/min_amount=10/))
     })
     expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/max_amount=50/))
+    expect(screen.getByRole('button', { name: 'Filter by Amount' }).querySelector('.header-filter-marker')).toBeInTheDocument()
 
-    // Credit reflects the SAME committed filter - opening it shows the
-    // values Debit just applied, and it carries the active marker too.
-    expect(screen.getByRole('button', { name: 'Filter by Credit' }).querySelector('.header-filter-marker')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Filter by Debit' }).querySelector('.header-filter-marker')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Filter by Credit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Amount' }))
     expect(screen.getByLabelText('Min amount')).toHaveValue(10)
     expect(screen.getByLabelText('Max amount')).toHaveValue(50)
   })
@@ -532,10 +528,10 @@ describe('TransactionsPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Details' }))
     expect(screen.getByText(/IGA NEWPORT.*1234/)).toBeInTheDocument()
 
-    expect(within(row).getByRole('button', { name: 'Set category' })).toBeDisabled()
+    expect(within(row).getByRole('button', { name: 'Set' })).toBeDisabled()
     fireEvent.change(within(row).getByLabelText('Category for IGA Newport'), { target: { value: '1' } })
-    expect(within(row).getByRole('button', { name: 'Set category' })).not.toBeDisabled()
-    fireEvent.click(within(row).getByRole('button', { name: 'Set category' }))
+    expect(within(row).getByRole('button', { name: 'Set' })).not.toBeDisabled()
+    fireEvent.click(within(row).getByRole('button', { name: 'Set' }))
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/transactions/bulk-category', {
@@ -547,6 +543,47 @@ describe('TransactionsPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Make rule from IGA Newport' }))
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByLabelText('Narration contains')).toHaveValue('IGA Newport')
+  })
+
+  it('shows exactly one + New category while grouped, in the toolbar, and it stocks every row select', async () => {
+    const group = {
+      narration_key: 'IGA NEWPORT',
+      merchant: 'IGA Newport',
+      sample_narration: 'IGA NEWPORT              NEWPORT  1234',
+      transaction_count: 3,
+      total_amount: '30.00',
+      direction: 'outflow',
+      first_date: '2026-07-01',
+      last_date: '2026-07-20',
+      account_names: ['Joint Everyday'],
+      transaction_ids: [10, 11, 12],
+      uncategorized_count: 3,
+      category_names: [],
+      split_count: 0,
+    }
+    mockLoad({ groups: [group] })
+    api.post.mockResolvedValue({ data: { id: 9, name: 'Subscriptions', kind: 'expense' } })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => expect(screen.getByText('IGA Newport')).toBeInTheDocument())
+
+    // Not one per row (10 groups would mean 10) - exactly one, in the
+    // toolbar, per CategoryQuickAdd's own "one per page section" docstring.
+    expect(screen.getAllByRole('button', { name: '+ New category' })).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '+ New category' }))
+    fireEvent.change(screen.getByLabelText('New category name'), { target: { value: 'Subscriptions' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => {
+      const row = screen.getByText('IGA Newport').closest('tr')
+      const rowOptions = Array.from(within(row).getByRole('combobox').options).map((o) => o.textContent)
+      expect(rowOptions).toContain('Subscriptions')
+    })
   })
 
   it('paginates the grouped view at 10 by default, client-side', async () => {
@@ -720,11 +757,11 @@ describe('TransactionsPage', () => {
 
     const select = within(row).getByLabelText('Category for IGA Newport')
     expect(select).toHaveValue('')
-    expect(within(row).getByRole('button', { name: 'Set category' })).toBeDisabled()
+    expect(within(row).getByRole('button', { name: 'Set' })).toBeDisabled()
 
     fireEvent.change(select, { target: { value: '1' } })
 
-    expect(within(row).getByRole('button', { name: 'Set category' })).not.toBeDisabled()
+    expect(within(row).getByRole('button', { name: 'Set' })).not.toBeDisabled()
   })
 
   it('regression: the Categorized column reflects Set category after the refetch, not just the posted payload', async () => {
@@ -774,7 +811,7 @@ describe('TransactionsPage', () => {
     expect(within(row).getByText('3 uncategorized')).toBeInTheDocument()
 
     fireEvent.change(within(row).getByLabelText('Category for IGA Newport'), { target: { value: '1' } })
-    fireEvent.click(within(row).getByRole('button', { name: 'Set category' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Set' }))
 
     await waitFor(() => {
       const updatedRow = screen.getByText('IGA Newport').closest('tr')
@@ -812,7 +849,7 @@ describe('TransactionsPage', () => {
     const row = screen.getByText('IGA Newport').closest('tr')
 
     fireEvent.change(within(row).getByLabelText('Category for IGA Newport'), { target: { value: '1' } })
-    fireEvent.click(within(row).getByRole('button', { name: 'Set category' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Set' }))
 
     await waitFor(() => {
       expect(screen.getByText(/Category not found/)).toBeInTheDocument()
@@ -931,19 +968,18 @@ describe('TransactionsPage', () => {
     expect(screen.getByRole('columnheader', { name: /Date/ })).toHaveAttribute('aria-sort', 'none')
   })
 
-  it('Debit and Credit headers share one amount sort', async () => {
+  it('sorts by the shared Amount header', async () => {
     mockLoad()
 
     renderPage()
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Credit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Amount' }))
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/sort=amount/))
     })
-    // Debit reflects the same active sort, since it's the same key.
-    expect(screen.getByRole('columnheader', { name: /Debit/ })).toHaveAttribute('aria-sort', 'ascending')
+    expect(screen.getByRole('columnheader', { name: /Amount/ })).toHaveAttribute('aria-sort', 'ascending')
   })
 
   it('clears row selection when the page changes', async () => {

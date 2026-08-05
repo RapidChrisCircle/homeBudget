@@ -437,6 +437,18 @@ input[type='checkbox'] {
   gap: var(--space-2);
 }
 
+/* Grouped-by-merchant Set-category cell (TransactionsPage) - a plain select
+   plus a compact Set button, kept on one line. Replaces what used to be a
+   full CategoryQuickAdd per row (its own visible label, select, "+ New
+   category" toggle AND a separate Set button stacked in one cell) - at
+   ~140px tall with white-space: nowrap unable to wrap that label anymore,
+   it was clipping at the card edge. */
+.group-set-category {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 /* Ledger row meta (TransactionsPage) - the import filename, the auto badge,
    and the Make rule / Delete actions, all folded under the Category select
    instead of their own columns. Low-frequency and text-heavy, they were

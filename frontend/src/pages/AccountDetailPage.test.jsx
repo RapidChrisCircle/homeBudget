@@ -198,14 +198,14 @@ describe('AccountDetailPage', () => {
     })
   })
 
-  it('Debit and Credit headers share one amount filter', async () => {
+  it('filters by the shared Amount header (Debit/Credit are shown as one column)', async () => {
     mockLoad()
 
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    applyHeaderFilter('Debit', () => {
+    applyHeaderFilter('Amount', () => {
       fireEvent.change(screen.getByLabelText('Min amount'), { target: { value: '10' } })
     })
 
@@ -213,7 +213,7 @@ describe('AccountDetailPage', () => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/min_amount=10/))
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Filter by Credit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Amount' }))
     expect(screen.getByLabelText('Min amount')).toHaveValue(10)
   })
 

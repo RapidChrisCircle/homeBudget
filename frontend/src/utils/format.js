@@ -9,6 +9,37 @@ export function formatAmount(value) {
   return Number(value).toFixed(2)
 }
 
+// Shortens a transaction_date/first_date/last_date ('YYYY-MM-DD') to
+// DD/MM/YY for narrow table columns - the ledger's own built-in CSV format
+// already uses DD/MM/YYYY, so this keeps the same day-first convention
+// rather than inventing a new one. Pure string slicing, deliberately NOT
+// `new Date(iso)` - that parses as UTC midnight, which renders as the
+// PREVIOUS day in any timezone behind UTC (see lastInclusiveDay below,
+// which hits the same hazard and works around it with Date.UTC arithmetic
+// for the same reason). A plain 'YYYY-MM-DD' string never needs a Date
+// object just to be re-ordered.
+export function formatDate(isoDate) {
+  if (!isoDate) {
+    return ''
+  }
+  const [year, month, day] = isoDate.split('-')
+  return `${day}/${month}/${year.slice(2)}`
+}
+
+// The ledger stores a transaction as debit XOR credit, never both, never
+// neither - services/csv_import.py rejects a row with both populated
+// ("row has both Debit and Credit populated") and a row with neither
+// ("row has neither Debit nor Credit populated") outright at import time,
+// and single-amount-column mode splits by sign into exactly one of the
+// two. Collapsing them to one signed value is therefore lossless, not a
+// display compromise - whichever of the two is set already carries the
+// correct sign (debits negative, credits positive), so <Amount> colours
+// the merged value exactly as it would have coloured whichever original
+// column actually held it.
+export function transactionAmount(transaction) {
+  return transaction.debit ?? transaction.credit
+}
+
 // Renders an account's current balance, or a distinct message when it has
 // none. A null balance means "no transactions yet" - it is NOT 0.00, which is
 // a real balance, and the two must never render the same.

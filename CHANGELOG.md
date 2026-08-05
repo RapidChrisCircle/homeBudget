@@ -4,6 +4,20 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
+## [0.20.0] - 2026-08-05
+
+Follow-ups against v0.19.0's UI pass, from a dark-mode screenshot of `/transactions` with Group by merchant on.
+
+### Changed
+
+- Ledger dates render as `DD/MM/YY` (e.g. `31/07/26`) instead of raw ISO (`2026-07-31`), across the main ledger, `/accounts/:id`, Dashboard's Recent Activity, the CSV mapping preview, and the grouped view's date range — a new `formatDate` helper in `utils/format.js`. Prose and period labels (report months, "imported up to …") are unaffected.
+- Debit and Credit are shown as one **Amount** column in the same four tables. Import already guarantees exactly one of the two is ever populated per transaction, so the merge is lossless; the column keeps the same sign-based colour it already had. The main ledger and account-detail pages each collapse two header filters/sorts into one shared `Amount` header. Dashboard's Recent Activity now sorts by magnitude, matching the definition the ledger's own amount filter already uses.
+- `CategoryQuickAdd` gained a `hideSelect` prop — an affordance-only mode (just "+ New category", no select) for a caller with nothing for a select to apply to.
+
+### Fixed
+
+- The grouped-by-merchant view's Set-category cell was clipped at the card edge, with rows roughly 140px tall — a regression from v0.19.0's `white-space: nowrap` default, which stopped a long per-row label from wrapping. Each row now shows a plain category select and a compact **Set** button; **+ New category** moved to the toolbar (once per page, not once per row — restoring the intent `CategoryQuickAdd`'s own docstring already described). The grouped table also dropped its inner scroll box, so the page scrolls as one and its column headers stick to the viewport instead of a box that never grew tall enough to need its own scrollbar.
+
 ## [0.19.0] - 2026-08-05
 
 ### Added

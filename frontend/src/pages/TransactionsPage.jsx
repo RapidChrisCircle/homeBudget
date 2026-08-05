@@ -25,6 +25,7 @@ import {
   sortFromSearchParams,
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
+import { formatDate, transactionAmount } from '../utils/format.js'
 import { useTableSort } from '../utils/tableSort.js'
 import { groupCategorySummary } from '../utils/transactionGroups.js'
 
@@ -892,6 +893,19 @@ export default function TransactionsPage() {
                   </button>
                 </>
               )}
+              {/* Grouped view: ONE + New category here, not one per row
+                  (see CategoryQuickAdd's own docstring) - no select of its
+                  own, since there is no single action a toolbar-level pick
+                  could apply to across every group row. A category created
+                  here lands in `categories` and is immediately selectable
+                  in every row's own select below. */}
+              {groupByMerchant && (
+                <CategoryQuickAdd
+                  categories={categories}
+                  onCategoryCreated={handleCategoryCreated}
+                  hideSelect
+                />
+              )}
               <button type="button" onClick={handleApplyRules} disabled={applying}>
                 Apply rules now
               </button>
@@ -913,7 +927,6 @@ export default function TransactionsPage() {
             )}
 
             {groupByMerchant && !groupsLoading && !groupsError && groups.length > 0 && (
-              <div className="table-scroll">
                 <table>
                   <caption className="visually-hidden">Ledger grouped by merchant</caption>
                   <thead>
@@ -939,27 +952,33 @@ export default function TransactionsPage() {
                             <td className="cell-wrap">{group.merchant}</td>
                             <td className="numeric">{group.transaction_count}</td>
                             <td><Amount value={signedTotal} /></td>
-                            <td>{group.first_date} to {group.last_date}</td>
+                            <td>{formatDate(group.first_date)} - {formatDate(group.last_date)}</td>
                             <td>{groupCategorySummary(group)}</td>
-                            <td>
-                              <CategoryQuickAdd
+                            <td className="group-set-category">
+                              {/* A plain select, not a per-row CategoryQuickAdd -
+                                  the "+ New category" affordance now lives once
+                                  in the toolbar above (see CategoryQuickAdd's
+                                  own docstring: "one per page section rather
+                                  than one per ledger ROW"). aria-label keeps
+                                  this select's accessible name distinct per
+                                  row without a visible label bloating it -
+                                  the same pattern the plain (ungrouped) ledger
+                                  row's own category select already uses. */}
+                              <CategorySelect
+                                aria-label={`Category for ${group.merchant}`}
                                 categories={categories}
                                 value={groupCategorySelection(group.narration_key)}
-                                onChange={(value) => setGroupCategorySelection(group.narration_key, value)}
-                                onCategoryCreated={(category) => {
-                                  handleCategoryCreated(category)
-                                  setGroupCategorySelection(group.narration_key, String(category.id))
-                                }}
-                                label={`Category for ${group.merchant}`}
-                                includeUncategorized={false}
-                              />
+                                onChange={(e) => setGroupCategorySelection(group.narration_key, e.target.value)}
+                              >
+                                <option value="">Select a category</option>
+                              </CategorySelect>
                               <button
                                 type="button"
                                 className="button-primary"
                                 onClick={() => handleGroupSetCategory(group)}
                                 disabled={!groupCategorySelection(group.narration_key) || assigningGroupKey === group.narration_key}
                               >
-                                Set category
+                                Set
                               </button>
                             </td>
                             <td>
@@ -997,7 +1016,6 @@ export default function TransactionsPage() {
                     })}
                   </tbody>
                 </table>
-              </div>
             )}
 
             {groupByMerchant && !groupsLoading && !groupsError && groups.length > 0 && (
@@ -1111,52 +1129,16 @@ export default function TransactionsPage() {
                         </label>
                       )}
                     </HeaderFilter>
-                    {/* Debit and Credit carry the SAME shared amount filter
-                        (min_amount/max_amount, matched on magnitude across
-                        whichever of the two is populated) and the same
-                        "amount" sort key - two headers, one underlying
-                        filter/sort, so both show it and both reflect its
-                        active state, the same way the amount SORT already
-                        agreed to share a key across the two columns. */}
+                    {/* Debit and Credit are stored as two columns (import
+                        enforces exactly one populated per row - see
+                        services/csv_import.py) but shown as one Amount
+                        column - transactionAmount() picks whichever is set,
+                        already signed, so <Amount> colours it exactly as it
+                        would have coloured whichever original column held
+                        it. One header now carries the filter and sort that
+                        two headers used to share. */}
                     <HeaderFilter
-                      label="Debit"
-                      value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
-                      isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
-                      onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
-                      onClear={() => applyFilterPatch({ min_amount: '', max_amount: '' })}
-                      sortKey="amount"
-                      activeSortKey={activeSort}
-                      activeDirection={activeDirection}
-                      onSort={handleSort}
-                      numeric
-                    >
-                      {(draft, setDraft) => (
-                        <>
-                          <label>
-                            Min amount
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={draft.min}
-                              onChange={(event) => setDraft({ ...draft, min: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            Max amount
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={draft.max}
-                              onChange={(event) => setDraft({ ...draft, max: event.target.value })}
-                            />
-                          </label>
-                        </>
-                      )}
-                    </HeaderFilter>
-                    <HeaderFilter
-                      label="Credit"
+                      label="Amount"
                       value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
                       isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
                       onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
@@ -1231,11 +1213,10 @@ export default function TransactionsPage() {
                               onChange={() => toggleSelected(transaction.id)}
                             />
                           </td>
-                          <td>{transaction.transaction_date}</td>
+                          <td>{formatDate(transaction.transaction_date)}</td>
                           <td>{transaction.account_name || formatAccount(transaction)}</td>
                           <td className="ledger-narration">{transaction.narration}</td>
-                          <td><Amount value={transaction.debit} /></td>
-                          <td><Amount value={transaction.credit} /></td>
+                          <td><Amount value={transactionAmount(transaction)} /></td>
                           <td>
                             {transaction.is_split ? (
                               <div className="split-summary">

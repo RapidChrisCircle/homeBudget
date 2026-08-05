@@ -10,7 +10,7 @@ import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
-import { formatAmount, formatBalance, uncategorizedLedgerLink } from '../utils/format.js'
+import { formatAmount, formatBalance, formatDate, transactionAmount, uncategorizedLedgerLink } from '../utils/format.js'
 import { useTableSort } from '../utils/tableSort.js'
 
 const RECENT_LIMIT = 5
@@ -37,8 +37,13 @@ const RECENT_ACTIVITY_SORT_COLUMNS = {
   date: { getValue: (t) => t.transaction_date, type: 'date' },
   account: { getValue: (t) => t.account_name || t.account_number, type: 'string' },
   narration: { getValue: (t) => t.narration, type: 'string' },
-  debit: { getValue: (t) => t.debit, type: 'numeric' },
-  credit: { getValue: (t) => t.credit, type: 'numeric' },
+  // Magnitude, not signed value - matches services/ledger.py's _AMOUNT_EXPR
+  // (abs(coalesce(debit,0) + coalesce(credit,0))), the definition the
+  // ledger's own min/max amount filter already uses. Sorting by the raw
+  // signed value here would put a small debit and a small credit at
+  // opposite ends instead of together, and disagree with what "Amount"
+  // sorts by on the ledger pages.
+  amount: { getValue: (t) => Math.abs(transactionAmount(t)), type: 'numeric' },
   category: { getValue: (t) => (t.is_split ? 'Split' : (t.category_name || 'Uncategorized')), type: 'string' },
 }
 // A simple in/out picture, not the full multi-month analysis /trends
@@ -410,19 +415,17 @@ export default function DashboardPage() {
               <SortableHeader label="Date" sortKey="date" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} />
               <SortableHeader label="Account" sortKey="account" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} />
               <SortableHeader label="Narration" sortKey="narration" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} />
-              <SortableHeader label="Debit" sortKey="debit" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} numeric />
-              <SortableHeader label="Credit" sortKey="credit" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} numeric />
+              <SortableHeader label="Amount" sortKey="amount" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} numeric />
               <SortableHeader label="Category" sortKey="category" activeSortKey={recentActivitySort.sortKey} activeDirection={recentActivitySort.sortDirection} onSort={recentActivitySort.toggleSort} />
             </tr>
           </thead>
           <tbody>
             {recentActivitySort.sortedRows.map((transaction) => (
               <tr key={transaction.id}>
-                <td>{transaction.transaction_date}</td>
+                <td>{formatDate(transaction.transaction_date)}</td>
                 <td>{transaction.account_name || transaction.account_number}</td>
                 <td className="cell-wrap">{transaction.narration}</td>
-                <td><Amount value={transaction.debit} /></td>
-                <td><Amount value={transaction.credit} /></td>
+                <td><Amount value={transactionAmount(transaction)} /></td>
                 {/* A split transaction's own category_name is always null
                     (see TransactionSplit's docstring in models.py) but it
                     is not uncategorized - it has one or more allocations

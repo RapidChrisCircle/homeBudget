@@ -21,14 +21,24 @@ const KIND_OPTIONS = [
 //
 // Selection is controlled by the caller (value/onChange) - this component
 // owns only its own create-form state, not which category ends up chosen.
+//
+// `hideSelect` drops the <label><CategorySelect/></label> block entirely,
+// leaving just the "+ New category" affordance - for the one caller (the
+// ledger toolbar while grouped by merchant) that wants ONLY the create
+// capability, with no category selection of its own to drive: there is no
+// single action a toolbar-level select could apply to across every group
+// row, so rendering one anyway would be a dropdown that visibly does
+// nothing. `value`/`onChange` are unused in this mode and don't need to be
+// passed.
 export default function CategoryQuickAdd({
   categories,
-  value,
-  onChange,
+  value = '',
+  onChange = () => {},
   onCategoryCreated,
   label,
   includeUncategorized = true,
   fallbackOption = null,
+  hideSelect = false,
 }) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
@@ -72,19 +82,21 @@ export default function CategoryQuickAdd({
 
   return (
     <div className="category-quick-add">
-      <label>
-        {label}
-        <CategorySelect
-          categories={categories}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          fallbackOption={fallbackOption}
-        >
-          {includeUncategorized
-            ? <option value="">Uncategorized</option>
-            : <option value="">Select a category</option>}
-        </CategorySelect>
-      </label>
+      {!hideSelect && (
+        <label>
+          {label}
+          <CategorySelect
+            categories={categories}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            fallbackOption={fallbackOption}
+          >
+            {includeUncategorized
+              ? <option value="">Uncategorized</option>
+              : <option value="">Select a category</option>}
+          </CategorySelect>
+        </label>
+      )}
 
       {!adding && (
         <button type="button" className="button-ghost" onClick={startAdding}>

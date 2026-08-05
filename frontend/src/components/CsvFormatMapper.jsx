@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Amount from './Amount.jsx'
 import ErrorState from './ErrorState.jsx'
 import { api } from '../services/api'
+import { formatDate, transactionAmount } from '../utils/format.js'
 
 const EMPTY_FORM = {
   name: '',
@@ -313,18 +314,16 @@ export default function CsvFormatMapper({ file, header, sampleRows, onClose, onI
                   <tr>
                     <th scope="col">Date</th>
                     <th scope="col">Narration</th>
-                    <th scope="col" className="numeric">Debit</th>
-                    <th scope="col" className="numeric">Credit</th>
+                    <th scope="col" className="numeric">Amount</th>
                     <th scope="col" className="numeric">Balance</th>
                   </tr>
                 </thead>
                 <tbody>
                   {previewRows.map((row, index) => (
                     <tr key={index}>
-                      <td>{row.transaction_date}</td>
+                      <td>{formatDate(row.transaction_date)}</td>
                       <td className="cell-wrap">{row.narration}</td>
-                      <td><Amount value={row.debit} /></td>
-                      <td><Amount value={row.credit} /></td>
+                      <td><Amount value={transactionAmount(row)} /></td>
                       <td><Amount value={row.balance} neutral /></td>
                     </tr>
                   ))}
