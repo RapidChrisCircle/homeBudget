@@ -751,4 +751,105 @@ describe('CategoriesPage', () => {
     expect(within(categoriesSection()).queryByText('Other')).not.toBeInTheDocument()
     expect(within(categoriesSection()).queryByText('group')).not.toBeInTheDocument()
   })
+
+  // --- Sorting --------------------------------------------------------------
+
+  it('sorts the flat All Categories table by Name', async () => {
+    const zebra = { id: 5, name: 'Zebra Expenses', kind: 'expense', budget_amount: '10.00' }
+    mockLoad({ categories: [sampleCategory, zebra] })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(within(categoriesSection()).getByText('Zebra Expenses')).toBeInTheDocument())
+
+    fireEvent.click(within(categoriesSection()).getByRole('button', { name: 'Name' }))
+
+    const rows = categoriesSection().querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Groceries')).toBeInTheDocument() // G < Z ascending
+  })
+
+  it('keeps a group\'s own row pinned first when sorting - only its children reorder', async () => {
+    const parent = { id: 1, name: 'Housing', kind: 'expense', budget_amount: null, parent_id: null }
+    const zebraChild = { id: 2, name: 'Zebra Utility', kind: 'expense', budget_amount: '400.00', parent_id: 1 }
+    const appleChild = { id: 3, name: 'Apple Utility', kind: 'expense', budget_amount: '100.00', parent_id: 1 }
+    mockLoad({
+      categories: [parent, zebraChild, appleChild],
+      budgetData: { ...sampleBudgetData, categories: [] },
+    })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(categoryRow(categoriesSection(), 'Housing')).toBeTruthy())
+
+    const groupCard = screen.getByText('Housing', { selector: '.card-toggle' }).closest('.card')
+    fireEvent.click(within(groupCard).getByRole('button', { name: 'Name' }))
+
+    const rows = groupCard.querySelectorAll('tbody tr')
+    // Housing (the group's own row) stays first regardless of the sort -
+    // only Apple/Zebra Utility (its children) reorder among themselves.
+    expect(within(rows[0]).getByText('Housing')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('Apple Utility')).toBeInTheDocument()
+    expect(within(rows[2]).getByText('Zebra Utility')).toBeInTheDocument()
+  })
+
+  it('sorts the Unused table by Name', async () => {
+    const usage = [
+      { category_id: 1, category_name: 'Zebra', budget_amount: null, transaction_count: 0, rule_count: 0, archived: false },
+      { category_id: 2, category_name: 'Apple', budget_amount: null, transaction_count: 0, rule_count: 0, archived: false },
+    ]
+    mockLoad({ usage })
+
+    render(<CategoriesPage />)
+
+    const unusedCard = await screen.findByText('Unused').then((el) => el.closest('.card'))
+    await waitFor(() => expect(within(unusedCard).getByText('Zebra')).toBeInTheDocument())
+
+    fireEvent.click(within(unusedCard).getByRole('button', { name: 'Name' }))
+
+    const rows = unusedCard.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Apple')).toBeInTheDocument()
+  })
+
+  it('sorts the Archived table by Name', async () => {
+    const categories = [
+      { ...sampleCategory, id: 1, archived: true, name: 'Zebra Archived' },
+      { ...sampleCategory, id: 2, archived: true, name: 'Apple Archived' },
+    ]
+    mockLoad({ categories })
+
+    render(<CategoriesPage />)
+
+    const archivedCard = await screen.findByText('Archived').then((el) => el.closest('.card'))
+    await waitFor(() => expect(within(archivedCard).getByText('Zebra Archived')).toBeInTheDocument())
+
+    fireEvent.click(within(archivedCard).getByRole('button', { name: 'Name' }))
+
+    const rows = archivedCard.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Apple Archived')).toBeInTheDocument()
+  })
+
+  it('sorts Monthly Budgets while keeping the tfoot Total row pinned last', async () => {
+    const budgetData = {
+      ...sampleBudgetData,
+      categories: [
+        { category_id: 1, category_name: 'Zebra', standing_amount: '10.00', override_amount: null, effective_amount: '10.00', is_overridden: false, actual: '5.00', difference: '5.00' },
+        { category_id: 2, category_name: 'Apple', standing_amount: '20.00', override_amount: null, effective_amount: '20.00', is_overridden: false, actual: '15.00', difference: '5.00' },
+      ],
+    }
+    mockLoad({ budgetData })
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    fireEvent.click(within(budgetsSection()).getByRole('button', { name: 'Category' }))
+
+    const table = within(budgetsSection()).getByText('Monthly budgets').closest('table')
+    const bodyRows = table.querySelectorAll('tbody tr')
+    expect(within(bodyRows[0]).getByText('Apple')).toBeInTheDocument()
+    expect(within(bodyRows[1]).getByText('Zebra')).toBeInTheDocument()
+
+    // The Total row is a <tfoot>, never reordered by a tbody sort.
+    const footRow = table.querySelector('tfoot tr')
+    expect(within(footRow).getByText('Total')).toBeInTheDocument()
+  })
 })

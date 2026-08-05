@@ -344,6 +344,47 @@ def test_list_transactions_rejects_negative_amount_bounds(client):
     assert client.get("/api/transactions?max_amount=-5").status_code == 422
 
 
+def test_list_transactions_rejects_unrecognized_sort_column(client):
+    """An invalid sort is rejected outright rather than silently falling
+    back to the default order, which would look indistinguishable from
+    "sorting did nothing".
+    """
+
+    response = client.get("/api/transactions?sort=not-a-real-column")
+
+    assert response.status_code == 422
+    assert "sort" in response.json()["detail"]
+
+
+def test_list_transactions_rejects_invalid_direction(client):
+
+    response = client.get("/api/transactions?sort=date&direction=sideways")
+
+    assert response.status_code == 422
+    assert "direction" in response.json()["detail"]
+
+
+def test_list_transactions_sorts_by_amount_ascending_across_the_whole_result_set(client):
+    """End-to-end proof the sort happens in SQL, not in the browser: seeded
+    with more rows than one page, the smallest amount is on page 1.
+    """
+
+    amounts = [50, 10, 90, 30, 70, 20, 80, 40, 60, 5, 100, 15]
+    rows = "".join(
+        f',1111,24/07/2026,"Row {i}",,-{amount}.00,,100.00,WDL\n' for i, amount in enumerate(amounts)
+    )
+    upload(client, HEADER + rows)
+
+    response = client.get("/api/transactions?sort=amount&direction=asc&page=1&page_size=5")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == len(amounts)
+    assert body["items"][0]["narration"] == "Row 9"  # amount 5.00, the minimum
+    page_amounts = [abs(float(t["debit"])) for t in body["items"]]
+    assert page_amounts == sorted(amounts)[:5]
+
+
 def test_list_transactions_rejects_inverted_date_range(client):
 
     response = client.get("/api/transactions?date_from=2026-07-31&date_to=2026-07-01")

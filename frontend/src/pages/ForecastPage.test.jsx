@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
 import ForecastPage from './ForecastPage.jsx'
@@ -132,5 +132,31 @@ describe('ForecastPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/database unavailable/)).toBeInTheDocument()
     })
+  })
+
+  it('sorts Upcoming Commitments by Merchant', async () => {
+    mockLoad()
+
+    render(<ForecastPage />)
+
+    await waitFor(() => expect(screen.getByText('RED ENERGY')).toBeInTheDocument())
+
+    const card = screen.getByText('Upcoming Commitments').closest('.card')
+    fireEvent.click(within(card).getByRole('button', { name: 'Merchant' }))
+
+    const rows = card.querySelectorAll('tbody tr')
+    expect(rows[0]).toHaveTextContent('RED ENERGY') // R < S ascending
+  })
+
+  it('does not make the per-account monthly table sortable - Month is a chronological projection', async () => {
+    mockLoad()
+
+    render(<ForecastPage />)
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Joint Everyday' })).toBeInTheDocument())
+
+    const accountCard = screen.getByRole('heading', { name: 'Joint Everyday' }).closest('.card')
+    expect(within(accountCard).queryByRole('button', { name: 'Month' })).not.toBeInTheDocument()
+    expect(accountCard.querySelector('.sortable-header')).toBeNull()
   })
 })

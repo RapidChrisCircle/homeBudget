@@ -279,33 +279,6 @@ input[type='checkbox'] {
   height: 16px;
 }
 
-/* Filter forms (LedgerFilters) - a handful of short fields were stacking
-   into full-width rows under the generic form rules above, reading as a
-   long form when it's really eight small controls. Reflows to fewer
-   columns as the viewport narrows, down to one. The field <div>s and their
-   <label> structure are untouched, so every existing getByLabelText query
-   still matches - only their container changed. */
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-4);
-}
-
-.filter-actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-}
-
-/* The global `input { min-width: 220px }` below would force a field wider
-   than its grid cell, breaking the reflow - scoped to width 100% here
-   instead of loosened globally. */
-.filter-grid input,
-.filter-grid select {
-  min-width: 0;
-  width: 100%;
-}
-
 /* CategoryQuickAdd - a category <select> plus an inline create form. The
    outer wrapper and its own <label> sit outside any <form>, so they need
    their own row layout rather than relying on the generic form rules above;
@@ -351,6 +324,25 @@ input[type='checkbox'] {
   flex-wrap: wrap;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+}
+
+/* Ledger filter bar (TransactionsPage) - the slim leftover strip above the
+   table for what has no column of its own (Transaction type) plus one
+   Clear all filters, now that every other filter lives in its own
+   column's header (see .header-filter-cell below). Same aligned-row
+   idiom as .ledger-toolbar, sitting directly above it. */
+.ledger-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.ledger-filter-bar label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 /* Ledger row meta (TransactionsPage) - the import filename, the auto badge,
@@ -414,6 +406,120 @@ a:focus-visible {
   color: inherit;
 }
 
+/* SortableHeader - a <button> filling a <th>, styled to read as a header
+   label rather than a button (no border/background of its own), with just
+   enough affordance on hover to signal it's interactive. The global
+   button:focus-visible rule still applies on top for keyboard users. */
+.sortable-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sortable-header:hover {
+  color: var(--text-primary);
+}
+
+.sortable-header-arrow {
+  font-size: 0.7em;
+}
+
+/* HeaderFilter - the Excel-style column filter popover. `position: relative`
+   on the cell is the anchor `.header-filter-popover`'s `position: absolute`
+   sits against, so it drops directly below the header it belongs to
+   without pushing the rest of the row down. */
+.header-filter-cell {
+  position: relative;
+}
+
+/* The as="div" flavour (TransactionsPage's grouped-by-merchant view, which
+   has no Date/Account/Narration/Amount/Category columns of its own to
+   carry these as real headers) - same popover, sitting inline in the
+   leftover bar instead of a <thead> row. */
+.header-filter-inline {
+  display: inline-flex;
+}
+
+.header-filter-inline .header-filter-heading span {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.header-filter-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.header-filter-toggle {
+  position: relative;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  font-size: 0.7em;
+  color: inherit;
+  cursor: pointer;
+}
+
+.header-filter-toggle:hover {
+  color: var(--text-primary);
+}
+
+/* A small dot rather than text - the column header is already narrow, and
+   the dot reads at a glance without competing with the label for space. */
+.header-filter-marker {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.header-filter-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  margin-top: var(--space-1);
+  padding: var(--space-3);
+  min-width: 220px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-sm);
+  /* Column headers are upper-cased/letter-spaced/small (see thead th
+     above) - reset all three so the popover's own fields and buttons
+     read like the rest of the app's forms, not like a header. */
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+.header-filter-popover label {
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+.header-filter-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
 .card table tbody tr:hover {
   background: var(--surface-2);
 }
@@ -453,7 +559,7 @@ a:focus-visible {
    not a table cell - inside a table it was forcing every row's Category
    select (and any other table-cell input) wide regardless of the column's
    actual content, which is what pushed the ledger into horizontal scroll
-   in the first place. Scoped like .filter-grid's own override above. */
+   in the first place. */
 .card table select,
 .card table input {
   min-width: 0;

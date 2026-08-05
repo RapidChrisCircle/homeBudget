@@ -116,3 +116,52 @@ export function groupsQueryFromSearchParams(searchParams) {
 
   return params.toString()
 }
+
+// Mirrors services/ledger.py's SORTABLE_COLUMNS exactly, the same
+// "can never slip past what the backend accepts" reasoning
+// PAGE_SIZE_OPTIONS already follows for DEFAULT_PAGE_SIZE/MAX_PAGE_SIZE.
+export const LEDGER_SORT_COLUMNS = ['date', 'narration', 'amount', 'account', 'category', 'balance', 'type']
+
+// Sort state lives in the URL beside the filters - reloadable/shareable the
+// same way a filtered view already is - but is READ directly off
+// searchParams (like page/page_size) rather than folded into the filter
+// form object: sorting reorders results, it doesn't narrow them, so it
+// should survive Apply/Clear exactly like page size already does.
+export function sortFromSearchParams(searchParams) {
+  const sort = searchParams.get('sort')
+
+  if (!LEDGER_SORT_COLUMNS.includes(sort)) {
+    return { sort: null, direction: null }
+  }
+
+  return { sort, direction: searchParams.get('direction') === 'desc' ? 'desc' : 'asc' }
+}
+
+// The next URLSearchParams after clicking a sortable ledger header -
+// cycles asc -> desc -> none, the same cycle utils/tableSort.useTableSort
+// uses for client-side tables, so every sortable header in the app behaves
+// identically regardless of which flavour is actually driving it. Clicking
+// a DIFFERENT column starts that column fresh at asc, same reasoning.
+// Resets to page 1, the same as applying a filter does - staying on a page
+// a changed sort has made meaningless shows an arbitrary slice for no
+// visible reason.
+export function nextSortParams(searchParams, key) {
+  const { sort: currentSort, direction: currentDirection } = sortFromSearchParams(searchParams)
+  const next = new URLSearchParams(searchParams)
+
+  if (currentSort !== key) {
+    next.set('sort', key)
+    next.set('direction', 'asc')
+  } else if (currentDirection === 'asc') {
+    next.set('direction', 'desc')
+  } else if (currentDirection === 'desc') {
+    next.delete('sort')
+    next.delete('direction')
+  } else {
+    next.set('sort', key)
+    next.set('direction', 'asc')
+  }
+
+  next.set('page', '1')
+  return next
+}

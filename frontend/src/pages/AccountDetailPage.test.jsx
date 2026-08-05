@@ -97,6 +97,15 @@ function renderPage(initialEntry = '/accounts/1') {
   )
 }
 
+// Opens a column's HeaderFilter popover, runs `fill` against the now-visible
+// fields, then commits with Apply - see TransactionsPage.test.jsx's own copy
+// of this helper, which this page's filters work identically to.
+function applyHeaderFilter(label, fill) {
+  fireEvent.click(screen.getByRole('button', { name: `Filter by ${label}` }))
+  fill()
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+}
+
 describe('AccountDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -164,12 +173,59 @@ describe('AccountDetailPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    applyHeaderFilter('Narration', () => {
+      fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
+    })
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/account_id=1.*search=woolworths|search=woolworths.*account_id=1/))
     })
+  })
+
+  it('filters by Type from its own header, since this table already has a Type column', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    applyHeaderFilter('Type', () => {
+      fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'WDL' } })
+    })
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/transaction_type=WDL/))
+    })
+  })
+
+  it('Debit and Credit headers share one amount filter', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    applyHeaderFilter('Debit', () => {
+      fireEvent.change(screen.getByLabelText('Min amount'), { target: { value: '10' } })
+    })
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/min_amount=10/))
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Credit' }))
+    expect(screen.getByLabelText('Min amount')).toHaveValue(10)
+  })
+
+  it('has no leftover filter bar - every filter lives on a header, Account is implicit from the route', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(screen.queryByRole('button', { name: 'Filter by Account' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Clear all filters')).not.toBeInTheDocument()
   })
 
   it('still renders pagination when the current page has no rows', async () => {
@@ -297,6 +353,23 @@ describe('AccountDetailPage', () => {
     expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/account_id=1/))
   })
 
+  it('sorts via the same server-side sort/direction params, staying scoped to the account', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Balance' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/sort=balance/))
+    })
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/direction=asc/))
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/account_id=1/))
+    expect(screen.getByRole('columnheader', { name: /Balance/ })).toHaveAttribute('aria-sort', 'ascending')
+  })
+
   it('renders the balance history chart', async () => {
     mockLoad()
 
@@ -318,8 +391,9 @@ describe('AccountDetailPage', () => {
     const callsAfterMount = api.get.mock.calls.filter(([path]) => path.endsWith('/balance-history')).length
     expect(callsAfterMount).toBe(1)
 
-    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    applyHeaderFilter('Narration', () => {
+      fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
+    })
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/search=woolworths/)))
 

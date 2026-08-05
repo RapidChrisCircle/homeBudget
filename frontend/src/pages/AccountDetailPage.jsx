@@ -6,15 +6,17 @@ import Card from '../components/Card.jsx'
 import CategorySelect from '../components/CategorySelect.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
 import ErrorState from '../components/ErrorState.jsx'
-import LedgerFilters from '../components/LedgerFilters.jsx'
+import HeaderFilter from '../components/HeaderFilter.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import Pagination from '../components/Pagination.jsx'
+import SortableHeader from '../components/SortableHeader.jsx'
 import {
   DEFAULT_PAGE_SIZE,
-  EMPTY_FILTERS,
   filtersFromSearchParams,
+  nextSortParams,
   pageSizeFromSearchParams,
   searchParamsFromFilters,
+  sortFromSearchParams,
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
 import { accountTypeLabel } from '../utils/accountTypes.js'
@@ -39,12 +41,22 @@ export default function AccountDetailPage() {
   const [error, setError] = useState('')
   const [actionError, setActionError] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
-  const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
   const [balanceHistory, setBalanceHistory] = useState(null)
 
   // Read straight from the URL, like the page number already is - see
   // ledgerFilterParams.pageSizeFromSearchParams.
   const pageSize = pageSizeFromSearchParams(searchParams)
+  const { sort: activeSort, direction: activeDirection } = sortFromSearchParams(searchParams)
+  // No staged form state - each header's own popover owns its draft (see
+  // HeaderFilter) and this page just reflects whatever's committed to the
+  // URL, the same as TransactionsPage now does. Account isn't among these
+  // fields - it's implicit from the route here, never a filter a header
+  // could even offer.
+  const committedFilters = filtersFromSearchParams(searchParams)
+
+  const applyFilterPatch = (patch) => {
+    setSearchParams(searchParamsFromFilters({ ...committedFilters, ...patch }, pageSize))
+  }
 
   // Independent of the ledger filters/page below - it only needs to refetch
   // when the account itself changes, not on every filter click.
@@ -72,6 +84,12 @@ export default function AccountDetailPage() {
     // Page carries over from the URL if present (pagination links set it).
     if (searchParams.get('page')) {
       query.set('page', searchParams.get('page'))
+    }
+    // Sort likewise - this table is paginated, so sorting happens in SQL
+    // (see services/ledger.py), not in the browser.
+    if (activeSort) {
+      query.set('sort', activeSort)
+      query.set('direction', activeDirection)
     }
 
     const [accountRes, transactionsRes, categoriesRes, typesRes] = await Promise.all([
@@ -111,7 +129,6 @@ export default function AccountDetailPage() {
 
     setLoading(true)
     setError('')
-    setFilterForm(filtersFromSearchParams(searchParams))
 
     fetchData(cancelledRef)
       .catch((err) => {
@@ -149,22 +166,6 @@ export default function AccountDetailPage() {
     }
   }
 
-  const handleFilterFieldChange = (field) => (event) => {
-    setFilterForm((prev) => ({ ...prev, [field]: event.target.value }))
-  }
-
-  const handleApplyFilters = (event) => {
-    event.preventDefault()
-    const params = queryParamsFromFilters(accountId, filterForm, pageSize)
-    params.delete('account_id') // implicit from the route, not carried in the URL here
-    setSearchParams(params)
-  }
-
-  const handleClearFilters = () => {
-    setFilterForm(EMPTY_FILTERS)
-    setSearchParams(searchParamsFromFilters(EMPTY_FILTERS, pageSize))
-  }
-
   const handlePageChange = (newPage) => {
     const next = new URLSearchParams(searchParams)
     next.set('page', String(newPage))
@@ -177,6 +178,12 @@ export default function AccountDetailPage() {
     next.set('page_size', String(newSize))
     next.set('page', '1')
     setSearchParams(next)
+  }
+
+  // Same server-side sort the main ledger uses - this table is paginated
+  // too, so client-side sorting would silently sort only the current page.
+  const handleSort = (key) => {
+    setSearchParams(nextSortParams(searchParams, key))
   }
 
   if (loading) {
@@ -232,15 +239,6 @@ export default function AccountDetailPage() {
         </Card>
       )}
 
-      <LedgerFilters
-        values={filterForm}
-        onFieldChange={handleFilterFieldChange}
-        onApply={handleApplyFilters}
-        onClear={handleClearFilters}
-        categories={categories}
-        transactionTypes={transactionTypes}
-      />
-
       <Card id="account-detail-transactions" title="Transactions">
         {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
@@ -251,13 +249,179 @@ export default function AccountDetailPage() {
             <caption className="visually-hidden">Transactions for this account</caption>
             <thead>
               <tr>
-                <th scope="col">Date</th>
-                <th scope="col">Narration</th>
-                <th scope="col">Debit</th>
-                <th scope="col">Credit</th>
-                <th scope="col">Balance</th>
-                <th scope="col">Type</th>
-                <th scope="col">Category</th>
+                <HeaderFilter
+                  label="Date"
+                  value={{ from: committedFilters.date_from, to: committedFilters.date_to }}
+                  isActive={Boolean(committedFilters.date_from || committedFilters.date_to)}
+                  onApply={(draft) => applyFilterPatch({ date_from: draft.from, date_to: draft.to })}
+                  onClear={() => applyFilterPatch({ date_from: '', date_to: '' })}
+                  sortKey="date"
+                  activeSortKey={activeSort}
+                  activeDirection={activeDirection}
+                  onSort={handleSort}
+                >
+                  {(draft, setDraft) => (
+                    <>
+                      <label>
+                        From date
+                        <input
+                          type="date"
+                          value={draft.from}
+                          onChange={(event) => setDraft({ ...draft, from: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        To date
+                        <input
+                          type="date"
+                          value={draft.to}
+                          onChange={(event) => setDraft({ ...draft, to: event.target.value })}
+                        />
+                      </label>
+                    </>
+                  )}
+                </HeaderFilter>
+                <HeaderFilter
+                  label="Narration"
+                  value={committedFilters.search}
+                  isActive={Boolean(committedFilters.search)}
+                  onApply={(draft) => applyFilterPatch({ search: draft })}
+                  onClear={() => applyFilterPatch({ search: '' })}
+                  sortKey="narration"
+                  activeSortKey={activeSort}
+                  activeDirection={activeDirection}
+                  onSort={handleSort}
+                >
+                  {(draft, setDraft) => (
+                    <label>
+                      Narration contains
+                      <input type="text" value={draft} onChange={(event) => setDraft(event.target.value)} />
+                    </label>
+                  )}
+                </HeaderFilter>
+                {/* Debit and Credit share one "amount" filter AND sort, same
+                    reasoning as the main ledger table. */}
+                <HeaderFilter
+                  label="Debit"
+                  value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
+                  isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
+                  onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
+                  onClear={() => applyFilterPatch({ min_amount: '', max_amount: '' })}
+                  sortKey="amount"
+                  activeSortKey={activeSort}
+                  activeDirection={activeDirection}
+                  onSort={handleSort}
+                >
+                  {(draft, setDraft) => (
+                    <>
+                      <label>
+                        Min amount
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={draft.min}
+                          onChange={(event) => setDraft({ ...draft, min: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Max amount
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={draft.max}
+                          onChange={(event) => setDraft({ ...draft, max: event.target.value })}
+                        />
+                      </label>
+                    </>
+                  )}
+                </HeaderFilter>
+                <HeaderFilter
+                  label="Credit"
+                  value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
+                  isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
+                  onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
+                  onClear={() => applyFilterPatch({ min_amount: '', max_amount: '' })}
+                  sortKey="amount"
+                  activeSortKey={activeSort}
+                  activeDirection={activeDirection}
+                  onSort={handleSort}
+                >
+                  {(draft, setDraft) => (
+                    <>
+                      <label>
+                        Min amount
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={draft.min}
+                          onChange={(event) => setDraft({ ...draft, min: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Max amount
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={draft.max}
+                          onChange={(event) => setDraft({ ...draft, max: event.target.value })}
+                        />
+                      </label>
+                    </>
+                  )}
+                </HeaderFilter>
+                {/* Sortable only - there is no balance filter, and this
+                    doesn't add one. */}
+                <SortableHeader label="Balance" sortKey="balance" activeSortKey={activeSort} activeDirection={activeDirection} onSort={handleSort} />
+                <HeaderFilter
+                  label="Type"
+                  value={committedFilters.transaction_type}
+                  isActive={Boolean(committedFilters.transaction_type)}
+                  onApply={(draft) => applyFilterPatch({ transaction_type: draft })}
+                  onClear={() => applyFilterPatch({ transaction_type: '' })}
+                  sortKey="type"
+                  activeSortKey={activeSort}
+                  activeDirection={activeDirection}
+                  onSort={handleSort}
+                >
+                  {(draft, setDraft) => (
+                    <label>
+                      Type
+                      <select value={draft} onChange={(event) => setDraft(event.target.value)}>
+                        <option value="">Any type</option>
+                        {transactionTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </HeaderFilter>
+                <HeaderFilter
+                  label="Category"
+                  value={committedFilters.category}
+                  isActive={Boolean(committedFilters.category)}
+                  onApply={(draft) => applyFilterPatch({ category: draft })}
+                  onClear={() => applyFilterPatch({ category: '' })}
+                  sortKey="category"
+                  activeSortKey={activeSort}
+                  activeDirection={activeDirection}
+                  onSort={handleSort}
+                >
+                  {(draft, setDraft) => (
+                    <label>
+                      Category
+                      <CategorySelect categories={categories} value={draft} onChange={(event) => setDraft(event.target.value)}>
+                        <option value="">All categories</option>
+                        <option value="uncategorized">Uncategorized only</option>
+                      </CategorySelect>
+                    </label>
+                  )}
+                </HeaderFilter>
               </tr>
             </thead>
             <tbody>

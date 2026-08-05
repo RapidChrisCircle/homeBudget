@@ -167,4 +167,40 @@ describe('RecurringPage', () => {
     })
     expect(screen.getByText('NETFLIX.COM')).toBeInTheDocument()
   })
+
+  // --- Sorting --------------------------------------------------------------
+
+  it('sorts the active table by Merchant', async () => {
+    const zebra = { ...activeSeries, account_id: 3, narration_key: 'ZEBRA', merchant: 'Zebra Co' }
+    const apple = { ...activeSeries, account_id: 4, narration_key: 'APPLE', merchant: 'Apple Inc' }
+    mockLoad({ series: [zebra, apple] })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Zebra Co')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Merchant' }))
+
+    const rows = document.querySelectorAll('tbody tr')
+    expect(rows[0]).toHaveTextContent('Apple Inc')
+  })
+
+  it('sorts the dismissed table by Merchant', async () => {
+    const zebraDismissed = { ...dismissedSeries, account_id: 3, narration_key: 'ZEBRA GYM', merchant: 'Zebra Gym' }
+    const appleDismissed = { ...dismissedSeries, account_id: 4, narration_key: 'APPLE GYM', merchant: 'Apple Gym' }
+    mockLoad({ series: [activeSeries, zebraDismissed, appleDismissed] })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('NETFLIX.COM')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Show dismissed (2)' }))
+
+    await waitFor(() => expect(screen.getByText('Zebra Gym')).toBeInTheDocument())
+    fireEvent.click(screen.getAllByRole('button', { name: 'Merchant' })[1])
+
+    const tables = document.querySelectorAll('table')
+    const dismissedTable = tables[tables.length - 1]
+    const rows = dismissedTable.querySelectorAll('tbody tr')
+    expect(rows[0]).toHaveTextContent('Apple Gym')
+  })
 })

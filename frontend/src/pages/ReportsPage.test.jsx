@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
@@ -188,5 +188,55 @@ describe('ReportsPage', () => {
     await waitFor(() => {
       expect(screen.getByTitle('Net refund — refunds exceeded spending this month')).toBeInTheDocument()
     })
+  })
+
+  // --- Sorting --------------------------------------------------------------
+
+  it('sorts Budget vs Actual by Category', async () => {
+    const report = {
+      ...sampleReport,
+      budgets: [
+        { category_id: 1, category_name: 'Zebra', budget_amount: '10.00', actual: '5.00', difference: '5.00' },
+        { category_id: 2, category_name: 'Apple', budget_amount: '20.00', actual: '15.00', difference: '5.00' },
+      ],
+    }
+    mockLoad(report)
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Zebra')).toBeInTheDocument())
+
+    const card = screen.getByText('Budget vs Actual').closest('.card')
+    fireEvent.click(within(card).getByRole('button', { name: 'Category' }))
+
+    const rows = card.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Apple')).toBeInTheDocument()
+  })
+
+  it('sorts Category Totals Over Time by Total, without disturbing the per-period columns', async () => {
+    const report = {
+      ...sampleReport,
+      grid: {
+        periods: sampleReport.grid.periods,
+        rows: [
+          { category_id: 1, category_name: 'Zebra', kind: 'expense', amounts: { '2026-06': '5.00', '2026-07': '5.00' }, total: '10.00' },
+          { category_id: 2, category_name: 'Apple', kind: 'expense', amounts: { '2026-06': '1.00', '2026-07': '1.00' }, total: '2.00' },
+        ],
+      },
+    }
+    mockLoad(report)
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Category Totals Over Time')).toBeInTheDocument())
+
+    const card = screen.getByText('Category Totals Over Time').closest('.card')
+    fireEvent.click(within(card).getByRole('button', { name: 'Total' }))
+
+    const rows = card.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Apple')).toBeInTheDocument() // 2.00 < 10.00 ascending
+    // The period columns themselves are unaffected - not sortable, and
+    // Apple's own June/July figures still show against its own row.
+    expect(within(rows[0]).getAllByText('1.00')).toHaveLength(2)
   })
 })

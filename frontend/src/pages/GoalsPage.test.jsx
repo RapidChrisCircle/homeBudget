@@ -253,4 +253,37 @@ describe('GoalsPage', () => {
       expect(screen.getByText(/Server error/)).toBeInTheDocument()
     })
   })
+
+  // --- Sorting --------------------------------------------------------------
+
+  it('sorts the Goals table by Name', async () => {
+    const zebra = { ...sampleGoal, id: 2, name: 'Zebra Goal' }
+    const apple = { ...sampleGoal, id: 3, name: 'Apple Goal' }
+    mockLoad({ goals: [zebra, apple] })
+
+    renderPage()
+
+    await waitFor(() => expect(within(goalsSection()).getByText('Zebra Goal')).toBeInTheDocument())
+
+    fireEvent.click(within(goalsSection()).getByRole('button', { name: 'Name' }))
+
+    const rows = goalsSection().querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Apple Goal')).toBeInTheDocument()
+  })
+
+  it('sorts the Archived table by Name', async () => {
+    const zebra = { ...sampleGoal, id: 2, name: 'Zebra Archived', archived: true }
+    const apple = { ...sampleGoal, id: 3, name: 'Apple Archived', archived: true }
+    mockLoad({ goals: [zebra, apple] })
+
+    renderPage()
+
+    const archivedSection = await waitFor(() => screen.getByText('Archived').closest('.card'))
+    await waitFor(() => expect(within(archivedSection).getByText('Zebra Archived')).toBeInTheDocument())
+
+    fireEvent.click(within(archivedSection).getByRole('button', { name: 'Name' }))
+
+    const rows = archivedSection.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Apple Archived')).toBeInTheDocument()
+  })
 })

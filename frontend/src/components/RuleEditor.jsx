@@ -73,7 +73,7 @@ export default function RuleEditor({ transaction, categories, transactionTypes, 
   // Refetches whenever a discrete field changes (a select, not free text) -
   // and once up front for the prefilled pattern. narration_pattern itself
   // refetches on blur instead: this codebase deliberately has no per-
-  // keystroke debounce machinery (see LedgerFilters), and a modal that
+  // keystroke debounce machinery (see HeaderFilter), and a modal that
   // fires a request on every character typed would be the first of it.
   useEffect(() => {
     runPreview()

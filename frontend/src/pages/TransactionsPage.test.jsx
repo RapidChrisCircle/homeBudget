@@ -112,6 +112,17 @@ function expandRow(row) {
   fireEvent.click(within(row).getByRole('button', { name: 'Details' }))
 }
 
+// Opens a column's HeaderFilter popover, runs `fill` against the now-visible
+// fields, then commits with Apply - the header-popover equivalent of the old
+// "change a field, click Apply filters" flow. Exact name for the toggle
+// button, since a column's own sort button (e.g. "Date") would otherwise
+// also match a loose "contains the label" query.
+function applyHeaderFilter(label, fill) {
+  fireEvent.click(screen.getByRole('button', { name: `Filter by ${label}` }))
+  fill()
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+}
+
 describe('TransactionsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -129,6 +140,21 @@ describe('TransactionsPage', () => {
     })
 
     expect(screen.getAllByText('transactions.csv').length).toBeGreaterThan(0)
+  })
+
+  it('holds both the file input and the batch history in a single Import card', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const importCard = screen.getByText('Import').closest('.card')
+    expect(within(importCard).getByRole('button', { name: 'Wipe all' })).toBeInTheDocument()
+    expect(document.querySelector('input[type="file"]')?.closest('.card')).toBe(importCard)
+    expect(within(importCard).getByText('transactions.csv')).toBeInTheDocument()
+    // No separate "Import History" card exists any more.
+    expect(screen.queryByText('Import History')).not.toBeInTheDocument()
   })
 
   it('shows validation errors when the import is rejected with a 422', async () => {
@@ -333,14 +359,50 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
-    fireEvent.change(screen.getByLabelText('Account'), { target: { value: '1' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    applyHeaderFilter('Narration', () => {
+      fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
+    })
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/^\/transactions\?.*search=woolworths/))
     })
-    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/account_id=1/))
+
+    applyHeaderFilter('Account', () => {
+      fireEvent.change(screen.getByLabelText('Account'), { target: { value: '1' } })
+    })
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/account_id=1/))
+    })
+    // Applying Account didn't drop the already-committed Narration filter.
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/search=woolworths.*account_id=1|account_id=1.*search=woolworths/))
+  })
+
+  it('Debit and Credit headers share one amount filter', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    applyHeaderFilter('Debit', () => {
+      fireEvent.change(screen.getByLabelText('Min amount'), { target: { value: '10' } })
+      fireEvent.change(screen.getByLabelText('Max amount'), { target: { value: '50' } })
+    })
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/min_amount=10/))
+    })
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/max_amount=50/))
+
+    // Credit reflects the SAME committed filter - opening it shows the
+    // values Debit just applied, and it carries the active marker too.
+    expect(screen.getByRole('button', { name: 'Filter by Credit' }).querySelector('.header-filter-marker')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filter by Debit' }).querySelector('.header-filter-marker')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Credit' }))
+    expect(screen.getByLabelText('Min amount')).toHaveValue(10)
+    expect(screen.getByLabelText('Max amount')).toHaveValue(50)
   })
 
   it('requests uncategorized=true when the Uncategorized only option is chosen', async () => {
@@ -350,8 +412,9 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'uncategorized' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    applyHeaderFilter('Category', () => {
+      fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'uncategorized' } })
+    })
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/uncategorized=true/))
@@ -381,6 +444,40 @@ describe('TransactionsPage', () => {
     })
   })
 
+  it('the ledger headers are the only filter surface when ungrouped', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    // The grouped view's inline (as="div") fallback filters aren't also
+    // mounted underneath the ungrouped ledger table.
+    expect(screen.getAllByRole('button', { name: 'Filter by Date' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Filter by Account' })).toHaveLength(1)
+  })
+
+  it('the grouped view falls back to inline filters for columns the merchant table lacks', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Filter by Amount' })).toBeInTheDocument()
+    })
+
+    applyHeaderFilter('Amount', () => {
+      fireEvent.change(screen.getByLabelText('Min amount'), { target: { value: '5' } })
+    })
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/^\/transactions\/groups\?.*min_amount=5/))
+    })
+  })
+
   it('scopes the merchant groups request to the applied filters', async () => {
     mockLoad()
 
@@ -393,8 +490,9 @@ describe('TransactionsPage', () => {
       expect(api.get).toHaveBeenCalledWith('/transactions/groups?include_categorized=true')
     })
 
-    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    applyHeaderFilter('Narration', () => {
+      fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
+    })
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith('/transactions/groups?search=coffee&include_categorized=true')
@@ -434,7 +532,9 @@ describe('TransactionsPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Details' }))
     expect(screen.getByText(/IGA NEWPORT.*1234/)).toBeInTheDocument()
 
+    expect(within(row).getByRole('button', { name: 'Set category' })).toBeDisabled()
     fireEvent.change(within(row).getByLabelText('Category for IGA Newport'), { target: { value: '1' } })
+    expect(within(row).getByRole('button', { name: 'Set category' })).not.toBeDisabled()
     fireEvent.click(within(row).getByRole('button', { name: 'Set category' }))
 
     await waitFor(() => {
@@ -447,6 +547,184 @@ describe('TransactionsPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Make rule from IGA Newport' }))
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByLabelText('Narration contains')).toHaveValue('IGA Newport')
+  })
+
+  it('paginates the grouped view at 10 by default, client-side', async () => {
+    const groups = Array.from({ length: 15 }, (_, i) => ({
+      narration_key: `MERCHANT ${i}`,
+      merchant: `Merchant ${i}`,
+      sample_narration: `MERCHANT ${i}`,
+      transaction_count: 2,
+      total_amount: '10.00',
+      direction: 'outflow',
+      first_date: '2026-07-01',
+      last_date: '2026-07-02',
+      account_names: ['Joint Everyday'],
+      transaction_ids: [i * 10, i * 10 + 1],
+      uncategorized_count: 2,
+      category_names: [],
+      split_count: 0,
+    }))
+    mockLoad({ groups })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => expect(screen.getByText('Merchant 0')).toBeInTheDocument())
+
+    // The grouped table only ever shows the ledger's own Pagination
+    // component's page - 10 rows, not all 15, and the count on it reflects
+    // the FULL group list, not just what's shown.
+    expect(screen.getAllByText(/^Merchant \d+$/)).toHaveLength(10)
+    expect(screen.getByText(/Page 1 of 2 \(15 total\)/)).toBeInTheDocument()
+    expect(screen.queryByText('Merchant 10')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(screen.getAllByText(/^Merchant \d+$/)).toHaveLength(5)
+    expect(screen.getByText('Merchant 10')).toBeInTheDocument()
+    expect(screen.queryByText('Merchant 0')).not.toBeInTheDocument()
+  })
+
+  it('the grouped view starts sorted by Count descending - the fetch order made visible', async () => {
+    const groups = [
+      { narration_key: 'A', merchant: 'Small Merchant', sample_narration: 'A', transaction_count: 2, total_amount: '5.00', direction: 'outflow', first_date: '2026-07-01', last_date: '2026-07-01', account_names: [], transaction_ids: [1, 2], uncategorized_count: 2, category_names: [], split_count: 0 },
+      { narration_key: 'B', merchant: 'Big Merchant', sample_narration: 'B', transaction_count: 5, total_amount: '50.00', direction: 'outflow', first_date: '2026-07-01', last_date: '2026-07-01', account_names: [], transaction_ids: [3, 4, 5, 6, 7], uncategorized_count: 5, category_names: [], split_count: 0 },
+    ]
+    mockLoad({ groups })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => expect(screen.getByText('Big Merchant')).toBeInTheDocument())
+
+    // Count is already the active sort with no click needed - Big
+    // Merchant (5) comes before Small Merchant (2) with no interaction.
+    const groupedTable = screen.getByText('Ledger grouped by merchant').closest('table')
+    const rows = groupedTable.querySelectorAll('tbody tr')
+    expect(screen.getByRole('columnheader', { name: /Count/ })).toHaveAttribute('aria-sort', 'descending')
+    expect(rows[0]).toHaveTextContent('Big Merchant')
+  })
+
+  it('sorts the grouped view by Merchant and resets to page 1', async () => {
+    const groups = Array.from({ length: 12 }, (_, i) => ({
+      narration_key: `M${i}`,
+      merchant: i === 0 ? 'Zebra Co' : `Merchant ${i}`,
+      sample_narration: `M${i}`,
+      transaction_count: 12 - i, // distinct counts so the initial order is deterministic
+      total_amount: '10.00',
+      direction: 'outflow',
+      first_date: '2026-07-01',
+      last_date: '2026-07-01',
+      account_names: [],
+      transaction_ids: [i],
+      uncategorized_count: 1,
+      category_names: [],
+      split_count: 0,
+    }))
+    mockLoad({ groups })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+    await waitFor(() => expect(screen.getByText('Zebra Co')).toBeInTheDocument())
+
+    // Move off page 1 first, to prove sorting resets it.
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.getByText(/Page 2 of 2/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Merchant' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Page 1 of 2/)).toBeInTheDocument()
+    })
+    // Ascending by merchant name - "Merchant 1".."Merchant 9" precede
+    // "Zebra Co" lexically; whichever sorts first is on page 1 now.
+    expect(screen.queryByText('Zebra Co')).not.toBeInTheDocument()
+  })
+
+  it('resets the grouped view back to page 1 when a filter changes', async () => {
+    const groups = Array.from({ length: 15 }, (_, i) => ({
+      narration_key: `MERCHANT ${i}`,
+      merchant: `Merchant ${i}`,
+      sample_narration: `MERCHANT ${i}`,
+      transaction_count: 2,
+      total_amount: '10.00',
+      direction: 'outflow',
+      first_date: '2026-07-01',
+      last_date: '2026-07-02',
+      account_names: ['Joint Everyday'],
+      transaction_ids: [i * 10, i * 10 + 1],
+      uncategorized_count: 2,
+      category_names: [],
+      split_count: 0,
+    }))
+    mockLoad({ groups })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+    await waitFor(() => expect(screen.getByText('Merchant 0')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.getByText(/Page 2 of 2/)).toBeInTheDocument()
+
+    applyHeaderFilter('Narration', () => {
+      fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Page 1 of 2/)).toBeInTheDocument()
+    })
+  })
+
+  it('enables Set category by choosing the FIRST category in the list, with none preselected', async () => {
+    // The exact shape of the reported bug: "Childrens Activities" sorts
+    // first, and picking the category already showing shouldn't require
+    // selecting something else and back.
+    const group = {
+      narration_key: 'IGA NEWPORT',
+      merchant: 'IGA Newport',
+      sample_narration: 'IGA NEWPORT              NEWPORT  1234',
+      transaction_count: 3,
+      total_amount: '30.00',
+      direction: 'outflow',
+      first_date: '2026-07-01',
+      last_date: '2026-07-20',
+      account_names: ['Joint Everyday'],
+      transaction_ids: [10, 11, 12],
+      uncategorized_count: 3,
+      category_names: [],
+      split_count: 0,
+    }
+    const categories = [
+      { id: 1, name: 'Childrens Activities' },
+      { id: 2, name: 'Groceries' },
+    ]
+    mockLoad({ groups: [group], categories })
+    api.post.mockResolvedValue({})
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => expect(screen.getByText('IGA Newport')).toBeInTheDocument())
+    const row = screen.getByText('IGA Newport').closest('tr')
+
+    const select = within(row).getByLabelText('Category for IGA Newport')
+    expect(select).toHaveValue('')
+    expect(within(row).getByRole('button', { name: 'Set category' })).toBeDisabled()
+
+    fireEvent.change(select, { target: { value: '1' } })
+
+    expect(within(row).getByRole('button', { name: 'Set category' })).not.toBeDisabled()
   })
 
   it('regression: the Categorized column reflects Set category after the refetch, not just the posted payload', async () => {
@@ -553,14 +831,20 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
+    // The popover seeds its draft from the committed value only while
+    // open - open it to confirm the deep-linked filter made it in.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Narration' }))
     expect(screen.getByLabelText('Narration contains')).toHaveValue('woolworths')
+    fireEvent.keyDown(document, { key: 'Escape' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all filters' }))
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Narration contains')).toHaveValue('')
+      expect(api.get).toHaveBeenCalledWith('/transactions?')
     })
-    expect(api.get).toHaveBeenCalledWith('/transactions?')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Narration' }))
+    expect(screen.getByLabelText('Narration contains')).toHaveValue('')
   })
 
   it('prefills filters from the URL on a deep link', async () => {
@@ -568,9 +852,13 @@ describe('TransactionsPage', () => {
 
     renderPage('/transactions?uncategorized=true&date_from=2026-07-01&date_to=2026-07-31')
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('Category')).toHaveValue('uncategorized')
-    })
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Category' }))
+    expect(screen.getByLabelText('Category')).toHaveValue('uncategorized')
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Date' }))
     expect(screen.getByLabelText('From date')).toHaveValue('2026-07-01')
     expect(screen.getByLabelText('To date')).toHaveValue('2026-07-31')
   })
@@ -602,6 +890,60 @@ describe('TransactionsPage', () => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/page_size=100/))
     })
     expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/page=1/))
+  })
+
+  it('sorts the ledger in SQL via URL params, not client-side, when a header is clicked', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Date' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/sort=date/))
+    })
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/direction=asc/))
+    expect(screen.getByRole('columnheader', { name: /Date/ })).toHaveAttribute('aria-sort', 'ascending')
+  })
+
+  it('cycles a header asc -> desc -> none, resetting to page 1 each time', async () => {
+    mockLoad()
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    // Exact 'Date' - the header also carries a "Filter by Date" toggle
+    // button, so a /Date/ regex here would match both.
+    fireEvent.click(screen.getByRole('button', { name: 'Date' })) // asc
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/direction=asc/)))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Date' })) // desc
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/direction=desc/)))
+    expect(screen.getByRole('columnheader', { name: /Date/ })).toHaveAttribute('aria-sort', 'descending')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Date' })) // none
+    await waitFor(() => {
+      const lastCall = api.get.mock.calls.filter(([p]) => p.startsWith('/transactions?')).pop()[0]
+      expect(lastCall).not.toContain('sort=')
+    })
+    expect(screen.getByRole('columnheader', { name: /Date/ })).toHaveAttribute('aria-sort', 'none')
+  })
+
+  it('Debit and Credit headers share one amount sort', async () => {
+    mockLoad()
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Credit' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/sort=amount/))
+    })
+    // Debit reflects the same active sort, since it's the same key.
+    expect(screen.getByRole('columnheader', { name: /Debit/ })).toHaveAttribute('aria-sort', 'ascending')
   })
 
   it('clears row selection when the page changes', async () => {
@@ -672,8 +1014,9 @@ describe('TransactionsPage', () => {
     const lookupCallsAfterMount = api.get.mock.calls.filter(isLookupCall).length
     expect(lookupCallsAfterMount).toBe(5)
 
-    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    applyHeaderFilter('Narration', () => {
+      fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
+    })
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/search=coffee/))

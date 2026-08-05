@@ -114,6 +114,21 @@ describe('RuleEditor', () => {
     expect(onSaved).toHaveBeenCalled()
   })
 
+  it('enables Save and apply on selecting the FIRST category, with none prefilled', async () => {
+    // The reported bug's exact shape: a group's synthetic transaction has
+    // no category_id (see ruleEditorTransactionFromGroup in
+    // TransactionsPage.jsx), and the category a user wants happens to be
+    // the first in the list.
+    renderEditor({ transaction: { ...transaction, category_id: null } })
+
+    const saveButton = screen.getByRole('button', { name: 'Save and apply' })
+    expect(saveButton).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: '1' } })
+
+    expect(saveButton).not.toBeDisabled()
+  })
+
   it('closes on Escape and on Cancel', () => {
     const { onClose } = renderEditor()
 

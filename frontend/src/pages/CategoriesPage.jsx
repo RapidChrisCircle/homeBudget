@@ -5,10 +5,49 @@ import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { groupByParent } from '../utils/categories.js'
+import { sortRowsBy, useTableSort } from '../utils/tableSort.js'
 
 const CATEGORIES_TABLE_COLUMN_COUNT = 5
+
+// One row per { category, isGroup, groupTotal } wrapper (buildCategorySections
+// below), not a plain Category - so getValue reaches through `.category`.
+const CATEGORY_SORT_COLUMNS = {
+  name: { getValue: (row) => row.category.name, type: 'string' },
+  kind: { getValue: (row) => row.category.kind, type: 'string' },
+  budget: { getValue: (row) => (row.isGroup ? row.groupTotal : row.category.budget_amount), type: 'numeric' },
+}
+
+const UNUSED_SORT_COLUMNS = {
+  name: { getValue: (u) => u.category_name, type: 'string' },
+  budget: { getValue: (u) => u.budget_amount, type: 'numeric' },
+}
+
+const ARCHIVED_SORT_COLUMNS = {
+  name: { getValue: (c) => c.name, type: 'string' },
+}
+
+const BUDGET_SORT_COLUMNS = {
+  category: { getValue: (r) => r.category_name, type: 'string' },
+  standing: { getValue: (r) => r.standing_amount, type: 'numeric' },
+  this_month: { getValue: (r) => r.effective_amount, type: 'numeric' },
+  actual: { getValue: (r) => r.actual, type: 'numeric' },
+  difference: { getValue: (r) => r.difference, type: 'numeric' },
+}
+
+// A group's own row is a rollup (like the Monthly Budgets tfoot's totals
+// row), not a peer of its children - sorting reorders the CHILDREN only,
+// leaving the group row pinned first, the same "sorting reorders tbody
+// only, never the summary" rule the tfoot totals row relies on below.
+function sortSectionRows(rows, sortKey, sortDirection) {
+  if (rows.length > 0 && rows[0].isGroup) {
+    const [groupRow, ...childRows] = rows
+    return [groupRow, ...sortRowsBy(childRows, sortKey, sortDirection, CATEGORY_SORT_COLUMNS)]
+  }
+  return sortRowsBy(rows, sortKey, sortDirection, CATEGORY_SORT_COLUMNS)
+}
 
 const EMPTY_FORM = {
   name: '',
@@ -500,6 +539,20 @@ export default function CategoriesPage() {
     (u) => !u.archived && !parentIds.has(u.category_id) && u.transaction_count === 0 && u.rule_count === 0
   )
 
+  // rows=[] for the grouped categories table specifically - it sorts PER
+  // SECTION via sortSectionRows/sortRowsBy below (this hook's own
+  // sortedRows would need rows shaped like buildCategorySections' wrapper,
+  // which the flat `categories` array isn't), so only sortKey/sortDirection/
+  // toggleSort are used from it.
+  const { sortKey: categorySortKey, sortDirection: categorySortDirection, toggleSort: toggleCategorySort } =
+    useTableSort([], CATEGORY_SORT_COLUMNS)
+  const { sortKey: unusedSortKey, sortDirection: unusedSortDirection, toggleSort: toggleUnusedSort } =
+    useTableSort(unusedCategories, UNUSED_SORT_COLUMNS)
+  const { sortKey: archivedSortKey, sortDirection: archivedSortDirection, toggleSort: toggleArchivedSort } =
+    useTableSort(archivedCategories, ARCHIVED_SORT_COLUMNS)
+  const { sortKey: budgetSortKey, sortDirection: budgetSortDirection, toggleSort: toggleBudgetSort } =
+    useTableSort(budgetData?.categories ?? [], BUDGET_SORT_COLUMNS)
+
   const renderFormFields = () => (
     <>
       <div>
@@ -622,14 +675,14 @@ export default function CategoriesPage() {
               <thead>
                 <tr>
                   <th scope="col"></th>
-                  <th scope="col">Name</th>
-                  <th scope="col">Kind</th>
-                  <th scope="col">Standing Budget</th>
+                  <SortableHeader label="Name" sortKey="name" activeSortKey={categorySortKey} activeDirection={categorySortDirection} onSort={toggleCategorySort} />
+                  <SortableHeader label="Kind" sortKey="kind" activeSortKey={categorySortKey} activeDirection={categorySortDirection} onSort={toggleCategorySort} />
+                  <SortableHeader label="Standing Budget" sortKey="budget" activeSortKey={categorySortKey} activeDirection={categorySortDirection} onSort={toggleCategorySort} />
                   <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>
-                {section.rows.map(({ category, isGroup, groupTotal }) => {
+                {sortSectionRows(section.rows, categorySortKey, categorySortDirection).map(({ category, isGroup, groupTotal }) => {
                   const editId = `category-edit-${category.id}`
                   const isEditing = editingId === category.id
 
@@ -729,13 +782,13 @@ export default function CategoriesPage() {
                 <caption className="visually-hidden">Unused categories</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Name</th>
-                    <th scope="col">Standing Budget</th>
+                    <SortableHeader label="Name" sortKey="name" activeSortKey={unusedSortKey} activeDirection={unusedSortDirection} onSort={toggleUnusedSort} />
+                    <SortableHeader label="Standing Budget" sortKey="budget" activeSortKey={unusedSortKey} activeDirection={unusedSortDirection} onSort={toggleUnusedSort} />
                     <th scope="col"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {unusedCategories.map((u) => (
+                  {sortRowsBy(unusedCategories, unusedSortKey, unusedSortDirection, UNUSED_SORT_COLUMNS).map((u) => (
                     <tr key={u.category_id}>
                       <td>{u.category_name}</td>
                       <td><Amount value={u.budget_amount} neutral /></td>
@@ -761,12 +814,12 @@ export default function CategoriesPage() {
             <caption className="visually-hidden">Archived categories</caption>
             <thead>
               <tr>
-                <th scope="col">Name</th>
+                <SortableHeader label="Name" sortKey="name" activeSortKey={archivedSortKey} activeDirection={archivedSortDirection} onSort={toggleArchivedSort} />
                 <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
-              {archivedCategories.map((category) => (
+              {sortRowsBy(archivedCategories, archivedSortKey, archivedSortDirection, ARCHIVED_SORT_COLUMNS).map((category) => (
                 <tr key={category.id}>
                   <td>
                     {category.name}
@@ -810,16 +863,20 @@ export default function CategoriesPage() {
                 <caption className="visually-hidden">Monthly budgets</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Category</th>
-                    <th scope="col">Standing</th>
-                    <th scope="col">This Month</th>
-                    <th scope="col">Actual</th>
-                    <th scope="col">Difference</th>
+                    <SortableHeader label="Category" sortKey="category" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
+                    <SortableHeader label="Standing" sortKey="standing" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
+                    <SortableHeader label="This Month" sortKey="this_month" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
+                    <SortableHeader label="Actual" sortKey="actual" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
+                    <SortableHeader label="Difference" sortKey="difference" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
                     <th scope="col"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {budgetData.categories.map((row) => (
+                  {/* Sorting reorders tbody only - the tfoot totals row
+                      below always stays last, the same "summary row is
+                      pinned" rule sortSectionRows applies to a category
+                      group's own row above. */}
+                  {sortRowsBy(budgetData.categories, budgetSortKey, budgetSortDirection, BUDGET_SORT_COLUMNS).map((row) => (
                     <tr key={row.category_id}>
                       <td>{row.category_name}</td>
                       <td><Amount value={row.standing_amount} neutral /></td>

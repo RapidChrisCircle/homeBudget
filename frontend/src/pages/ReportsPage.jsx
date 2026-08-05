@@ -6,8 +6,28 @@ import Card from '../components/Card.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { uncategorizedLedgerLink } from '../utils/format.js'
+import { useTableSort } from '../utils/tableSort.js'
+
+const BUDGET_VS_ACTUAL_SORT_COLUMNS = {
+  category: { getValue: (l) => l.category_name, type: 'string' },
+  budget: { getValue: (l) => l.budget_amount, type: 'numeric' },
+  actual: { getValue: (l) => l.actual, type: 'numeric' },
+  difference: { getValue: (l) => l.difference, type: 'numeric' },
+}
+
+// Only Category/Total are sortable, not each individual period column - a
+// per-period sort key would be a different comparator per rendered column,
+// generated dynamically from `grid.periods`, for a use case ("rank
+// categories by March specifically") thin enough not to earn that
+// complexity. Category Totals' own row order otherwise still reads
+// top-to-bottom by total, same as before.
+const CATEGORY_TOTALS_SORT_COLUMNS = {
+  category: { getValue: (r) => r.category_name, type: 'string' },
+  total: { getValue: (r) => r.total, type: 'numeric' },
+}
 
 export default function ReportsPage() {
   const [report, setReport] = useState(null)
@@ -58,6 +78,14 @@ export default function ReportsPage() {
       setActionError(String(message))
     }
   }
+
+  // Called unconditionally, before the loading/error/empty early returns
+  // below - React requires hooks to run in the same order every render, so
+  // they can't live after a conditional return the way this page's other
+  // derived values do. `report` is null until the fetch resolves, hence
+  // the optional chaining.
+  const budgetVsActualSort = useTableSort(report?.budgets ?? [], BUDGET_VS_ACTUAL_SORT_COLUMNS)
+  const categoryTotalsSort = useTableSort(report?.grid?.rows ?? [], CATEGORY_TOTALS_SORT_COLUMNS)
 
   if (loading) {
     return (
@@ -154,14 +182,14 @@ export default function ReportsPage() {
             <caption className="visually-hidden">Budget vs actual by category</caption>
             <thead>
               <tr>
-                <th scope="col">Category</th>
-                <th scope="col">Budget</th>
-                <th scope="col">Actual</th>
-                <th scope="col">Difference</th>
+                <SortableHeader label="Category" sortKey="category" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} />
+                <SortableHeader label="Budget" sortKey="budget" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} />
+                <SortableHeader label="Actual" sortKey="actual" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} />
+                <SortableHeader label="Difference" sortKey="difference" activeSortKey={budgetVsActualSort.sortKey} activeDirection={budgetVsActualSort.sortDirection} onSort={budgetVsActualSort.toggleSort} />
               </tr>
             </thead>
             <tbody>
-              {budgets.map((line) => (
+              {budgetVsActualSort.sortedRows.map((line) => (
                 <tr key={line.category_id}>
                   <td>{line.category_name}</td>
                   <td><Amount value={line.budget_amount} neutral /></td>
@@ -191,15 +219,15 @@ export default function ReportsPage() {
             <caption className="visually-hidden">Category totals over time</caption>
             <thead>
               <tr>
-                <th scope="col">Category</th>
+                <SortableHeader label="Category" sortKey="category" activeSortKey={categoryTotalsSort.sortKey} activeDirection={categoryTotalsSort.sortDirection} onSort={categoryTotalsSort.toggleSort} />
                 {grid.periods.map((period) => (
                   <th scope="col" key={period.label}>{period.label}</th>
                 ))}
-                <th scope="col">Total</th>
+                <SortableHeader label="Total" sortKey="total" activeSortKey={categoryTotalsSort.sortKey} activeDirection={categoryTotalsSort.sortDirection} onSort={categoryTotalsSort.toggleSort} />
               </tr>
             </thead>
             <tbody>
-              {grid.rows.map((row) => (
+              {categoryTotalsSort.sortedRows.map((row) => (
                 <tr key={row.category_id}>
                   <td>{row.category_name}</td>
                   {grid.periods.map((period) => (

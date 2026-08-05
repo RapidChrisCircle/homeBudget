@@ -3,7 +3,9 @@ import {
   EMPTY_FILTERS,
   filtersFromSearchParams,
   groupsQueryFromSearchParams,
+  nextSortParams,
   searchParamsFromFilters,
+  sortFromSearchParams,
 } from './ledgerFilterParams.js'
 
 // The account field maps to EITHER account_id or account_group_id - the
@@ -82,5 +84,61 @@ describe('groupsQueryFromSearchParams', () => {
     expect(query).not.toContain('page=')
     expect(query).not.toContain('page_size=')
     expect(query).toContain('search=coffee')
+  })
+})
+
+// Sort state - server-side (the ledger is paginated), read directly off the
+// URL like page/page_size rather than folded into the filter form object.
+describe('sortFromSearchParams / nextSortParams', () => {
+  it('returns null sort when nothing is set', () => {
+    expect(sortFromSearchParams(new URLSearchParams())).toEqual({ sort: null, direction: null })
+  })
+
+  it('ignores an unrecognized sort column - never sends garbage to the API', () => {
+    const params = new URLSearchParams({ sort: 'not-a-real-column' })
+
+    expect(sortFromSearchParams(params)).toEqual({ sort: null, direction: null })
+  })
+
+  it('defaults direction to asc when only sort is set', () => {
+    expect(sortFromSearchParams(new URLSearchParams({ sort: 'date' }))).toEqual({ sort: 'date', direction: 'asc' })
+  })
+
+  it('reads an explicit desc direction', () => {
+    const params = new URLSearchParams({ sort: 'amount', direction: 'desc' })
+
+    expect(sortFromSearchParams(params)).toEqual({ sort: 'amount', direction: 'desc' })
+  })
+
+  it('nextSortParams starts a fresh column at asc', () => {
+    const next = nextSortParams(new URLSearchParams(), 'date')
+
+    expect(next.get('sort')).toBe('date')
+    expect(next.get('direction')).toBe('asc')
+  })
+
+  it('nextSortParams cycles the SAME column asc -> desc -> none', () => {
+    let params = nextSortParams(new URLSearchParams(), 'date')
+    expect(sortFromSearchParams(params)).toEqual({ sort: 'date', direction: 'asc' })
+
+    params = nextSortParams(params, 'date')
+    expect(sortFromSearchParams(params)).toEqual({ sort: 'date', direction: 'desc' })
+
+    params = nextSortParams(params, 'date')
+    expect(sortFromSearchParams(params)).toEqual({ sort: null, direction: null })
+    expect(params.has('sort')).toBe(false)
+    expect(params.has('direction')).toBe(false)
+  })
+
+  it('nextSortParams switching to a different column starts it fresh at asc', () => {
+    const onDate = nextSortParams(new URLSearchParams({ sort: 'date', direction: 'desc' }), 'amount')
+
+    expect(sortFromSearchParams(onDate)).toEqual({ sort: 'amount', direction: 'asc' })
+  })
+
+  it('nextSortParams resets to page 1', () => {
+    const next = nextSortParams(new URLSearchParams({ page: '3' }), 'date')
+
+    expect(next.get('page')).toBe('1')
   })
 })

@@ -33,11 +33,34 @@ Filter semantics, in one place so the API and any future caller agree:
   in Python against an ORM instance and this runs in SQL against a query;
   they cannot be merged, so a test asserts they agree on a boundary value.
 
-Ordering is always transaction_date DESC, id DESC - already deterministic
+Ordering defaults to transaction_date DESC, id DESC - already deterministic
 before pagination existed, which is exactly what pagination needs: a
 non-deterministic sort would silently duplicate or drop rows across pages
 whenever transaction_date ties exist (imports routinely produce same-day
 batches).
+
+build_transaction_query also accepts an explicit `sort` (one of
+SORTABLE_COLUMNS) and `direction` ("asc"/"desc") - the ledger's own
+sortable column headers, not client-side sorting, because this query is
+PAGINATED: sorting only the rows on one page would silently lie about the
+full result. Two rules every sort obeys:
+
+- **`id DESC` is always the final tiebreaker**, whatever the chosen column
+  or direction - a user-selectable sort multiplies the chance of ties (a
+  whole day of transactions sharing a date, many rows sharing "no
+  category") far more than the fixed default ever did, and pagination's
+  determinism depends on it exactly as much as it always has.
+- **NULLs sort last in both directions** (`.nulls_last()`) - an unset
+  account/category is absent, not smallest, the same reasoning that already
+  renders a null balance as "No transactions yet" rather than `0.00`.
+  "account"/"category" can genuinely be NULL (an unlinked transaction, an
+  uncategorized one); "date"/"narration" cannot (both NOT NULL columns) and
+  "amount" only in the same theoretical case _AMOUNT_EXPR itself already
+  coalesces away.
+
+Sorting by "amount" reuses `_AMOUNT_EXPR` - the exact expression the
+min_amount/max_amount FILTER already uses - so sorting and filtering can
+never disagree about what "amount" means for a row.
 
 Account balances come from the bank's own running `balance` column on the
 most recent transaction per account - never summed from debits/credits, since
@@ -84,6 +107,23 @@ LIST_LOADERS = (
 # convention, expressed as a SQL expression instead of a Python function.
 _AMOUNT_EXPR = func.abs(func.coalesce(Transaction.debit, 0) + func.coalesce(Transaction.credit, 0))
 
+# The ledger's sortable column headers - see build_transaction_query's own
+# docstring for the id-tiebreaker and nulls-last rules every one of these
+# obeys. "account"/"category" need an explicit join (added only when that
+# column is the active sort, not unconditionally - LIST_LOADERS above makes
+# the same "don't pay for a join the query doesn't need" call for the count).
+SORTABLE_COLUMNS = ("date", "narration", "amount", "account", "category", "balance", "type")
+
+_SORT_EXPRESSIONS = {
+    "date": Transaction.transaction_date,
+    "narration": func.lower(Transaction.narration),
+    "amount": _AMOUNT_EXPR,
+    "account": Account.name,
+    "category": Category.name,
+    "balance": Transaction.balance,
+    "type": func.lower(Transaction.transaction_type),
+}
+
 
 @dataclass
 class TransactionFilters:
@@ -105,7 +145,9 @@ class TransactionFilters:
     max_amount: Decimal | None = None
 
 
-def build_transaction_query(db: Session, filters: TransactionFilters) -> Query:
+def build_transaction_query(
+    db: Session, filters: TransactionFilters, *, sort: str | None = None, direction: str = "asc"
+) -> Query:
 
     query = db.query(Transaction)
 
@@ -143,7 +185,20 @@ def build_transaction_query(db: Session, filters: TransactionFilters) -> Query:
     if filters.max_amount is not None:
         query = query.filter(_AMOUNT_EXPR <= filters.max_amount)
 
-    return query.order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
+    if sort not in _SORT_EXPRESSIONS:
+        return query.order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
+
+    if sort == "account":
+        query = query.outerjoin(Account, Transaction.account_id == Account.id)
+    elif sort == "category":
+        query = query.outerjoin(Category, Transaction.category_id == Category.id)
+
+    column = _SORT_EXPRESSIONS[sort]
+    primary = column.asc() if direction == "asc" else column.desc()
+
+    # id DESC is the final tiebreaker regardless of the chosen column or
+    # direction - see the module docstring for why pagination depends on it.
+    return query.order_by(primary.nulls_last(), Transaction.id.desc())
 
 
 def paginate(query: Query, page: int, page_size: int, options=()) -> tuple[list[Transaction], int]:

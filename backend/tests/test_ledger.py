@@ -220,6 +220,135 @@ def test_combined_filters_are_anded(db_session):
     assert results[0].category_id == groceries.id
 
 
+# --- Sorting -----------------------------------------------------------
+# The ledger is PAGINATED, so sorting has to happen in SQL across the whole
+# result set - sorting only the rows already on a page would silently lie
+# about the full set. Every test here seeds more rows than one page for
+# exactly that reason: it's the assertion that fails if sorting were ever
+# done client-side instead.
+
+def test_sort_by_amount_ascending_orders_the_whole_result_set_not_just_a_page(db_session):
+
+    # Debits and credits mixed - amount sorting is on the ABSOLUTE value of
+    # whichever is populated (the same convention the amount filter uses).
+    amounts = [50, 10, 90, 30, 70, 20, 80, 40, 60, 5, 100, 15]
+    for i, amount in enumerate(amounts):
+        if i % 2 == 0:
+            make_transaction(db_session, transaction_date=date(2026, 7, 1), narration=f"Row {i}", debit=f"-{amount}.00")
+        else:
+            make_transaction(db_session, transaction_date=date(2026, 7, 1), narration=f"Row {i}", credit=f"{amount}.00")
+    db_session.commit()
+
+    query = build_transaction_query(db_session, TransactionFilters(), sort="amount", direction="asc")
+    page1, total = paginate(query, page=1, page_size=5)
+
+    assert total == len(amounts)
+    # The global minimum (5) must be first - would fail if only the DB's
+    # insertion/default order were paginated and sorted after the fact.
+    assert page1[0].narration == "Row 9"
+    page1_amounts = [abs(float(t.debit or t.credit)) for t in page1]
+    assert page1_amounts == sorted(amounts)[:5]
+
+
+def test_sort_by_amount_descending_puts_the_global_maximum_first(db_session):
+
+    amounts = [50, 10, 90, 30, 70, 20, 80, 40, 60, 5, 100, 15]
+    for i, amount in enumerate(amounts):
+        make_transaction(db_session, transaction_date=date(2026, 7, 1), narration=f"Row {i}", debit=f"-{amount}.00")
+    db_session.commit()
+
+    query = build_transaction_query(db_session, TransactionFilters(), sort="amount", direction="desc")
+    page1, _ = paginate(query, page=1, page_size=1)
+
+    assert page1[0].narration == "Row 10"  # amount 100, the maximum
+
+
+def test_sort_id_tiebreak_pages_a_tied_column_without_gaps_or_duplicates(db_session):
+    """A user-selectable sort column multiplies the chance of ties (many
+    rows sharing the same date) far more than the fixed default order ever
+    did - id DESC has to keep resolving them or paging would duplicate or
+    drop rows.
+    """
+
+    for i in range(9):
+        make_transaction(db_session, transaction_date=date(2026, 7, 1), narration=f"Row {i}")
+    db_session.commit()
+
+    query = build_transaction_query(db_session, TransactionFilters(), sort="date", direction="asc")
+    page1, total = paginate(query, page=1, page_size=4)
+    page2, _ = paginate(query, page=2, page_size=4)
+    page3, _ = paginate(query, page=3, page_size=4)
+
+    assert total == 9
+    all_ids = [t.id for t in page1] + [t.id for t in page2] + [t.id for t in page3]
+    assert len(all_ids) == len(set(all_ids)) == 9
+    # Tiebreak is id DESC - within the tied date, ids descend.
+    assert [t.id for t in page1] == sorted([t.id for t in page1], reverse=True)
+
+
+def test_sort_by_category_puts_nulls_last_ascending_and_descending(db_session):
+
+    groceries = make_category(db_session, name="Groceries")
+    for i in range(3):
+        make_transaction(db_session, transaction_date=date(2026, 7, 1), narration=f"Uncategorized {i}", category_id=None)
+    make_transaction(db_session, transaction_date=date(2026, 7, 1), narration="Categorized", category_id=groceries.id)
+    db_session.commit()
+
+    for direction in ("asc", "desc"):
+        query = build_transaction_query(db_session, TransactionFilters(), sort="category", direction=direction)
+        results = query.all()
+        # The one categorized row never lands after any uncategorized row,
+        # in EITHER direction - nulls sort last regardless.
+        assert results[-1].category_id is None
+        assert results[-2].category_id is None
+        assert results[-3].category_id is None
+        assert results[0].category_id == groceries.id
+
+
+def test_sort_by_narration_is_case_insensitive(db_session):
+
+    make_transaction(db_session, transaction_date=date(2026, 7, 1), narration="banana")
+    make_transaction(db_session, transaction_date=date(2026, 7, 1), narration="Apple")
+    db_session.commit()
+
+    query = build_transaction_query(db_session, TransactionFilters(), sort="narration", direction="asc")
+    results = query.all()
+
+    assert [t.narration for t in results] == ["Apple", "banana"]
+
+
+def test_sort_by_balance_and_type_used_on_the_account_detail_ledger(db_session):
+    """Both columns are NOT NULL (unlike account/category), so this is
+    mostly a smoke test that the column mapping is wired correctly.
+    """
+
+    make_transaction(db_session, transaction_date=date(2026, 7, 1), balance="50.00", transaction_type="DEP")
+    make_transaction(db_session, transaction_date=date(2026, 7, 1), balance="10.00", transaction_type="WDL")
+
+    balance_query = build_transaction_query(db_session, TransactionFilters(), sort="balance", direction="asc")
+    assert [str(t.balance) for t in balance_query.all()] == ["10.00", "50.00"]
+
+    type_query = build_transaction_query(db_session, TransactionFilters(), sort="type", direction="asc")
+    assert [t.transaction_type for t in type_query.all()] == ["DEP", "WDL"]
+
+
+def test_unrecognized_sort_falls_back_to_the_default_order(db_session):
+    """build_transaction_query itself is permissive - the API layer is what
+    rejects an invalid `sort` with a 422 (see test_transactions.py), not
+    this function, which is also called directly by tests and other
+    services that may pass sort=None deliberately.
+    """
+
+    make_transaction(db_session, transaction_date=date(2026, 7, 1))
+    make_transaction(db_session, transaction_date=date(2026, 7, 2))
+    db_session.commit()
+
+    default_query = build_transaction_query(db_session, TransactionFilters())
+    garbage_sort_query = build_transaction_query(db_session, TransactionFilters(), sort="not-a-column")
+
+    assert [t.id for t in default_query.all()] == [t.id for t in garbage_sort_query.all()]
+
+
 def test_pagination_pages_through_results_without_gaps_or_duplicates(db_session):
 
     for i in range(5):

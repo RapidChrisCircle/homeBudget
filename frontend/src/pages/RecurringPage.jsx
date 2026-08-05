@@ -4,8 +4,10 @@ import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { recurringLedgerLink } from '../utils/format.js'
+import { useTableSort } from '../utils/tableSort.js'
 
 const STATUS_LABELS = {
   active: 'Active',
@@ -23,6 +25,23 @@ const STATUS_TONES = {
 
 function cadenceLabel(series) {
   return series.cadence.charAt(0).toUpperCase() + series.cadence.slice(1)
+}
+
+const ACTIVE_SORT_COLUMNS = {
+  merchant: { getValue: (i) => i.merchant, type: 'string' },
+  account: { getValue: (i) => i.account_name, type: 'string' },
+  cadence: { getValue: (i) => cadenceLabel(i), type: 'string' },
+  typical_amount: { getValue: (i) => i.typical_amount, type: 'numeric' },
+  last_seen: { getValue: (i) => i.last_date, type: 'date' },
+  next_due: { getValue: (i) => i.next_due_date, type: 'date' },
+  annual_cost: { getValue: (i) => i.annual_cost, type: 'numeric' },
+  status: { getValue: (i) => STATUS_LABELS[i.status] || i.status, type: 'string' },
+}
+
+const DISMISSED_SORT_COLUMNS = {
+  merchant: { getValue: (i) => i.merchant, type: 'string' },
+  account: { getValue: (i) => i.account_name, type: 'string' },
+  cadence: { getValue: (i) => cadenceLabel(i), type: 'string' },
 }
 
 export default function RecurringPage() {
@@ -94,6 +113,14 @@ export default function RecurringPage() {
     }
   }
 
+  // Computed here, unconditionally, and BEFORE the loading/error early
+  // returns below - the useTableSort calls are hooks, which React requires
+  // to run in the same order every render.
+  const active = series.filter((item) => !item.dismissed)
+  const dismissed = series.filter((item) => item.dismissed)
+  const activeSort = useTableSort(active, ACTIVE_SORT_COLUMNS)
+  const dismissedSort = useTableSort(dismissed, DISMISSED_SORT_COLUMNS)
+
   if (loading) {
     return (
       <section className="card">
@@ -111,9 +138,6 @@ export default function RecurringPage() {
       </section>
     )
   }
-
-  const active = series.filter((item) => !item.dismissed)
-  const dismissed = series.filter((item) => item.dismissed)
 
   return (
     <section className="card">
@@ -138,19 +162,19 @@ export default function RecurringPage() {
             <caption className="visually-hidden">Detected recurring payments</caption>
             <thead>
               <tr>
-                <th scope="col">Merchant</th>
-                <th scope="col">Account</th>
-                <th scope="col">Cadence</th>
-                <th scope="col">Typical amount</th>
-                <th scope="col">Last seen</th>
-                <th scope="col">Next due</th>
-                <th scope="col">Annual cost</th>
-                <th scope="col">Status</th>
+                <SortableHeader label="Merchant" sortKey="merchant" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
+                <SortableHeader label="Account" sortKey="account" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
+                <SortableHeader label="Cadence" sortKey="cadence" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
+                <SortableHeader label="Typical amount" sortKey="typical_amount" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
+                <SortableHeader label="Last seen" sortKey="last_seen" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
+                <SortableHeader label="Next due" sortKey="next_due" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
+                <SortableHeader label="Annual cost" sortKey="annual_cost" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
+                <SortableHeader label="Status" sortKey="status" activeSortKey={activeSort.sortKey} activeDirection={activeSort.sortDirection} onSort={activeSort.toggleSort} />
                 <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
-              {active.map((item) => (
+              {activeSort.sortedRows.map((item) => (
                 <tr key={`${item.account_id}-${item.narration_key}`}>
                   <td>{item.merchant}</td>
                   <td>{item.account_name}</td>
@@ -192,14 +216,14 @@ export default function RecurringPage() {
               <caption className="visually-hidden">Dismissed recurring payments</caption>
               <thead>
                 <tr>
-                  <th scope="col">Merchant</th>
-                  <th scope="col">Account</th>
-                  <th scope="col">Cadence</th>
+                  <SortableHeader label="Merchant" sortKey="merchant" activeSortKey={dismissedSort.sortKey} activeDirection={dismissedSort.sortDirection} onSort={dismissedSort.toggleSort} />
+                  <SortableHeader label="Account" sortKey="account" activeSortKey={dismissedSort.sortKey} activeDirection={dismissedSort.sortDirection} onSort={dismissedSort.toggleSort} />
+                  <SortableHeader label="Cadence" sortKey="cadence" activeSortKey={dismissedSort.sortKey} activeDirection={dismissedSort.sortDirection} onSort={dismissedSort.toggleSort} />
                   <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>
-                {dismissed.map((item) => (
+                {dismissedSort.sortedRows.map((item) => (
                   <tr key={`${item.account_id}-${item.narration_key}`}>
                     <td>{item.merchant}</td>
                     <td>{item.account_name}</td>

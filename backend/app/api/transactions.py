@@ -33,6 +33,7 @@ from ..services.ledger import (
     DEFAULT_PAGE_SIZE,
     LIST_LOADERS,
     MAX_PAGE_SIZE,
+    SORTABLE_COLUMNS,
     TransactionFilters,
     build_transaction_query,
     paginate,
@@ -193,6 +194,8 @@ def list_transactions(
     # services/ledger.py) - a negative bound is a client bug, not a query.
     min_amount: Decimal | None = Query(None, ge=0),
     max_amount: Decimal | None = Query(None, ge=0),
+    sort: str | None = None,
+    direction: str = "asc",
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db)
@@ -225,6 +228,23 @@ def list_transactions(
             detail="min_amount must not be greater than max_amount",
         )
 
+    # Sorting this endpoint client-side would silently sort only the current
+    # page - see build_transaction_query's own docstring for why the whole
+    # result set is sorted in SQL instead. An unrecognized column or
+    # direction is rejected rather than silently falling back to the
+    # default order, which would look like "sorting did nothing".
+    if sort is not None and sort not in SORTABLE_COLUMNS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"sort must be one of: {', '.join(SORTABLE_COLUMNS)}",
+        )
+
+    if direction not in ("asc", "desc"):
+        raise HTTPException(
+            status_code=422,
+            detail="direction must be 'asc' or 'desc'",
+        )
+
     filters = TransactionFilters(
         account_id=account_id,
         account_group_id=account_group_id,
@@ -238,7 +258,7 @@ def list_transactions(
         max_amount=max_amount,
     )
 
-    query = build_transaction_query(db, filters)
+    query = build_transaction_query(db, filters, sort=sort, direction=direction)
     items, total = paginate(query, page=page, page_size=page_size, options=LIST_LOADERS)
 
     return TransactionListResponse(

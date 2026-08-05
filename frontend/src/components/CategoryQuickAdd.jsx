@@ -80,7 +80,9 @@ export default function CategoryQuickAdd({
           onChange={(e) => onChange(e.target.value)}
           fallbackOption={fallbackOption}
         >
-          {includeUncategorized && <option value="">Uncategorized</option>}
+          {includeUncategorized
+            ? <option value="">Uncategorized</option>
+            : <option value="">Select a category</option>}
         </CategorySelect>
       </label>
 

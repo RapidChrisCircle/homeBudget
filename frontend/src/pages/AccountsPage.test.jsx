@@ -458,4 +458,65 @@ describe('AccountsPage', () => {
       expect(api.put).toHaveBeenCalledWith('/accounts/2', expect.objectContaining({ group_id: 9 }))
     })
   })
+
+  // --- Sorting --------------------------------------------------------------
+
+  it('sorts the accounts table by Name, client-side', async () => {
+    const zebra = { ...sampleAccount, id: 3, name: 'Zebra Account', account_number: '0000' }
+    mockLoad([sampleAccount, zebra])
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Zebra Account')).toBeInTheDocument())
+
+    const accountsCard = screen.getByText('All Accounts').closest('.card')
+    const rowsBefore = accountsCard.querySelectorAll('tbody tr')
+    expect(within(rowsBefore[0]).getByText('Joint Everyday')).toBeInTheDocument()
+
+    fireEvent.click(within(accountsCard).getByRole('button', { name: 'Name' }))
+
+    const rowsAfter = accountsCard.querySelectorAll('tbody tr')
+    expect(within(rowsAfter[0]).getByText('Joint Everyday')).toBeInTheDocument() // J < Z ascending
+
+    fireEvent.click(within(accountsCard).getByRole('button', { name: /Name/ })) // desc
+    const rowsDesc = accountsCard.querySelectorAll('tbody tr')
+    expect(within(rowsDesc[0]).getByText('Zebra Account')).toBeInTheDocument()
+  })
+
+  it('sorts each account-group section independently, sharing one sortKey', async () => {
+    const group = { id: 9, name: 'Visa Group', created_at: '2026-07-24T10:00:00Z' }
+    const zebraCard = { ...sampleCard, id: 3, name: 'Zebra Visa', group_id: 9, group_name: 'Visa Group' }
+    const appleCard = { ...sampleCard, id: 4, name: 'Apple Visa', account_number: '1111', group_id: 9, group_name: 'Visa Group' }
+    mockLoad([zebraCard, appleCard], { groups: [group] })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Zebra Visa')).toBeInTheDocument())
+
+    const groupSection = screen.getByRole('button', { name: /Visa Group/ }).closest('.card')
+    const nameHeaderInGroup = within(groupSection).getByRole('button', { name: 'Name' })
+    fireEvent.click(nameHeaderInGroup)
+
+    const rows = groupSection.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Apple Visa')).toBeInTheDocument()
+  })
+
+  it('sorts the account groups table by Name', async () => {
+    const groups = [
+      { id: 1, name: 'Zebra Group', created_at: '2026-07-24T10:00:00Z' },
+      { id: 2, name: 'Apple Group', created_at: '2026-07-24T10:00:00Z' },
+    ]
+    mockLoad([], { groups })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Account Groups')).toBeInTheDocument())
+    const groupsCard = screen.getByText('Account Groups').closest('.card')
+    await waitFor(() => expect(within(groupsCard).getByText('Zebra Group')).toBeInTheDocument())
+
+    fireEvent.click(within(groupsCard).getByRole('button', { name: 'Name' }))
+
+    const rows = groupsCard.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Apple Group')).toBeInTheDocument()
+  })
 })

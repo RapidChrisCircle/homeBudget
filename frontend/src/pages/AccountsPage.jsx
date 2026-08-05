@@ -4,11 +4,30 @@ import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { ACCOUNT_TYPE_OPTIONS, accountTypeLabel, isLiabilityType } from '../utils/accountTypes.js'
 import { formatBalance } from '../utils/format.js'
+import { sortRowsBy, useTableSort } from '../utils/tableSort.js'
 
 const ACCOUNTS_TABLE_COLUMN_COUNT = 7
+
+// Sorted PER SECTION (see buildAccountSections below) rather than merged
+// into one list - one shared sortKey/direction (from useTableSort) applies
+// independently within each group's own table via sortRowsBy, the same
+// pattern CategoriesPage's parent/child sections use.
+const ACCOUNT_SORT_COLUMNS = {
+  name: { getValue: (a) => a.name, type: 'string' },
+  institution: { getValue: (a) => a.institution, type: 'string' },
+  type: { getValue: (a) => accountTypeLabel(a.account_type), type: 'string' },
+  bsb: { getValue: (a) => a.bsb_number, type: 'string' },
+  account_number: { getValue: (a) => a.account_number, type: 'string' },
+  balance: { getValue: (a) => a.balance, type: 'numeric' },
+}
+
+const ACCOUNT_GROUP_SORT_COLUMNS = {
+  name: { getValue: (g) => g.name, type: 'string' },
+}
 
 const EMPTY_FORM = {
   name: '',
@@ -383,22 +402,30 @@ export default function AccountsPage() {
 
   const sections = buildAccountSections(accounts)
 
+  // rows=accounts is only used to size the hook's own (unused) sortedRows -
+  // the actual sort is applied per-section below via sortRowsBy, since
+  // sections are independent tables sharing this one sortKey/direction.
+  const { sortKey: accountSortKey, sortDirection: accountSortDirection, toggleSort: toggleAccountSort } =
+    useTableSort(accounts, ACCOUNT_SORT_COLUMNS)
+  const { sortKey: groupSortKey, sortDirection: groupSortDirection, toggleSort: toggleGroupSort } =
+    useTableSort(groups, ACCOUNT_GROUP_SORT_COLUMNS)
+
   const renderAccountsTable = (sectionAccounts) => (
     <table>
       <caption className="visually-hidden">Accounts</caption>
       <thead>
         <tr>
-          <th scope="col">Name</th>
-          <th scope="col">Institution</th>
-          <th scope="col">Type</th>
-          <th scope="col">BSB</th>
-          <th scope="col">Account Number</th>
-          <th scope="col">Balance</th>
+          <SortableHeader label="Name" sortKey="name" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
+          <SortableHeader label="Institution" sortKey="institution" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
+          <SortableHeader label="Type" sortKey="type" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
+          <SortableHeader label="BSB" sortKey="bsb" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
+          <SortableHeader label="Account Number" sortKey="account_number" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
+          <SortableHeader label="Balance" sortKey="balance" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
           <th scope="col"></th>
         </tr>
       </thead>
       <tbody>
-        {sectionAccounts.map((account) => {
+        {sortRowsBy(sectionAccounts, accountSortKey, accountSortDirection, ACCOUNT_SORT_COLUMNS).map((account) => {
           const editId = `account-edit-${account.id}`
           const isEditing = editingId === account.id
 
@@ -521,13 +548,13 @@ export default function AccountsPage() {
             <caption className="visually-hidden">Account groups</caption>
             <thead>
               <tr>
-                <th scope="col">Name</th>
+                <SortableHeader label="Name" sortKey="name" activeSortKey={groupSortKey} activeDirection={groupSortDirection} onSort={toggleGroupSort} />
                 <th scope="col">Members</th>
                 <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
-              {groups.map((group) => {
+              {sortRowsBy(groups, groupSortKey, groupSortDirection, ACCOUNT_GROUP_SORT_COLUMNS).map((group) => {
                 const memberCount = accounts.filter((account) => account.group_id === group.id).length
                 const isRenaming = renamingGroupId === group.id
 

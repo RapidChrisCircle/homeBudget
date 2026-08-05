@@ -8,21 +8,35 @@ import CategorySelect from '../components/CategorySelect.jsx'
 import CsvFormatMapper from '../components/CsvFormatMapper.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
-import LedgerFilters from '../components/LedgerFilters.jsx'
+import HeaderFilter from '../components/HeaderFilter.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import Pagination from '../components/Pagination.jsx'
 import RuleEditor from '../components/RuleEditor.jsx'
+import SortableHeader from '../components/SortableHeader.jsx'
 import SplitEditor from '../components/SplitEditor.jsx'
 import {
   DEFAULT_PAGE_SIZE,
   EMPTY_FILTERS,
   filtersFromSearchParams,
   groupsQueryFromSearchParams,
+  nextSortParams,
   pageSizeFromSearchParams,
   searchParamsFromFilters,
+  sortFromSearchParams,
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
+import { useTableSort } from '../utils/tableSort.js'
 import { groupCategorySummary } from '../utils/transactionGroups.js'
+
+// Merchant/Count/Total are sortable; Date range and Categorized are left
+// out - a range and a derived summary string are a poor fit for a single
+// sort key, the same reasoning that keeps the ledger's own amount sort to
+// one shared "amount" key rather than inventing a range comparator.
+const GROUP_SORT_COLUMNS = {
+  merchant: { getValue: (g) => g.merchant, type: 'string' },
+  count: { getValue: (g) => g.transaction_count, type: 'numeric' },
+  total: { getValue: (g) => g.total_amount, type: 'numeric' },
+}
 
 function formatAccount(transaction) {
   if (transaction.bsb_number) {
@@ -50,7 +64,6 @@ export default function TransactionsPage() {
   const [applyMessage, setApplyMessage] = useState('')
   const [applying, setApplying] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
-  const [filterForm, setFilterForm] = useState(() => filtersFromSearchParams(searchParams))
   const [splitEditorTransaction, setSplitEditorTransaction] = useState(null)
   const [ruleEditorTransaction, setRuleEditorTransaction] = useState(null)
   const [mappingPanel, setMappingPanel] = useState(null)
@@ -76,6 +89,17 @@ export default function TransactionsPage() {
   // inherits a stale selection.
   const [groupCategorySelections, setGroupCategorySelections] = useState({})
   const [assigningGroupKey, setAssigningGroupKey] = useState(null)
+  // Pagination over the already-fetched `groups` array, done client-side -
+  // unlike the ledger's own page, this is NOT a URL param. Grouping itself
+  // stays computed server-side over the whole filtered set (see fetchGroups
+  // below) - only how many of the resulting groups are SHOWN at once is
+  // paginated, the same way "the top merchants by count" would otherwise
+  // depend on which page you asked for. Component state, consistent with
+  // groupByMerchant itself also being component state rather than a URL
+  // param; resets to page 1 whenever the filters change or the toggle
+  // flips (see the fetch effect below).
+  const [groupPage, setGroupPage] = useState(1)
+  const [groupPageSize, setGroupPageSize] = useState(DEFAULT_PAGE_SIZE)
   // A group assign failure gets its own error slot rather than sharing
   // `actionError`, which renders at the very top of the page - invisible to
   // someone scrolled down to the grouped table. `groupAssignMessage` is the
@@ -87,8 +111,32 @@ export default function TransactionsPage() {
   // Read straight from the URL, like the page number already is - see
   // ledgerFilterParams.pageSizeFromSearchParams / groupsQueryFromSearchParams.
   const pageSize = pageSizeFromSearchParams(searchParams)
+  const { sort: activeSort, direction: activeDirection } = sortFromSearchParams(searchParams)
   const groupsQuery = groupsQueryFromSearchParams(searchParams)
   const groupedLedgerQuery = groupsQuery ? `${groupsQuery}&include_categorized=true` : 'include_categorized=true'
+
+  // The committed filters, read straight off the URL like everything else
+  // above - there is no staged "form" state anymore now that filtering
+  // lives in per-header popovers. Each popover keeps its OWN draft while
+  // open (see HeaderFilter) and only touches this on Apply/Clear, so this
+  // is always exactly what's currently narrowing the ledger, matching the
+  // URL a reload or a shared link would see.
+  const committedFilters = filtersFromSearchParams(searchParams)
+
+  // Applies a partial patch of filter fields on top of the committed ones
+  // and pushes straight to the URL through the SAME searchParamsFromFilters
+  // the old Filters card used - one source of truth for what a filter param
+  // means, just written from a header popover instead of a form submit.
+  // Resets selection/expansion the same way the old Apply/Clear did, since
+  // a changed filter can drop rows those ids/keys referred to.
+  const applyFilterPatch = (patch) => {
+    setSelectedIds([])
+    setExpandedIds(new Set())
+    setExpandedGroupKeys(new Set())
+    setSearchParams(searchParamsFromFilters({ ...committedFilters, ...patch }, pageSize))
+  }
+
+  const clearAllFilters = () => applyFilterPatch(EMPTY_FILTERS)
 
   // The lookups that populate the filter dropdowns and the import history.
   // None of them depend on the current filters, so they are deliberately NOT
@@ -177,7 +225,6 @@ export default function TransactionsPage() {
 
     setLoading(true)
     setError('')
-    setFilterForm(filtersFromSearchParams(searchParams))
 
     fetchTransactions(cancelledRef)
       .catch((err) => {
@@ -208,6 +255,7 @@ export default function TransactionsPage() {
 
     const cancelledRef = { current: false }
 
+    setGroupPage(1)
     setGroupsLoading(true)
     setGroupsError('')
 
@@ -230,26 +278,6 @@ export default function TransactionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupByMerchant, groupedLedgerQuery])
 
-  const handleFilterFieldChange = (field) => (event) => {
-    setFilterForm((prev) => ({ ...prev, [field]: event.target.value }))
-  }
-
-  const handleApplyFilters = (event) => {
-    event.preventDefault()
-    setSelectedIds([])
-    setExpandedIds(new Set())
-    setExpandedGroupKeys(new Set())
-    setSearchParams(searchParamsFromFilters(filterForm, pageSize))
-  }
-
-  const handleClearFilters = () => {
-    setSelectedIds([])
-    setExpandedIds(new Set())
-    setExpandedGroupKeys(new Set())
-    setFilterForm(EMPTY_FILTERS)
-    setSearchParams(searchParamsFromFilters(EMPTY_FILTERS, pageSize))
-  }
-
   const handlePageChange = (newPage) => {
     setSelectedIds([])
     setExpandedIds(new Set())
@@ -266,6 +294,17 @@ export default function TransactionsPage() {
     next.set('page_size', String(newSize))
     next.set('page', '1')
     setSearchParams(next)
+  }
+
+  // The ledger is PAGINATED, so sorting happens in SQL, not in the browser
+  // (see services/ledger.py's own docstring) - this just moves the URL's
+  // sort/direction through the same cycle every sortable header in the app
+  // uses (ledgerFilterParams.nextSortParams), and the existing fetch effect
+  // (keyed on searchParams.toString()) does the rest.
+  const handleSort = (key) => {
+    setSelectedIds([])
+    setExpandedIds(new Set())
+    setSearchParams(nextSortParams(searchParams, key))
   }
 
   const toggleExpanded = (id) => {
@@ -290,6 +329,25 @@ export default function TransactionsPage() {
       }
       return next
     })
+  }
+
+  const handleGroupPageChange = (newPage) => {
+    setGroupPage(newPage)
+  }
+
+  // Resets to page 1 - page 7 at 10/page doesn't exist at 50/page.
+  const handleGroupPageSizeChange = (newSize) => {
+    setGroupPageSize(newSize)
+    setGroupPage(1)
+  }
+
+  // Wraps useTableSort's own toggleSort - a changed sort reshuffles which
+  // groups fall on which page, so staying on page 7 of a re-sorted list
+  // shows an arbitrary slice, the same reasoning page-resets on a changed
+  // filter already follows.
+  const handleGroupSort = (key) => {
+    groupsSort.toggleSort(key)
+    setGroupPage(1)
   }
 
   const groupCategorySelection = (key) => groupCategorySelections[key] ?? ''
@@ -407,7 +465,7 @@ export default function TransactionsPage() {
   }
 
   // Commits on blur rather than per keystroke - the same "apply on an
-  // explicit action" philosophy LedgerFilters follows, and it avoids a
+  // explicit action" philosophy HeaderFilter follows, and it avoids a
   // request per character typed. No-ops when nothing actually changed, so
   // clicking into a note and back out without editing it doesn't refetch
   // the whole page for nothing.
@@ -532,13 +590,34 @@ export default function TransactionsPage() {
     return batch ? batch.filename : `#${importBatchId}`
   }
 
+  // Seeded to count-desc - `groups` already arrives from the server in
+  // that order (services/ledger.transaction_groups' own sort), so this
+  // makes that ordering a visible, active sort (the Count header shows it)
+  // rather than an invisible implicit one. JS's sort is stable, so
+  // toggling back to "count" after sorting something else reproduces the
+  // original total-desc-within-count-desc order exactly, without a second
+  // sort key - see utils/tableSort's own docstring on this.
+  const groupsSort = useTableSort(groups, GROUP_SORT_COLUMNS, { sortKey: 'count', sortDirection: 'desc' })
+
+  // Client-side slice of the full, server-computed (and now client-sorted)
+  // groups array - see groupPage's own comment above for why this is a
+  // display concern only, never a re-grouping one.
+  const groupTotalPages = Math.max(1, Math.ceil(groupsSort.sortedRows.length / groupPageSize))
+  const groupPageInfo = {
+    total: groupsSort.sortedRows.length,
+    page: groupPage,
+    page_size: groupPageSize,
+    total_pages: groupTotalPages,
+  }
+  const visibleGroups = groupsSort.sortedRows.slice((groupPage - 1) * groupPageSize, groupPage * groupPageSize)
+
   return (
     <section className="card">
       <h2>Transactions</h2>
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
-      <Card id="transactions-import" title="Import CSV">
+      <Card id="transactions-import" title="Import">
         <input type="file" accept=".csv" onChange={handleFileChange} disabled={uploading} />
 
         {uploading && <p>Importing...</p>}
@@ -567,9 +646,7 @@ export default function TransactionsPage() {
             </ul>
           </div>
         )}
-      </Card>
 
-      <Card id="transactions-import-history" title="Import History">
         <button type="button" className="button-danger" onClick={handleWipeAll} disabled={loading}>
           Wipe all
         </button>
@@ -603,23 +680,173 @@ export default function TransactionsPage() {
         </table>
       </Card>
 
-      <LedgerFilters
-        values={filterForm}
-        onFieldChange={handleFilterFieldChange}
-        onApply={handleApplyFilters}
-        onClear={handleClearFilters}
-        categories={categories}
-        transactionTypes={transactionTypes}
-        accounts={accounts}
-        groups={accountGroups}
-      />
-
       <Card id="transactions-ledger" title="Ledger">
         {loading && <LoadingState message="Loading transactions..." />}
         {!loading && error && <ErrorState label="Failed to load transactions:" message={error} />}
 
         {!loading && !error && (
           <>
+            {/* Everything that maps to a column now filters from that
+                column's own header (see HeaderFilter below) - this is only
+                what's left over: Transaction type has no column (v0.17.0
+                moved it into the Details expander), and one Clear all
+                filters covers every header at once rather than needing to
+                be opened one by one. Applies immediately on change, same
+                as every other single-value select in this codebase. */}
+            <div className="ledger-filter-bar">
+              {/* The grouped-by-merchant table below has its own columns
+                  (Merchant/Count/Total/Date range/Categorized) - none of
+                  them are Date/Account/Narration/Amount/Category, so those
+                  filters have nowhere to live as a real header while
+                  grouped. They fall back to the same HeaderFilter popover,
+                  just rendered inline (as="div") instead of as a <th>,
+                  rather than losing the ability to narrow the grouped view
+                  down to what the ungrouped ledger can already do. */}
+              {groupByMerchant && (
+                <>
+                  <HeaderFilter
+                    as="div"
+                    label="Date"
+                    value={{ from: committedFilters.date_from, to: committedFilters.date_to }}
+                    isActive={Boolean(committedFilters.date_from || committedFilters.date_to)}
+                    onApply={(draft) => applyFilterPatch({ date_from: draft.from, date_to: draft.to })}
+                    onClear={() => applyFilterPatch({ date_from: '', date_to: '' })}
+                  >
+                    {(draft, setDraft) => (
+                      <>
+                        <label>
+                          From date
+                          <input
+                            type="date"
+                            value={draft.from}
+                            onChange={(event) => setDraft({ ...draft, from: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          To date
+                          <input
+                            type="date"
+                            value={draft.to}
+                            onChange={(event) => setDraft({ ...draft, to: event.target.value })}
+                          />
+                        </label>
+                      </>
+                    )}
+                  </HeaderFilter>
+                  <HeaderFilter
+                    as="div"
+                    label="Account"
+                    value={committedFilters.account}
+                    isActive={Boolean(committedFilters.account)}
+                    onApply={(draft) => applyFilterPatch({ account: draft })}
+                    onClear={() => applyFilterPatch({ account: '' })}
+                  >
+                    {(draft, setDraft) => (
+                      <label>
+                        Account
+                        <select value={draft} onChange={(event) => setDraft(event.target.value)}>
+                          <option value="">All accounts</option>
+                          {accountGroups.map((group) => (
+                            <option key={`group-${group.id}`} value={`group-${group.id}`}>
+                              {group.name}
+                            </option>
+                          ))}
+                          {accounts.filter((account) => !account.group_id).map((account) => (
+                            <option key={account.id} value={account.id}>
+                              {account.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                  </HeaderFilter>
+                  <HeaderFilter
+                    as="div"
+                    label="Narration"
+                    value={committedFilters.search}
+                    isActive={Boolean(committedFilters.search)}
+                    onApply={(draft) => applyFilterPatch({ search: draft })}
+                    onClear={() => applyFilterPatch({ search: '' })}
+                  >
+                    {(draft, setDraft) => (
+                      <label>
+                        Narration contains
+                        <input type="text" value={draft} onChange={(event) => setDraft(event.target.value)} />
+                      </label>
+                    )}
+                  </HeaderFilter>
+                  <HeaderFilter
+                    as="div"
+                    label="Amount"
+                    value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
+                    isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
+                    onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
+                    onClear={() => applyFilterPatch({ min_amount: '', max_amount: '' })}
+                  >
+                    {(draft, setDraft) => (
+                      <>
+                        <label>
+                          Min amount
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={draft.min}
+                            onChange={(event) => setDraft({ ...draft, min: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          Max amount
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={draft.max}
+                            onChange={(event) => setDraft({ ...draft, max: event.target.value })}
+                          />
+                        </label>
+                      </>
+                    )}
+                  </HeaderFilter>
+                  <HeaderFilter
+                    as="div"
+                    label="Category"
+                    value={committedFilters.category}
+                    isActive={Boolean(committedFilters.category)}
+                    onApply={(draft) => applyFilterPatch({ category: draft })}
+                    onClear={() => applyFilterPatch({ category: '' })}
+                  >
+                    {(draft, setDraft) => (
+                      <label>
+                        Category
+                        <CategorySelect categories={categories} value={draft} onChange={(event) => setDraft(event.target.value)}>
+                          <option value="">All categories</option>
+                          <option value="uncategorized">Uncategorized only</option>
+                        </CategorySelect>
+                      </label>
+                    )}
+                  </HeaderFilter>
+                </>
+              )}
+              <label>
+                Type
+                <select
+                  value={committedFilters.transaction_type}
+                  onChange={(event) => applyFilterPatch({ transaction_type: event.target.value })}
+                >
+                  <option value="">Any type</option>
+                  {transactionTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" onClick={clearAllFilters}>
+                Clear all filters
+              </button>
+            </div>
+
             <div className="ledger-toolbar">
               {!groupByMerchant && (
                 <>
@@ -669,9 +896,9 @@ export default function TransactionsPage() {
                   <caption className="visually-hidden">Ledger grouped by merchant</caption>
                   <thead>
                     <tr>
-                      <th scope="col">Merchant</th>
-                      <th scope="col">Count</th>
-                      <th scope="col">Total</th>
+                      <SortableHeader label="Merchant" sortKey="merchant" activeSortKey={groupsSort.sortKey} activeDirection={groupsSort.sortDirection} onSort={handleGroupSort} />
+                      <SortableHeader label="Count" sortKey="count" activeSortKey={groupsSort.sortKey} activeDirection={groupsSort.sortDirection} onSort={handleGroupSort} />
+                      <SortableHeader label="Total" sortKey="total" activeSortKey={groupsSort.sortKey} activeDirection={groupsSort.sortDirection} onSort={handleGroupSort} />
                       <th scope="col">Date range</th>
                       <th scope="col">Categorized</th>
                       <th scope="col">Set category</th>
@@ -679,7 +906,7 @@ export default function TransactionsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {groups.map((group) => {
+                    {visibleGroups.map((group) => {
                       const isExpanded = expandedGroupKeys.has(group.narration_key)
                       const detailId = `group-detail-${group.narration_key}`
                       const signedTotal = group.direction === 'outflow' ? -Number(group.total_amount) : Number(group.total_amount)
@@ -751,6 +978,15 @@ export default function TransactionsPage() {
               </div>
             )}
 
+            {groupByMerchant && !groupsLoading && !groupsError && groups.length > 0 && (
+              <Pagination
+                pageInfo={groupPageInfo}
+                onPageChange={handleGroupPageChange}
+                pageSize={groupPageSize}
+                onPageSizeChange={handleGroupPageSizeChange}
+              />
+            )}
+
             {!groupByMerchant && (
             <>
             <div className="table-scroll">
@@ -773,12 +1009,186 @@ export default function TransactionsPage() {
                         disabled={transactions.length === 0}
                       />
                     </th>
-                    <th scope="col">Date</th>
-                    <th scope="col">Account</th>
-                    <th scope="col">Narration</th>
-                    <th scope="col">Debit</th>
-                    <th scope="col">Credit</th>
-                    <th scope="col">Category</th>
+                    <HeaderFilter
+                      label="Date"
+                      value={{ from: committedFilters.date_from, to: committedFilters.date_to }}
+                      isActive={Boolean(committedFilters.date_from || committedFilters.date_to)}
+                      onApply={(draft) => applyFilterPatch({ date_from: draft.from, date_to: draft.to })}
+                      onClear={() => applyFilterPatch({ date_from: '', date_to: '' })}
+                      sortKey="date"
+                      activeSortKey={activeSort}
+                      activeDirection={activeDirection}
+                      onSort={handleSort}
+                    >
+                      {(draft, setDraft) => (
+                        <>
+                          <label>
+                            From date
+                            <input
+                              type="date"
+                              value={draft.from}
+                              onChange={(event) => setDraft({ ...draft, from: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            To date
+                            <input
+                              type="date"
+                              value={draft.to}
+                              onChange={(event) => setDraft({ ...draft, to: event.target.value })}
+                            />
+                          </label>
+                        </>
+                      )}
+                    </HeaderFilter>
+                    <HeaderFilter
+                      label="Account"
+                      value={committedFilters.account}
+                      isActive={Boolean(committedFilters.account)}
+                      onApply={(draft) => applyFilterPatch({ account: draft })}
+                      onClear={() => applyFilterPatch({ account: '' })}
+                      sortKey="account"
+                      activeSortKey={activeSort}
+                      activeDirection={activeDirection}
+                      onSort={handleSort}
+                    >
+                      {(draft, setDraft) => (
+                        <label>
+                          Account
+                          <select value={draft} onChange={(event) => setDraft(event.target.value)}>
+                            <option value="">All accounts</option>
+                            {accountGroups.map((group) => (
+                              <option key={`group-${group.id}`} value={`group-${group.id}`}>
+                                {group.name}
+                              </option>
+                            ))}
+                            {accounts.filter((account) => !account.group_id).map((account) => (
+                              <option key={account.id} value={account.id}>
+                                {account.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                    </HeaderFilter>
+                    <HeaderFilter
+                      label="Narration"
+                      value={committedFilters.search}
+                      isActive={Boolean(committedFilters.search)}
+                      onApply={(draft) => applyFilterPatch({ search: draft })}
+                      onClear={() => applyFilterPatch({ search: '' })}
+                      sortKey="narration"
+                      activeSortKey={activeSort}
+                      activeDirection={activeDirection}
+                      onSort={handleSort}
+                    >
+                      {(draft, setDraft) => (
+                        <label>
+                          Narration contains
+                          <input type="text" value={draft} onChange={(event) => setDraft(event.target.value)} />
+                        </label>
+                      )}
+                    </HeaderFilter>
+                    {/* Debit and Credit carry the SAME shared amount filter
+                        (min_amount/max_amount, matched on magnitude across
+                        whichever of the two is populated) and the same
+                        "amount" sort key - two headers, one underlying
+                        filter/sort, so both show it and both reflect its
+                        active state, the same way the amount SORT already
+                        agreed to share a key across the two columns. */}
+                    <HeaderFilter
+                      label="Debit"
+                      value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
+                      isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
+                      onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
+                      onClear={() => applyFilterPatch({ min_amount: '', max_amount: '' })}
+                      sortKey="amount"
+                      activeSortKey={activeSort}
+                      activeDirection={activeDirection}
+                      onSort={handleSort}
+                    >
+                      {(draft, setDraft) => (
+                        <>
+                          <label>
+                            Min amount
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={draft.min}
+                              onChange={(event) => setDraft({ ...draft, min: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Max amount
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={draft.max}
+                              onChange={(event) => setDraft({ ...draft, max: event.target.value })}
+                            />
+                          </label>
+                        </>
+                      )}
+                    </HeaderFilter>
+                    <HeaderFilter
+                      label="Credit"
+                      value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
+                      isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
+                      onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
+                      onClear={() => applyFilterPatch({ min_amount: '', max_amount: '' })}
+                      sortKey="amount"
+                      activeSortKey={activeSort}
+                      activeDirection={activeDirection}
+                      onSort={handleSort}
+                    >
+                      {(draft, setDraft) => (
+                        <>
+                          <label>
+                            Min amount
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={draft.min}
+                              onChange={(event) => setDraft({ ...draft, min: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Max amount
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={draft.max}
+                              onChange={(event) => setDraft({ ...draft, max: event.target.value })}
+                            />
+                          </label>
+                        </>
+                      )}
+                    </HeaderFilter>
+                    <HeaderFilter
+                      label="Category"
+                      value={committedFilters.category}
+                      isActive={Boolean(committedFilters.category)}
+                      onApply={(draft) => applyFilterPatch({ category: draft })}
+                      onClear={() => applyFilterPatch({ category: '' })}
+                      sortKey="category"
+                      activeSortKey={activeSort}
+                      activeDirection={activeDirection}
+                      onSort={handleSort}
+                    >
+                      {(draft, setDraft) => (
+                        <label>
+                          Category
+                          <CategorySelect categories={categories} value={draft} onChange={(event) => setDraft(event.target.value)}>
+                            <option value="">All categories</option>
+                            <option value="uncategorized">Uncategorized only</option>
+                          </CategorySelect>
+                        </label>
+                      )}
+                    </HeaderFilter>
                     <th scope="col"></th>
                   </tr>
                 </thead>

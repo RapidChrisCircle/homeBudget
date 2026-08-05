@@ -5,10 +5,24 @@ import LineChart from '../components/charts/LineChart.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { formatAmount } from '../utils/format.js'
+import { useTableSort } from '../utils/tableSort.js'
 
 const DEFAULT_MONTHS = 3
+
+// Upcoming Commitments is a flat list, genuinely sortable. The per-account
+// monthly tables below are deliberately NOT sortable - Month is a
+// chronological projection (like Rules' priority order), and reordering it
+// by, say, Closing balance would destroy the "watch the trend unfold" the
+// table exists to show, the same reasoning that keeps Rules unsorted.
+const UPCOMING_SORT_COLUMNS = {
+  due: { getValue: (i) => i.due_date, type: 'date' },
+  merchant: { getValue: (i) => i.merchant, type: 'string' },
+  amount: { getValue: (i) => i.amount, type: 'numeric' },
+  direction: { getValue: (i) => i.direction, type: 'string' },
+}
 
 export default function ForecastPage() {
   const [forecast, setForecast] = useState(null)
@@ -43,6 +57,10 @@ export default function ForecastPage() {
       cancelled = true
     }
   }, [])
+
+  // Called unconditionally, before the loading/error/empty early returns
+  // below - React requires hooks to run in the same order every render.
+  const upcomingSort = useTableSort(forecast?.upcoming ?? [], UPCOMING_SORT_COLUMNS)
 
   if (loading) {
     return (
@@ -157,14 +175,14 @@ export default function ForecastPage() {
             <caption className="visually-hidden">Upcoming recurring commitments</caption>
             <thead>
               <tr>
-                <th scope="col">Due</th>
-                <th scope="col">Merchant</th>
-                <th scope="col">Amount</th>
-                <th scope="col">Direction</th>
+                <SortableHeader label="Due" sortKey="due" activeSortKey={upcomingSort.sortKey} activeDirection={upcomingSort.sortDirection} onSort={upcomingSort.toggleSort} />
+                <SortableHeader label="Merchant" sortKey="merchant" activeSortKey={upcomingSort.sortKey} activeDirection={upcomingSort.sortDirection} onSort={upcomingSort.toggleSort} />
+                <SortableHeader label="Amount" sortKey="amount" activeSortKey={upcomingSort.sortKey} activeDirection={upcomingSort.sortDirection} onSort={upcomingSort.toggleSort} />
+                <SortableHeader label="Direction" sortKey="direction" activeSortKey={upcomingSort.sortKey} activeDirection={upcomingSort.sortDirection} onSort={upcomingSort.toggleSort} />
               </tr>
             </thead>
             <tbody>
-              {upcoming.map((item, index) => (
+              {upcomingSort.sortedRows.map((item, index) => (
                 <tr key={`${item.due_date}-${item.account_id}-${item.merchant}-${index}`}>
                   <td>{item.due_date}</td>
                   <td>{item.merchant}</td>

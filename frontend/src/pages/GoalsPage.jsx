@@ -5,7 +5,21 @@ import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
+import { useTableSort } from '../utils/tableSort.js'
+
+const GOALS_SORT_COLUMNS = {
+  name: { getValue: (g) => g.name, type: 'string' },
+  method: { getValue: (g) => g.mode, type: 'string' },
+  progress: { getValue: (g) => g.percent, type: 'numeric' },
+  remaining: { getValue: (g) => g.remaining, type: 'numeric' },
+  monthly_needed: { getValue: (g) => g.monthly_required, type: 'numeric' },
+}
+
+const ARCHIVED_GOALS_SORT_COLUMNS = {
+  name: { getValue: (g) => g.name, type: 'string' },
+}
 
 const EMPTY_FORM = {
   name: '',
@@ -167,6 +181,9 @@ export default function GoalsPage() {
   const archivedGoals = goals.filter((goal) => goal.archived)
   const overAllocated = accountEnvelopeSummaries.filter((summary) => summary.over_allocated)
 
+  const activeGoalsSort = useTableSort(activeGoals, GOALS_SORT_COLUMNS)
+  const archivedGoalsSort = useTableSort(archivedGoals, ARCHIVED_GOALS_SORT_COLUMNS)
+
   return (
     <section className="card">
       <h2>Goals</h2>
@@ -290,16 +307,16 @@ export default function GoalsPage() {
             <caption className="visually-hidden">Savings goals</caption>
             <thead>
               <tr>
-                <th scope="col">Name</th>
-                <th scope="col">Method</th>
-                <th scope="col">Progress</th>
-                <th scope="col">Remaining</th>
-                <th scope="col">Monthly needed</th>
+                <SortableHeader label="Name" sortKey="name" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} />
+                <SortableHeader label="Method" sortKey="method" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} />
+                <SortableHeader label="Progress" sortKey="progress" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} />
+                <SortableHeader label="Remaining" sortKey="remaining" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} />
+                <SortableHeader label="Monthly needed" sortKey="monthly_needed" activeSortKey={activeGoalsSort.sortKey} activeDirection={activeGoalsSort.sortDirection} onSort={activeGoalsSort.toggleSort} />
                 <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
-              {activeGoals.map((goal) => {
+              {activeGoalsSort.sortedRows.map((goal) => {
                 const met = Number(goal.remaining) <= 0
                 return (
                   <tr key={goal.id}>
@@ -352,12 +369,12 @@ export default function GoalsPage() {
             <caption className="visually-hidden">Archived goals</caption>
             <thead>
               <tr>
-                <th scope="col">Name</th>
+                <SortableHeader label="Name" sortKey="name" activeSortKey={archivedGoalsSort.sortKey} activeDirection={archivedGoalsSort.sortDirection} onSort={archivedGoalsSort.toggleSort} />
                 <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
-              {archivedGoals.map((goal) => (
+              {archivedGoalsSort.sortedRows.map((goal) => (
                 <tr key={goal.id}>
                   <td>{goal.name}</td>
                   <td>

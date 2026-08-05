@@ -74,6 +74,23 @@ describe('RulesPage', () => {
     expect(within(row).getByText('Groceries')).toBeInTheDocument()
   })
 
+  it('has no sortable headers - the rules table\'s row order IS its evaluation order', async () => {
+    // Rules are first-match-wins by priority - displaying them in any
+    // order but that one would misrepresent which rule actually wins, the
+    // same reasoning rule_review reports a shadowed rule rather than
+    // silently reordering it. The existing move up/down controls are the
+    // only way this table's order changes.
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('woolworths')).toBeInTheDocument())
+
+    const rulesTable = screen.getByText('woolworths').closest('table')
+    expect(rulesTable.querySelectorAll('.sortable-header')).toHaveLength(0)
+    expect(rulesTable.querySelectorAll('[aria-sort]')).toHaveLength(0)
+  })
+
   it('submits the create form sending blank optional fields as null', async () => {
     mockLoad([])
     api.post.mockResolvedValue({ data: sampleRule })

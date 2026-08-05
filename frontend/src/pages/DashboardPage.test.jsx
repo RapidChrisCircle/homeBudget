@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
@@ -601,5 +601,86 @@ describe('DashboardPage', () => {
     expect(screen.getByText(/1 price change\(s\)/)).toBeInTheDocument()
     expect(screen.getByText(/1 missed or stopped/)).toBeInTheDocument()
     expect(screen.getByText('Nothing due in the next 14 days.')).toBeInTheDocument()
+  })
+
+  // --- Sorting --------------------------------------------------------------
+
+  it('sorts the Accounts table by Account name', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Accounts')).toBeInTheDocument())
+    const accountsCard = screen.getByText('Accounts').closest('.card')
+    await waitFor(() => expect(within(accountsCard).getByText('Joint Everyday')).toBeInTheDocument())
+
+    fireEvent.click(within(accountsCard).getByRole('button', { name: 'Account' }))
+
+    const rows = accountsCard.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Credit Card')).toBeInTheDocument() // C < J ascending
+  })
+
+  it('sorts Needs Attention by Over by', async () => {
+    mockLoad({
+      report: {
+        ...sampleReport,
+        budgets: [
+          { category_id: 1, category_name: 'Groceries', budget_amount: '800.00', actual: '850.00', difference: '-50.00', transaction_count: 1 },
+          { category_id: 2, category_name: 'Fuel', budget_amount: '300.00', actual: '500.00', difference: '-200.00', transaction_count: 1 },
+        ],
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Needs Attention')).toBeInTheDocument())
+
+    const card = screen.getByText('Needs Attention').closest('.card')
+    fireEvent.click(within(card).getByRole('button', { name: 'Over by' }))
+
+    const rows = card.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Groceries')).toBeInTheDocument() // 50 < 200 ascending
+  })
+
+  it('sorts the Recurring due-soon table by Merchant', async () => {
+    mockLoad({
+      recurring: {
+        series: [
+          { account_id: 1, narration_key: 'ZEBRA', merchant: 'Zebra Co', next_due_date: '2026-08-01', typical_amount: '10.00', status: 'due_soon' },
+          { account_id: 1, narration_key: 'APPLE', merchant: 'Apple Inc', next_due_date: '2026-08-02', typical_amount: '5.00', status: 'due_soon' },
+        ],
+        summary: { series_count: 2, total_annual_cost: '0.00', due_soon_count: 2, due_soon_total: '15.00', changed_count: 0, overdue_count: 0 },
+        as_of: '2026-07-24',
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Zebra Co')).toBeInTheDocument())
+
+    const card = screen.getByText('Recurring').closest('.card')
+    fireEvent.click(within(card).getByRole('button', { name: 'Merchant' }))
+
+    const rows = card.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Apple Inc')).toBeInTheDocument()
+  })
+
+  it('sorts Recent Activity by Narration', async () => {
+    mockLoad({
+      transactions: [
+        { ...sampleTransaction, id: 1, narration: 'Zebra Purchase' },
+        { ...sampleTransaction, id: 2, narration: 'Apple Purchase' },
+      ],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Zebra Purchase')).toBeInTheDocument())
+
+    const card = screen.getByText('Recent Activity').closest('.card')
+    fireEvent.click(within(card).getByRole('button', { name: 'Narration' }))
+
+    const rows = card.querySelectorAll('tbody tr')
+    expect(within(rows[0]).getByText('Apple Purchase')).toBeInTheDocument()
   })
 })
