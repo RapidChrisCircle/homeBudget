@@ -4,6 +4,16 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
+## [0.21.1] - 2026-08-08
+
+Diagnostics for an intermittent "Not Found" reported across every page on a QNAP deployment, traced to two `api` containers left running behind Docker's round-robin DNS after an unclean Container Station app creation (the same root cause as the existing "API returns 404 but the page loads" note, but without the tell-tale doubled container name — see README's expanded troubleshooting section). No application code was at fault; these changes make the next occurrence identifiable from the UI itself instead of a guess.
+
+### Added
+
+- Every API response now carries `X-App-Version`/`X-App-Commit` headers (`backend/app/main.py`'s `add_build_identity_headers`), including a 404 for an unmatched route — the one response a per-route dependency would never run for, and the most likely to have come from a stale container. Sourced from the same `app/version.py` values `GET /api/version` already reports; no new resolution logic.
+- The frontend compares that header across every response it receives (`frontend/src/services/api.ts`'s `recordBuildIdentity`) and shows *"Responses are coming from more than one API build"* in the footer the moment two responses disagree — reusing the existing frontend/API version-mismatch banner's slot rather than adding a second one. A build that consistently sends no header at all (this feature not yet deployed there) is never flagged; only a response that departs from what came before it is.
+- An ambiguous API error — no `detail` field, or FastAPI's own generic route-matching body — is now enriched with the method, path and status that actually failed (e.g. `404 Not Found — GET /api/transactions did not match any route on the API that answered`), via one `axios` response interceptor in `services/api.ts` rather than editing the ~60 call sites that render `err.response.data.detail`. A real, specific `detail` from one of this app's own endpoints (`"Category not found"`) is returned completely unchanged.
+
 ## [0.21.0] - 2026-08-08
 
 ### Added

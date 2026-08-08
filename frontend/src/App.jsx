@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import './App.css'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import { pages } from './pageRegistry.jsx'
-import { api } from './services/api'
+import { api, getMultipleBuildsDetected, subscribeToBuildIdentity } from './services/api'
 import { useTheme } from './useTheme.js'
 import { getAppVersion, getGitSha } from './version.js'
 
@@ -44,6 +44,15 @@ function App() {
   // heard back yet" don't have to be told apart by inspecting empty strings.
   const [apiVersion, setApiVersion] = useState(null)
   const [apiUnreachable, setApiUnreachable] = useState(false)
+
+  // Every response any page's own axios call receives passes through
+  // services/api.ts's shared interceptor, which is the only place that can
+  // see them all - this just reads its verdict. Unlike `mismatch` below
+  // (one comparison, done once `apiVersion` resolves), this can flip true
+  // at any point during the session, since it depends on which of
+  // possibly-several API containers answered each individual request -
+  // useSyncExternalStore is what makes a change there re-render here.
+  const multipleBuildsDetected = useSyncExternalStore(subscribeToBuildIdentity, getMultipleBuildsDetected)
 
   useEffect(() => {
     let cancelled = false
@@ -132,6 +141,11 @@ function App() {
         {mismatch && (
           <span className="version-mismatch">
             Frontend and API are on different builds - one may be stale.
+          </span>
+        )}
+        {multipleBuildsDetected && (
+          <span className="version-mismatch">
+            Responses are coming from more than one API build - check for a duplicate api container.
           </span>
         )}
       </footer>

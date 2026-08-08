@@ -1,14 +1,34 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.jsx'
-import { api } from './services/api'
+import { api, __setMultipleBuildsDetected } from './services/api'
 
-vi.mock('./services/api', () => ({
-  api: {
-    get: vi.fn(),
-  },
-}))
+// The real subscribeToBuildIdentity/getMultipleBuildsDetected pair lives in
+// services/api.ts, driven by the response interceptor - out of reach here
+// since this file mocks the whole module (as every page test does). This
+// stands in a minimal, independently controllable version of the same
+// subscribe/getSnapshot shape, so a test can flip the flag directly rather
+// than fabricating axios responses just to reach it.
+vi.mock('./services/api', () => {
+  let multipleBuildsDetected = false
+  const listeners = new Set()
+
+  return {
+    api: {
+      get: vi.fn(),
+    },
+    subscribeToBuildIdentity: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getMultipleBuildsDetected: () => multipleBuildsDetected,
+    __setMultipleBuildsDetected: (value) => {
+      multipleBuildsDetected = value
+      for (const listener of listeners) listener()
+    },
+  }
+})
 
 // The dashboard renders at "/" and fires its own four API calls regardless
 // of what these tests actually care about, so every path it touches needs a
@@ -48,6 +68,7 @@ describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    __setMultipleBuildsDetected(false)
   })
 
   afterEach(() => {
@@ -103,6 +124,20 @@ describe('App', () => {
       expect(screen.getByText(/API v0\.11\.0/)).toBeInTheDocument()
     })
     expect(screen.queryByText(/different builds/)).not.toBeInTheDocument()
+  })
+
+  it('surfaces a duplicate-build notice when responses stop coming from one consistent build', async () => {
+    mockApi({ version: { version: '0.11.0', commit: 'unknown' } })
+
+    renderApp()
+    await waitFor(() => expect(screen.getByText(/API v0\.11\.0/)).toBeInTheDocument())
+    expect(screen.queryByText(/more than one API build/)).not.toBeInTheDocument()
+
+    act(() => {
+      __setMultipleBuildsDetected(true)
+    })
+
+    expect(screen.getByText(/more than one API build/)).toBeInTheDocument()
   })
 
   it('renders "API version unknown" rather than a mismatch warning when the API is unreachable', async () => {
