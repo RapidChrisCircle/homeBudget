@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import LineChart from './LineChart.jsx'
 
 const periods = ['2026-01', '2026-02', '2026-03']
@@ -72,5 +72,64 @@ describe('LineChart', () => {
     )
     const positiveLines = allPositive.querySelectorAll('line[stroke="var(--border-strong)"]')
     expect(positiveLines.length).toBe(0)
+  })
+
+  describe('drill-down', () => {
+    const series = [
+      { label: 'Groceries', values: [100, 120, 90] },
+      { label: 'Other', values: [10, 10, 10], selectable: false },
+    ]
+
+    it('is entirely absent unless the caller asks for it', () => {
+      render(<LineChart periods={periods} series={series} />)
+
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    })
+
+    it('reports which series and period a clicked point belongs to', () => {
+      const onSelectPoint = vi.fn()
+      render(<LineChart periods={periods} series={series} onSelectPoint={onSelectPoint} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Groceries — 2026-02: 120' }))
+
+      expect(onSelectPoint).toHaveBeenCalledWith(expect.objectContaining({
+        periodIndex: 1,
+        period: '2026-02',
+        seriesIndex: 0,
+        value: 120,
+      }))
+    })
+
+    it('activates a point from the keyboard, not just the mouse', () => {
+      const onSelectPoint = vi.fn()
+      render(<LineChart periods={periods} series={series} onSelectPoint={onSelectPoint} />)
+
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Groceries — 2026-01: 100' }), { key: 'Enter' })
+
+      expect(onSelectPoint).toHaveBeenCalledTimes(1)
+    })
+
+    it('makes legend entries buttons when a series can be selected', () => {
+      const onSelectSeries = vi.fn()
+      render(<LineChart periods={periods} series={series} onSelectSeries={onSelectSeries} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Groceries' }))
+
+      expect(onSelectSeries).toHaveBeenCalledWith(expect.objectContaining({ seriesIndex: 0 }))
+    })
+
+    it('offers no affordance on a series that opts out', () => {
+      render(
+        <LineChart
+          periods={periods}
+          series={series}
+          onSelectPoint={vi.fn()}
+          onSelectSeries={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^Other — / })).not.toBeInTheDocument()
+    })
   })
 })

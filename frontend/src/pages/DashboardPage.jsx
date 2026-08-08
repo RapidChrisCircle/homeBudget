@@ -10,6 +10,7 @@ import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
+import { categoryPathLabel } from '../utils/categories.js'
 import { formatAmount, formatBalance, formatDate, transactionAmount, uncategorizedLedgerLink } from '../utils/format.js'
 import { useTableSort } from '../utils/tableSort.js'
 
@@ -21,7 +22,7 @@ const ACCOUNTS_SORT_COLUMNS = {
 }
 
 const OVER_BUDGET_SORT_COLUMNS = {
-  category: { getValue: (l) => l.category_name, type: 'string' },
+  category: { getValue: (l) => categoryPathLabel(l), type: 'string' },
   budget: { getValue: (l) => l.budget_amount, type: 'numeric' },
   actual: { getValue: (l) => l.actual, type: 'numeric' },
   over_by: { getValue: (l) => Math.abs(Number(l.difference)), type: 'numeric' },
@@ -342,7 +343,7 @@ export default function DashboardPage() {
             <tbody>
               {overBudgetSort.sortedRows.map((line) => (
                 <tr key={line.category_id}>
-                  <td>{line.category_name}</td>
+                  <td>{categoryPathLabel(line)}</td>
                   <td><Amount value={line.budget_amount} neutral /></td>
                   <td><Amount value={line.actual} neutral /></td>
                   <td><Amount value={Math.abs(Number(line.difference))} neutral className="amount-negative" /></td>

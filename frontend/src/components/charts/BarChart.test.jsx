@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import BarChart from './BarChart.jsx'
 
 const periods = ['2026-01', '2026-02', '2026-03']
@@ -63,5 +63,49 @@ describe('BarChart', () => {
     )
 
     expect(container.querySelectorAll('rect').length).toBe(2)
+  })
+
+  describe('drill-down', () => {
+    const series = [
+      { label: 'Budgeted', values: [500, 500, 500] },
+      { label: 'Actual', values: [480, 520, 495] },
+    ]
+
+    it('is entirely absent unless the caller asks for it', () => {
+      render(<BarChart periods={periods} series={series} />)
+
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    })
+
+    it('reports the period behind a clicked column, not one bar within it', () => {
+      const onSelectPeriod = vi.fn()
+      render(<BarChart periods={periods} series={series} onSelectPeriod={onSelectPeriod} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'View 2026-02' }))
+
+      expect(onSelectPeriod).toHaveBeenCalledWith({ period: '2026-02', periodIndex: 1 })
+    })
+
+    it('activates a column from the keyboard', () => {
+      const onSelectPeriod = vi.fn()
+      render(<BarChart periods={periods} series={series} onSelectPeriod={onSelectPeriod} />)
+
+      fireEvent.keyDown(screen.getByRole('button', { name: 'View 2026-03' }), { key: ' ' })
+
+      expect(onSelectPeriod).toHaveBeenCalledWith({ period: '2026-03', periodIndex: 2 })
+    })
+
+    it('lets the caller own the hit area label, since it replaces the bars\' own tooltips', () => {
+      render(
+        <BarChart
+          periods={periods}
+          series={series}
+          onSelectPeriod={vi.fn()}
+          periodSelectLabel={(period) => `${period}: budgeted 500`}
+        />
+      )
+
+      expect(screen.getByRole('button', { name: '2026-01: budgeted 500' })).toBeInTheDocument()
+    })
   })
 })

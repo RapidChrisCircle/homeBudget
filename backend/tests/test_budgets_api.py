@@ -260,3 +260,34 @@ def test_copy_endpoint_written_overrides_are_visible_via_get(client, db_session)
     row = next(c for c in body["categories"] if c["category_id"] == category.id)
     assert row["effective_amount"] == "150.00"
     assert row["is_overridden"] is True
+
+
+# --- hierarchy -------------------------------------------------------------------
+
+def test_get_budgets_names_a_child_categorys_parent(client, db_session):
+    """The Monthly Budgets card renders "Food > Groceries" - a bare leaf
+    name is ambiguous the moment two groups both own an "Insurance".
+    """
+
+    parent = make_category(db_session, name="Food")
+    child = make_category(db_session, name="Groceries", budget_amount="800.00")
+    child.parent_id = parent.id
+    db_session.commit()
+
+    body = client.get("/api/budgets?year=2026&month=7").json()
+    row = next(c for c in body["categories"] if c["category_id"] == child.id)
+
+    assert row["parent_id"] == parent.id
+    assert row["parent_name"] == "Food"
+
+
+def test_get_budgets_leaves_a_top_level_categorys_parent_null(client, db_session):
+
+    category = make_category(db_session, budget_amount="100.00")
+    db_session.commit()
+
+    body = client.get("/api/budgets?year=2026&month=7").json()
+    row = next(c for c in body["categories"] if c["category_id"] == category.id)
+
+    assert row["parent_id"] is None
+    assert row["parent_name"] is None

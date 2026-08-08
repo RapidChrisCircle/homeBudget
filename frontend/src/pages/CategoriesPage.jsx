@@ -2,12 +2,13 @@ import { Fragment, useEffect, useState } from 'react'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
+import CategorySplitter from '../components/CategorySplitter.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
-import { groupByParent } from '../utils/categories.js'
+import { categoryPathLabel, groupByParent } from '../utils/categories.js'
 import { sortRowsBy, useTableSort } from '../utils/tableSort.js'
 
 const CATEGORIES_TABLE_COLUMN_COUNT = 5
@@ -20,17 +21,21 @@ const CATEGORY_SORT_COLUMNS = {
   budget: { getValue: (row) => (row.isGroup ? row.groupTotal : row.category.budget_amount), type: 'numeric' },
 }
 
+// Sorted by the same hierarchical label these tables display, not by the
+// bare leaf name - sorting by a name the user can't see puts "Food ›
+// Insurance" and "Transport › Insurance" adjacent while showing them
+// apart, which reads as a broken sort.
 const UNUSED_SORT_COLUMNS = {
-  name: { getValue: (u) => u.category_name, type: 'string' },
+  name: { getValue: (u) => categoryPathLabel(u), type: 'string' },
   budget: { getValue: (u) => u.budget_amount, type: 'numeric' },
 }
 
 const ARCHIVED_SORT_COLUMNS = {
-  name: { getValue: (c) => c.name, type: 'string' },
+  name: { getValue: (c) => categoryPathLabel(c), type: 'string' },
 }
 
 const BUDGET_SORT_COLUMNS = {
-  category: { getValue: (r) => r.category_name, type: 'string' },
+  category: { getValue: (r) => categoryPathLabel(r), type: 'string' },
   standing: { getValue: (r) => r.standing_amount, type: 'numeric' },
   this_month: { getValue: (r) => r.effective_amount, type: 'numeric' },
   actual: { getValue: (r) => r.actual, type: 'numeric' },
@@ -156,6 +161,11 @@ export default function CategoriesPage() {
   // is rendered in, since selection is a page-level concept, not a
   // per-section one.
   const [selectedIds, setSelectedIds] = useState([])
+
+  // Combining acts on that same selection - see handleCombine below.
+  const [combineTargetId, setCombineTargetId] = useState('')
+  const [combining, setCombining] = useState(false)
+  const [combineMessage, setCombineMessage] = useState('')
 
   // Whole-ledger usage (transaction_count/rule_count per category), for the
   // Unused card - independent async state, same reasoning as the budgets
@@ -495,6 +505,58 @@ export default function CategoriesPage() {
     }
   }
 
+  // Combining reuses the SAME page-level checkbox selection bulk delete
+  // uses (selectedIds above) rather than listing every category a second
+  // time - selection is a page-level concept here, and "these rows, one of
+  // them wins" is the whole interaction. The target is chosen from the
+  // selected rows themselves, so a target can never be a category the user
+  // hasn't looked at; the backend drops it from the source list.
+  const handleCombine = async () => {
+    const target = categories.find((category) => String(category.id) === String(combineTargetId))
+
+    if (!target || selectedIds.length < 2) {
+      return
+    }
+
+    const sources = selectedIds.filter((id) => id !== target.id)
+    const sourceNames = sources
+      .map((id) => categoryPathLabel(categories.find((category) => category.id === id)))
+      .join(', ')
+
+    if (!window.confirm(
+      `Combine ${sourceNames} into "${categoryPathLabel(target)}"? Their transactions, splits, rules `
+      + 'and budgets move across, and the combined categories are then deleted. This cannot be undone.'
+    )) {
+      return
+    }
+
+    setActionError('')
+    setCombining(true)
+    try {
+      const response = await api.post('/categories/merge', { source_ids: sources, target_id: target.id })
+      const { merged_category_names: merged, transactions_moved: moved, splits_moved: splitsMoved } = response.data
+      setCombineMessage(
+        `Combined ${merged.length} categor${merged.length === 1 ? 'y' : 'ies'} into "${categoryPathLabel(target)}", `
+        + `moving ${moved + splitsMoved} transaction(s).`
+      )
+      setSelectedIds([])
+      setCombineTargetId('')
+      if (editingId != null && sources.includes(editingId)) {
+        cancelEdit()
+      }
+      await Promise.all([refresh(), refreshBudgets(), refreshUsage()])
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Combine failed'
+      setActionError(String(message))
+    } finally {
+      setCombining(false)
+    }
+  }
+
+  const handleRestructured = async () => {
+    await Promise.all([refresh(), refreshBudgets(), refreshUsage()])
+  }
+
   const handleArchiveAllUnused = async (unusedCategories) => {
     if (unusedCategories.length === 0) {
       return
@@ -524,6 +586,15 @@ export default function CategoriesPage() {
   const activeCategories = categories.filter((category) => !category.archived)
   const archivedCategories = categories.filter((category) => category.archived)
   const sections = buildCategorySections(activeCategories)
+
+  // The Combine card's own view of the page-level selection. The target is
+  // read back off the CURRENT selection rather than trusted from state:
+  // unticking the row that was chosen as the target has to disable the
+  // button, not silently combine into a category no longer on screen.
+  const selectedCategories = categories.filter((category) => selectedIds.includes(category.id))
+  const combineTargetIsSelected = selectedCategories.some(
+    (category) => String(category.id) === String(combineTargetId)
+  )
 
   // A parent's own transaction_count is always 0 (never itself assignable -
   // see api/categories.py), so it is excluded here rather than evaluated
@@ -760,6 +831,52 @@ export default function CategoriesPage() {
         })}
       </Card>
 
+      <Card id="categories-combine" title="Combine Categories">
+        <p>
+          Two categories that turned out to mean the same thing become one: every transaction,
+          split, rule and budget moves to the one you keep, and the others are deleted. Deleting
+          the duplicate instead would <em>uncategorize</em> its history rather than move it.
+          Tick the categories to combine in All Categories above, then pick which one to keep.
+        </p>
+
+        {combineMessage && <p>{combineMessage}</p>}
+
+        {selectedIds.length < 2 ? (
+          <p>Select two or more categories above to combine them.</p>
+        ) : (
+          <>
+            <ul>
+              {selectedCategories.map((category) => (
+                <li key={category.id}>{categoryPathLabel(category)}</li>
+              ))}
+            </ul>
+            <label>
+              Keep
+              <select value={combineTargetId} onChange={(event) => setCombineTargetId(event.target.value)}>
+                <option value="">Select the category to keep</option>
+                {selectedCategories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {categoryPathLabel(category)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="button-primary"
+              onClick={handleCombine}
+              disabled={!combineTargetIsSelected || combining}
+            >
+              Combine {selectedIds.length - 1} into the one kept
+            </button>
+          </>
+        )}
+      </Card>
+
+      <Card id="categories-split" title="Split a Category">
+        <CategorySplitter categories={activeCategories} onDone={handleRestructured} />
+      </Card>
+
       <Card id="categories-unused" title="Unused">
         <p>
           Categories with no transactions and no rule pointing at them &mdash; candidates to
@@ -790,7 +907,7 @@ export default function CategoriesPage() {
                 <tbody>
                   {sortRowsBy(unusedCategories, unusedSortKey, unusedSortDirection, UNUSED_SORT_COLUMNS).map((u) => (
                     <tr key={u.category_id}>
-                      <td>{u.category_name}</td>
+                      <td>{categoryPathLabel(u)}</td>
                       <td><Amount value={u.budget_amount} neutral /></td>
                       <td>
                         <button type="button" onClick={() => handleArchive(u.category_id)}>
@@ -821,10 +938,7 @@ export default function CategoriesPage() {
             <tbody>
               {sortRowsBy(archivedCategories, archivedSortKey, archivedSortDirection, ARCHIVED_SORT_COLUMNS).map((category) => (
                 <tr key={category.id}>
-                  <td>
-                    {category.name}
-                    {category.parent_name && <span className="text-muted"> ({category.parent_name})</span>}
-                  </td>
+                  <td>{categoryPathLabel(category)}</td>
                   <td>
                     <button type="button" onClick={() => handleRestore(category.id)}>
                       Restore
@@ -878,14 +992,17 @@ export default function CategoriesPage() {
                       group's own row above. */}
                   {sortRowsBy(budgetData.categories, budgetSortKey, budgetSortDirection, BUDGET_SORT_COLUMNS).map((row) => (
                     <tr key={row.category_id}>
-                      <td>{row.category_name}</td>
+                      {/* The path, not the bare leaf name - this table is a
+                          flat list with no group headings of its own to
+                          say which "Insurance" a row is. */}
+                      <td>{categoryPathLabel(row)}</td>
                       <td><Amount value={row.standing_amount} neutral /></td>
                       <td>
                         <input
                           type="number"
                           step="0.01"
                           min="0"
-                          aria-label={`This month's budget for ${row.category_name}`}
+                          aria-label={`This month's budget for ${categoryPathLabel(row)}`}
                           value={budgetEdits[row.category_id] ?? ''}
                           onChange={handleBudgetEditChange(row.category_id)}
                         />

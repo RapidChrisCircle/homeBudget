@@ -853,3 +853,158 @@ describe('CategoriesPage', () => {
     expect(within(footRow).getByText('Total')).toBeInTheDocument()
   })
 })
+
+describe('CategoriesPage hierarchy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('names a sub-category by its full path in Monthly Budgets', async () => {
+    // Two groups each owning an "Insurance" is exactly the preset's shape,
+    // and exactly what a bare leaf name cannot tell apart.
+    const budgetData = {
+      ...sampleBudgetData,
+      categories: [
+        { category_id: 1, category_name: 'Insurance', parent_id: 10, parent_name: 'Health', standing_amount: '80.00', override_amount: null, effective_amount: '80.00', is_overridden: false, actual: '80.00', difference: '0.00' },
+        { category_id: 2, category_name: 'Insurance', parent_id: 11, parent_name: 'Transport', standing_amount: '95.00', override_amount: null, effective_amount: '95.00', is_overridden: false, actual: '95.00', difference: '0.00' },
+      ],
+    }
+    mockLoad({ budgetData })
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    expect(within(budgetsSection()).getByText('Health › Insurance')).toBeInTheDocument()
+    expect(within(budgetsSection()).getByText('Transport › Insurance')).toBeInTheDocument()
+  })
+
+  it('keeps a top-level category as its own name', async () => {
+    mockLoad()
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    expect(within(budgetsSection()).getByText('Groceries')).toBeInTheDocument()
+  })
+
+  it('labels the budget input by the same path, so a screen reader hears which one it is', async () => {
+    const budgetData = {
+      ...sampleBudgetData,
+      categories: [
+        { category_id: 1, category_name: 'Insurance', parent_id: 10, parent_name: 'Health', standing_amount: '80.00', override_amount: null, effective_amount: '80.00', is_overridden: false, actual: '80.00', difference: '0.00' },
+      ],
+    }
+    mockLoad({ budgetData })
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    expect(screen.getByLabelText("This month's budget for Health › Insurance")).toBeInTheDocument()
+  })
+
+  it('names a sub-category by its path in Unused too', async () => {
+    mockLoad({
+      usage: [
+        { category_id: 2, category_name: 'Insurance', parent_id: 10, parent_name: 'Health', budget_amount: '80.00', archived: false, transaction_count: 0, rule_count: 0 },
+      ],
+    })
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    const unusedCard = screen.getByText('Unused').closest('.card')
+    expect(within(unusedCard).getByText('Health › Insurance')).toBeInTheDocument()
+  })
+})
+
+describe('CategoriesPage combining', () => {
+  const twoLeaves = [
+    { id: 1, name: 'Fuel', kind: 'expense', budget_amount: '100.00' },
+    { id: 2, name: 'Petrol', kind: 'expense', budget_amount: '150.00' },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('asks for a selection before offering to combine anything', async () => {
+    mockLoad({ categories: twoLeaves })
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    const combineCard = screen.getByText('Combine Categories').closest('.card')
+    expect(within(combineCard).getByText('Select two or more categories above to combine them.')).toBeInTheDocument()
+  })
+
+  it('combines the selected categories into the one kept', async () => {
+    mockLoad({ categories: twoLeaves })
+    api.post.mockResolvedValue({
+      data: { target: twoLeaves[0], merged_category_names: ['Petrol'], transactions_moved: 3, splits_moved: 0, rules_moved: 1, budget_overrides_moved: 0 },
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    fireEvent.click(screen.getByLabelText('Select Fuel'))
+    fireEvent.click(screen.getByLabelText('Select Petrol'))
+
+    const combineCard = screen.getByText('Combine Categories').closest('.card')
+    fireEvent.change(within(combineCard).getByLabelText('Keep'), { target: { value: '1' } })
+    fireEvent.click(within(combineCard).getByRole('button', { name: /into the one kept/ }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/categories/merge', { source_ids: [2], target_id: 1 })
+    })
+    expect(await screen.findByText(/Combined 1 category into "Fuel", moving 3 transaction\(s\)\./)).toBeInTheDocument()
+  })
+
+  it('does nothing when the confirmation is declined', async () => {
+    mockLoad({ categories: twoLeaves })
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    fireEvent.click(screen.getByLabelText('Select Fuel'))
+    fireEvent.click(screen.getByLabelText('Select Petrol'))
+
+    const combineCard = screen.getByText('Combine Categories').closest('.card')
+    fireEvent.change(within(combineCard).getByLabelText('Keep'), { target: { value: '1' } })
+    fireEvent.click(within(combineCard).getByRole('button', { name: /into the one kept/ }))
+
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
+  it('cannot combine until one of the selected categories is chosen to keep', async () => {
+    mockLoad({ categories: twoLeaves })
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    fireEvent.click(screen.getByLabelText('Select Fuel'))
+    fireEvent.click(screen.getByLabelText('Select Petrol'))
+
+    const combineCard = screen.getByText('Combine Categories').closest('.card')
+    expect(within(combineCard).getByRole('button', { name: /into the one kept/ })).toBeDisabled()
+  })
+
+  it('surfaces the API refusal rather than a generic failure', async () => {
+    mockLoad({ categories: twoLeaves })
+    api.post.mockRejectedValue({ response: { data: { detail: '"Salary" is an income category' } } })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    fireEvent.click(screen.getByLabelText('Select Fuel'))
+    fireEvent.click(screen.getByLabelText('Select Petrol'))
+
+    const combineCard = screen.getByText('Combine Categories').closest('.card')
+    fireEvent.change(within(combineCard).getByLabelText('Keep'), { target: { value: '1' } })
+    fireEvent.click(within(combineCard).getByRole('button', { name: /into the one kept/ }))
+
+    expect(await screen.findByText('"Salary" is an income category')).toBeInTheDocument()
+  })
+})

@@ -37,6 +37,8 @@ def _category_response(db: Session, category: Category, year: int, month: int) -
     return BudgetPeriodCategoryResponse(
         category_id=category.id,
         category_name=category.name,
+        parent_id=category.parent_id,
+        parent_name=category.parent_name,
         standing_amount=standing,
         override_amount=override,
         effective_amount=effective,
@@ -83,6 +85,8 @@ def get_budgets(
         BudgetPeriodCategoryResponse(
             category_id=t.category_id,
             category_name=t.category_name,
+            parent_id=t.parent_id,
+            parent_name=t.parent_name,
             standing_amount=standing_by_id.get(t.category_id),
             override_amount=overrides.get(t.category_id),
             effective_amount=t.budget_amount,

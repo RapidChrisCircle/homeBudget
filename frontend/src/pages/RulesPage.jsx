@@ -7,6 +7,7 @@ import ErrorState from '../components/ErrorState.jsx'
 import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
+import { categoryPathLabel } from '../utils/categories.js'
 
 const RULES_TABLE_COLUMN_COUNT = 7
 
@@ -471,7 +472,10 @@ export default function RulesPage() {
                       <td>{rule.transaction_type}</td>
                       <td><Amount value={rule.min_amount} neutral /></td>
                       <td><Amount value={rule.max_amount} neutral /></td>
-                      <td>{rule.category_name}</td>
+                      {/* The rule's category as a path - a rules list is
+                          where two same-named leaves under different
+                          groups are hardest to tell apart. */}
+                      <td>{categoryPathLabel({ name: rule.category_name, parent_name: rule.category_parent_name })}</td>
                       <td>
                         <button
                           type="button"

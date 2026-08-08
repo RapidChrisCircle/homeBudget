@@ -413,6 +413,16 @@ class CategoryRule(Base):
 
         return self.category.name if self.category else None
 
+    @property
+    def category_parent_name(self):
+        """The rule's category's own parent, so /rules can name it the same
+        "Food > Groceries" way every other category table does - a rules
+        list is exactly where two identically-named leaves under different
+        groups are hardest to tell apart.
+        """
+
+        return self.category.parent_name if self.category else None
+
 
 class CsvFormatMapping(Base):
     """A user-defined column mapping for a bank CSV layout other than the

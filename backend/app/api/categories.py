@@ -13,6 +13,12 @@ promise from quietly becoming a real tree:
    pattern as the existing kind != "expense" coercion below); the
    assignment rule is enforced in api/transactions.py, since that's where a
    transaction's category_id is actually set.
+
+Combining (/categories/merge) and splitting (/categories/split, with a
+/categories/split/preview alongside it) are the two edits plain CRUD can't
+express - both live in services/category_restructure.py, whose module
+docstring covers the semantics; the endpoints here only translate its
+RestructureError into a status code.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,13 +31,24 @@ from ..models import CATEGORY_KINDS, Category, CategoryRule, Transaction, Transa
 from ..schemas import (
     CategoryBulkDelete,
     CategoryCreate,
+    CategoryMergeRequest,
+    CategoryMergeResponse,
     CategoryPresetResultResponse,
     CategoryResponse,
+    CategorySplitPreviewResponse,
+    CategorySplitRequest,
+    CategorySplitResponse,
     CategoryUpdate,
     CategoryUsageResponse,
 )
 from ..services.allocations import allocation_subquery
 from ..services.category_presets import apply_preset
+from ..services.category_restructure import (
+    RestructureError,
+    merge_categories,
+    split_category,
+    split_preview,
+)
 
 router = APIRouter()
 
@@ -141,8 +158,59 @@ def apply_category_preset(db: Session = Depends(get_db)):
     return CategoryPresetResultResponse(created=created, skipped=skipped)
 
 
-# Static path, declared before /categories/{category_id} for the same
+# Static paths, declared before /categories/{category_id} for the same
 # ordering reason as /categories/preset above.
+@router.post("/categories/merge", response_model=CategoryMergeResponse)
+def merge_categories_endpoint(payload: CategoryMergeRequest, db: Session = Depends(get_db)):
+    """Combines several categories into one - see
+    services/category_restructure.py for what moves and what is refused.
+    Deliberately NOT expressible as delete-plus-reassign from the client:
+    deleting a category detaches its transactions (_detach_category below),
+    so a client-side "merge" would uncategorize the history it was trying
+    to preserve.
+    """
+
+    try:
+        result = merge_categories(db, payload.source_ids, payload.target_id)
+
+    except RestructureError as error:
+        db.rollback()
+        raise HTTPException(status_code=error.status_code, detail=str(error))
+
+    return CategoryMergeResponse(**result)
+
+
+@router.post("/categories/split/preview", response_model=CategorySplitPreviewResponse)
+def preview_category_split(payload: CategorySplitRequest, db: Session = Depends(get_db)):
+    """Runs the identical matching split does and writes nothing - the same
+    preview-before-commit affordance a rule already has
+    (POST /category-rules/preview).
+    """
+
+    try:
+        return CategorySplitPreviewResponse(**split_preview(db, payload.category_id, payload.parts))
+
+    except RestructureError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error))
+
+
+@router.post("/categories/split", response_model=CategorySplitResponse, status_code=201)
+def split_category_endpoint(payload: CategorySplitRequest, db: Session = Depends(get_db)):
+
+    try:
+        result = split_category(db, payload.category_id, payload.parts)
+
+    except RestructureError as error:
+        db.rollback()
+        raise HTTPException(status_code=error.status_code, detail=str(error))
+
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A category with this name already exists")
+
+    return CategorySplitResponse(**result)
+
+
 @router.get("/categories/usage", response_model=list[CategoryUsageResponse])
 def category_usage(db: Session = Depends(get_db)):
     """Whole-ledger usage per category - see CategoryUsageResponse's own
@@ -177,6 +245,7 @@ def category_usage(db: Session = Depends(get_db)):
             category_id=category.id,
             category_name=category.name,
             parent_id=category.parent_id,
+            parent_name=category.parent_name,
             budget_amount=category.budget_amount,
             archived=category.archived,
             transaction_count=transaction_counts.get(category.id, 0),

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
 import TrendsPage from './TrendsPage.jsx'
@@ -58,12 +58,25 @@ function mockLoad(overrides = {}) {
   })
 }
 
-function renderPage() {
+function renderPage(initialEntry = '/trends') {
   return render(
-    <MemoryRouter>
-      <TrendsPage />
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <Routes>
+        <Route path="/trends" element={<TrendsPage />} />
+        {/* Drill-down leaves the page - these stand in for the two
+            destinations so a test can assert where a click LANDED, not
+            just that navigate() was called with some string. */}
+        <Route path="/reports" element={<LocationProbe label="reports" />} />
+        <Route path="/transactions" element={<LocationProbe label="ledger" />} />
+      </Routes>
     </MemoryRouter>
   )
+}
+
+function LocationProbe({ label }) {
+  const location = useLocation()
+
+  return <div>{`${label}${location.search}`}</div>
 }
 
 describe('TrendsPage', () => {
@@ -188,5 +201,173 @@ describe('TrendsPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/database unavailable/)).toBeInTheDocument()
     })
+  })
+})
+
+const groupedCategories = [
+  {
+    category_id: 1,
+    category_name: 'Groceries',
+    parent_id: 10,
+    parent_name: 'Food',
+    kind: 'expense',
+    amounts: { '2026-05': '100.00', '2026-06': '120.00', '2026-07': '90.00' },
+    total: '310.00',
+  },
+  {
+    category_id: 2,
+    category_name: 'Takeaway',
+    parent_id: 10,
+    parent_name: 'Food',
+    kind: 'expense',
+    amounts: { '2026-05': '40.00', '2026-06': '30.00', '2026-07': '20.00' },
+    total: '90.00',
+  },
+  {
+    category_id: 3,
+    category_name: 'Rent',
+    parent_id: null,
+    parent_name: null,
+    kind: 'expense',
+    amounts: { '2026-05': '500.00', '2026-06': '500.00', '2026-07': '500.00' },
+    total: '1500.00',
+  },
+]
+
+describe('TrendsPage drill-down', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('charts groups rather than their children, until one is drilled into', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    expect(screen.getByRole('button', { name: 'Food' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Groceries' })).not.toBeInTheDocument()
+  })
+
+  it('sums a group\'s children into the group\'s own line', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    // 100.00 groceries + 40.00 takeaway for 2026-05.
+    expect(screen.getByRole('button', { name: 'Food — 2026-05: 140.00' })).toBeInTheDocument()
+  })
+
+  it('drills into a group from its legend entry, and back out again', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Food' }))
+
+    await waitFor(() => expect(screen.getByText('Spending in Food Over Time')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Groceries' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Takeaway' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to all categories' }))
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+  })
+
+  it('drills into a group by clicking one of its points too', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Food — 2026-06: 150.00' }))
+
+    await waitFor(() => expect(screen.getByText('Spending in Food Over Time')).toBeInTheDocument())
+  })
+
+  it('starts drilled in when the URL says so, and survives a reload that way', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage('/trends?group=10')
+
+    await waitFor(() => expect(screen.getByText('Spending in Food Over Time')).toBeInTheDocument())
+  })
+
+  it('falls back to the top level for a group with nothing in this window', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage('/trends?group=999')
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+  })
+
+  it('opens the filtered ledger from a leaf category point', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rent — 2026-07: 500.00' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('ledger?category_id=3&date_from=2026-07-01&date_to=2026-07-31')).toBeInTheDocument()
+    })
+  })
+
+  it('opens a leaf category\'s own month once drilled into its group', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage('/trends?group=10')
+
+    await waitFor(() => expect(screen.getByText('Spending in Food Over Time')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Groceries — 2026-05: 100.00' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('ledger?category_id=1&date_from=2026-05-01&date_to=2026-05-31')).toBeInTheDocument()
+    })
+  })
+
+  it('opens that month\'s report from the income-vs-spending chart', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Income vs Spending vs Net')).toBeInTheDocument())
+
+    fireEvent.click(screen.getAllByRole('button', { name: /^2026-06 — Income/ })[0])
+
+    await waitFor(() => expect(screen.getByText('reports?year=2026&month=6')).toBeInTheDocument())
+  })
+
+  it('opens that month\'s report from the budget-vs-actual chart', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Budget vs Actual')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /^2026-07 — Budgeted/ }))
+
+    await waitFor(() => expect(screen.getByText('reports?year=2026&month=7')).toBeInTheDocument())
+  })
+
+  it('drops the drilled-in group when the window changes', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage('/trends?group=10')
+
+    await waitFor(() => expect(screen.getByText('Spending in Food Over Time')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Months'), { target: { value: '12' } })
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
   })
 })

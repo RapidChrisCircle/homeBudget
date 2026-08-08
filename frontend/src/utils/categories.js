@@ -7,6 +7,32 @@
 // falls into exactly one of three roles: a parent (has children), a child
 // (has a parent_id), or a plain top-level category (neither).
 
+// The separator between a parent and its child everywhere a category is
+// NAMED outside a <select> (whose <optgroup> already shows the hierarchy
+// structurally). Exported so a test asserts the rendered string rather
+// than hard-coding a character that would then live in a dozen places.
+export const CATEGORY_PATH_SEPARATOR = ' › '
+
+// "Food › Groceries" for a child, "Groceries" for a top-level category.
+// Every table that names a category goes through this: a bare leaf name is
+// ambiguous the moment two groups each own an "Insurance" or a "Fees" (the
+// Queensland preset creates exactly that), and the Monthly Budgets card is
+// a flat list of leaves with no group headings to disambiguate them.
+//
+// Takes the {category_name, parent_name} shape the API responses use as
+// well as a Category's own {name, parent_name} - the two differ only in
+// which key holds the leaf's own name, and every caller would otherwise
+// have to remember which kind of record it is holding.
+export function categoryPathLabel(category) {
+  if (!category) {
+    return ''
+  }
+
+  const name = category.name ?? category.category_name ?? ''
+
+  return category.parent_name ? `${category.parent_name}${CATEGORY_PATH_SEPARATOR}${name}` : name
+}
+
 // {parentless, groups} - parentless is every plain top-level category
 // (used by src/components/CategorySelect.jsx's own trailing, ungrouped
 // options); groups is one {parent, children} entry per category that has

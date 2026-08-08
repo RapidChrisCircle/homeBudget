@@ -4,6 +4,17 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
+## [0.21.0] - 2026-08-08
+
+### Added
+
+- **Combining and splitting categories** (`POST /api/categories/merge`, `POST /api/categories/split` and its `/preview`, `backend/app/services/category_restructure.py`), as two new cards on `/categories`. Combining moves every transaction, split allocation, rule and budget onto the category you keep and deletes the rest — deleting the duplicate instead detaches its history rather than moving it, which is the whole reason this exists; standing budgets and same-month overrides sum. Splitting carves one category into several new ones that inherit its kind and parent, each taking the transactions whose narration contains its own pattern (first match wins, same semantics as a rule), with **Preview** running the identical matcher before anything moves and an optional rule created per part for future imports. Combining refuses a group on either side or mixed kinds rather than guessing; anything a split's patterns don't match stays where it is.
+- **Drill-down on every `/trends` chart.** Spending by category now charts sub-categories rolled up into their **group**, and clicking a group (a point or its legend entry) drills into that group's own children; clicking a leaf's point opens the ledger filtered to that category and month. The two bar charts drill by month, opening that month's `/reports`. The drilled-into group lives in the URL (`?group=`), and `/reports` now reads its month from the URL (`?year=&month=`), so both views are reloadable and shareable. `LineChart` gained `onSelectPoint`/`onSelectSeries` and `BarChart` gained `onSelectPeriod`/`periodSelectLabel` — all opt-in, so a chart without them renders exactly as before, and a series can opt out of a dead affordance with `selectable: false` (the summed "Other" line does).
+
+### Changed
+
+- Every table that names a category as a row of its own — the Monthly Budgets editor and Unused/Archived cards on `/categories`, both `/reports` tables, Dashboard's over-budget card, the `/rules` table — shows its full path (`Food › Groceries`) rather than a bare leaf name, and sorts by that same path. This is what the Monthly Budgets card was missing: a flat list of leaves with no group headings can't otherwise tell two `Insurance` rows apart, which the Queensland preset creates on the first press. `parent_id`/`parent_name` now ride along on every response that names a category (budgets, category usage, budget lines, the category grid, and a rule's own category); the ledger's per-transaction pickers are unchanged, since `<CategorySelect>`'s `<optgroup>` already shows the hierarchy.
+
 ## [0.20.0] - 2026-08-05
 
 Follow-ups against v0.19.0's UI pass, from a dark-mode screenshot of `/transactions` with Group by merchant on.

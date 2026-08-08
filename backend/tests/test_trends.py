@@ -221,3 +221,21 @@ def test_get_trends_rejects_year_without_month(client):
     response = client.get("/api/trends?year=2026")
 
     assert response.status_code == 422
+
+
+def test_trends_categories_carry_their_parent(client, db_session):
+    """/trends' own chart rolls leaves up into their group and drills back
+    down into it, so each row has to name the group it belongs to.
+    """
+
+    parent = make_category(db_session, name="Food")
+    child = make_category(db_session, name="Groceries")
+    child.parent_id = parent.id
+    make_transaction(db_session, date(2026, 7, 10), debit=Decimal("-50.00"), category_id=child.id)
+    db_session.commit()
+
+    body = client.get("/api/trends?year=2026&month=7&months=1").json()
+    row = next(c for c in body["categories"] if c["category_id"] == child.id)
+
+    assert row["parent_id"] == parent.id
+    assert row["parent_name"] == "Food"

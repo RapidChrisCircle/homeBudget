@@ -140,6 +140,7 @@ class CategoryUsageResponse(BaseModel):
     category_id: int
     category_name: str
     parent_id: Optional[int]
+    parent_name: Optional[str]
     budget_amount: Optional[Decimal]
     archived: bool
     transaction_count: int
@@ -152,6 +153,74 @@ class CategoryPresetResultResponse(BaseModel):
     skipped: list[str]
 
 
+class CategoryMergeRequest(BaseModel):
+    """Combine `source_ids` into `target_id` - see
+    services/category_restructure.py for what "combine" moves and what it
+    refuses to touch.
+    """
+
+    source_ids: list[int]
+    target_id: int
+
+
+class CategoryMergeResponse(BaseModel):
+
+    target: CategoryResponse
+    merged_category_names: list[str]
+    transactions_moved: int
+    splits_moved: int
+    rules_moved: int
+    budget_overrides_moved: int
+
+
+class CategorySplitPart(BaseModel):
+    """One new category to carve out of an existing one. `pattern` is a
+    case-insensitive narration substring, the same match a rule's own
+    narration_pattern uses (services/categorization.criteria_match).
+    """
+
+    name: str
+    pattern: str
+    budget_amount: Optional[Decimal] = None
+    create_rule: bool = False
+
+
+class CategorySplitRequest(BaseModel):
+
+    category_id: int
+    parts: list[CategorySplitPart]
+
+
+class CategorySplitPartPreviewResponse(BaseModel):
+
+    name: str
+    pattern: str
+    transaction_count: int
+    total: Decimal
+
+
+class CategorySplitPreviewResponse(BaseModel):
+    """What a split WOULD move, without moving anything. `remaining_count`
+    is what stays in the source category - the parts are matched in order,
+    first match wins, so the counts here never double-count a transaction.
+    """
+
+    category_id: int
+    category_name: str
+    parts: list[CategorySplitPartPreviewResponse]
+    remaining_count: int
+    remaining_total: Decimal
+
+
+class CategorySplitResponse(BaseModel):
+
+    source: CategoryResponse
+    created: list[CategoryResponse]
+    transactions_moved: int
+    splits_moved: int
+    rules_created: int
+
+
 class CategoryRuleResponse(BaseModel):
 
     id: int
@@ -161,6 +230,7 @@ class CategoryRuleResponse(BaseModel):
     max_amount: Optional[Decimal]
     category_id: int
     category_name: Optional[str]
+    category_parent_name: Optional[str]
     priority: int
     created_at: datetime
 
@@ -456,6 +526,12 @@ class BudgetLineResponse(BaseModel):
 
     category_id: int
     category_name: str
+    # Present on every response that NAMES a category, so the UI can render
+    # the same "Parent > Child" path /categories itself shows rather than a
+    # bare leaf name - two groups can each own a "Fees" or "Insurance", and
+    # a bare name gives no way to tell which one a row is.
+    parent_id: Optional[int]
+    parent_name: Optional[str]
     budget_amount: Optional[Decimal]
     actual: Decimal
     difference: Optional[Decimal]
@@ -476,6 +552,8 @@ class CategoryGridRowResponse(BaseModel):
 
     category_id: int
     category_name: str
+    parent_id: Optional[int]
+    parent_name: Optional[str]
     kind: str
     archived: bool
     amounts: dict[str, Decimal]
@@ -640,6 +718,8 @@ class BudgetPeriodCategoryResponse(BaseModel):
 
     category_id: int
     category_name: str
+    parent_id: Optional[int]
+    parent_name: Optional[str]
     # standing_amount and override_amount are the two RAW inputs;
     # effective_amount is services.budgets.effective_budget()'s already-
     # resolved output - never re-derive it from the other two on the

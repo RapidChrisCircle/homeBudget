@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
@@ -8,11 +8,14 @@ import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
+import { categoryPathLabel } from '../utils/categories.js'
 import { uncategorizedLedgerLink } from '../utils/format.js'
 import { useTableSort } from '../utils/tableSort.js'
 
+// Sorted by the hierarchical label the table itself renders, the same
+// reasoning CategoriesPage's own sort columns follow.
 const BUDGET_VS_ACTUAL_SORT_COLUMNS = {
-  category: { getValue: (l) => l.category_name, type: 'string' },
+  category: { getValue: (l) => categoryPathLabel(l), type: 'string' },
   budget: { getValue: (l) => l.budget_amount, type: 'numeric' },
   actual: { getValue: (l) => l.actual, type: 'numeric' },
   difference: { getValue: (l) => l.difference, type: 'numeric' },
@@ -25,16 +28,26 @@ const BUDGET_VS_ACTUAL_SORT_COLUMNS = {
 // complexity. Category Totals' own row order otherwise still reads
 // top-to-bottom by total, same as before.
 const CATEGORY_TOTALS_SORT_COLUMNS = {
-  category: { getValue: (r) => r.category_name, type: 'string' },
+  category: { getValue: (r) => categoryPathLabel(r), type: 'string' },
   total: { getValue: (r) => r.total, type: 'numeric' },
 }
 
 export default function ReportsPage() {
+  // The month lives in the URL (?year=&month=), so a report is reloadable
+  // and shareable the way a filtered ledger already is - and so /trends can
+  // drill straight into one month's report from a bar in its charts. No
+  // params at all means "whatever the backend's default period is", which
+  // is the most recent month with transactions (services/reporting.
+  // default_period) - deliberately NOT resolved to explicit params here,
+  // since that would be a second implementation of the same choice.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const year = searchParams.get('year')
+  const month = searchParams.get('month')
+
   const [report, setReport] = useState(null)
   const [periods, setPeriods] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [actionError, setActionError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -42,7 +55,9 @@ export default function ReportsPage() {
     setLoading(true)
     setError('')
 
-    Promise.all([api.get('/reports/monthly'), api.get('/reports/periods')])
+    const query = year && month ? `?year=${year}&month=${month}` : ''
+
+    Promise.all([api.get(`/reports/monthly${query}`), api.get('/reports/periods')])
       .then(([reportRes, periodsRes]) => {
         if (!cancelled) {
           setReport(reportRes.data)
@@ -64,19 +79,18 @@ export default function ReportsPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [year, month])
 
-  const handlePeriodChange = async (event) => {
-    const [year, month] = event.target.value.split('-')
+  // Changing month changes the URL and nothing else - the effect above is
+  // what fetches, so a month picked here and a month arrived at by link
+  // load through exactly the same path.
+  const handlePeriodChange = (event) => {
+    const [nextYear, nextMonth] = event.target.value.split('-')
 
-    setActionError('')
-    try {
-      const response = await api.get(`/reports/monthly?year=${year}&month=${month}`)
-      setReport(response.data)
-    } catch (err) {
-      const message = err?.response?.data?.detail || err?.message || 'Failed to load report'
-      setActionError(String(message))
-    }
+    const next = new URLSearchParams(searchParams)
+    next.set('year', nextYear)
+    next.set('month', nextMonth)
+    setSearchParams(next)
   }
 
   // Called unconditionally, before the loading/error/empty early returns
@@ -119,8 +133,6 @@ export default function ReportsPage() {
   return (
     <section className="page">
       <h2>Reports</h2>
-
-      {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
       <p>
         Budgets apply to every month. Transfer categories are excluded from these totals &mdash; if
@@ -191,7 +203,7 @@ export default function ReportsPage() {
             <tbody>
               {budgetVsActualSort.sortedRows.map((line) => (
                 <tr key={line.category_id}>
-                  <td>{line.category_name}</td>
+                  <td>{categoryPathLabel(line)}</td>
                   <td><Amount value={line.budget_amount} neutral /></td>
                   <td>
                     <Amount value={line.actual} neutral />
@@ -229,7 +241,7 @@ export default function ReportsPage() {
             <tbody>
               {categoryTotalsSort.sortedRows.map((row) => (
                 <tr key={row.category_id}>
-                  <td>{row.category_name}</td>
+                  <td>{categoryPathLabel(row)}</td>
                   {grid.periods.map((period) => (
                     <td key={period.label}><Amount value={row.amounts[period.label]} /></td>
                   ))}

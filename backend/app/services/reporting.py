@@ -75,7 +75,7 @@ from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import Integer, and_, cast, extract, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from ..models import Category, Transaction
 from .allocations import allocation_subquery
@@ -90,6 +90,15 @@ class CategoryPeriodTotal:
 
     category_id: int
     category_name: str
+    # The category's parent, or (None, None) for a top-level one. Carried
+    # purely so a caller can NAME the category the way /categories itself
+    # displays it - "Food > Groceries" rather than a bare "Groceries",
+    # which is ambiguous the moment two groups both have a "Fees" or
+    # "Insurance" leaf. It never affects any total: parents are grouping
+    # only (see Category.parent_id's docstring) and every figure here is
+    # still computed per leaf category exactly as before.
+    parent_id: int | None
+    parent_name: str | None
     kind: str
     budget_amount: Decimal | None
     net: Decimal
@@ -217,6 +226,7 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
 
     overrides = overrides_for_period(db, start.year, start.month)
     alloc = allocation_subquery(db)
+    parent = aliased(Category)
 
     rows = (
         db.query(
@@ -225,6 +235,8 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
             Category.kind,
             Category.budget_amount,
             Category.archived,
+            Category.parent_id,
+            parent.name.label("parent_name"),
             func.coalesce(func.sum(alloc.c.amount), 0).label("net"),
             func.count(alloc.c.transaction_id).label("transaction_count"),
         )
@@ -237,8 +249,12 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
                 alloc.c.transaction_date < end,
             ),
         )
+        .outerjoin(parent, Category.parent_id == parent.id)
         .filter(Category.kind != "transfer")
-        .group_by(Category.id, Category.name, Category.kind, Category.budget_amount, Category.archived)
+        .group_by(
+            Category.id, Category.name, Category.kind, Category.budget_amount, Category.archived,
+            Category.parent_id, parent.name,
+        )
         .order_by(Category.name)
         .all()
     )
@@ -247,6 +263,8 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
         CategoryPeriodTotal(
             category_id=row.id,
             category_name=row.name,
+            parent_id=row.parent_id,
+            parent_name=row.parent_name,
             kind=row.kind,
             budget_amount=effective_budget(row.budget_amount, overrides.get(row.id)),
             net=Decimal(row.net),
@@ -363,6 +381,7 @@ def category_grid(
 
     alloc = allocation_subquery(db)
     year_col, month_col = _year_month_columns(alloc.c.transaction_date)
+    parent = aliased(Category)
 
     rows = (
         db.query(
@@ -371,6 +390,8 @@ def category_grid(
             Category.kind,
             Category.budget_amount,
             Category.archived,
+            Category.parent_id,
+            parent.name.label("parent_name"),
             year_col,
             month_col,
             func.coalesce(func.sum(alloc.c.amount), 0).label("net"),
@@ -384,10 +405,11 @@ def category_grid(
                 alloc.c.transaction_date < window_end,
             ),
         )
+        .outerjoin(parent, Category.parent_id == parent.id)
         .filter(Category.kind != "transfer")
         .group_by(
             Category.id, Category.name, Category.kind, Category.budget_amount, Category.archived,
-            year_col, month_col,
+            Category.parent_id, parent.name, year_col, month_col,
         )
         .all()
     )
@@ -401,6 +423,12 @@ def category_grid(
         entry = by_category.setdefault(row.id, {
             "category_id": row.id,
             "category_name": row.name,
+            # Grouping only, same as CategoryPeriodTotal's own parent
+            # fields - carried so /trends can roll leaves up into their
+            # group for its top-level chart and drill INTO a group from
+            # there, without a second query for the category tree.
+            "parent_id": row.parent_id,
+            "parent_name": row.parent_name,
             "kind": row.kind,
             "archived": row.archived,
             "_standing": row.budget_amount,

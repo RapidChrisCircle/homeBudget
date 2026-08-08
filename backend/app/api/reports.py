@@ -49,6 +49,8 @@ def get_monthly_report(
         CategoryGridRowResponse(
             category_id=row["category_id"],
             category_name=row["category_name"],
+            parent_id=row["parent_id"],
+            parent_name=row["parent_name"],
             kind=row["kind"],
             archived=row["archived"],
             amounts={_label(y, m): amount for (y, m), amount in row["amounts"].items()},

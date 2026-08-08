@@ -84,3 +84,19 @@ def test_budgeted_but_never_used_category_is_reported_unused_with_its_budget(cli
     row = usage_for(client, category_id)
     assert row["transaction_count"] == 0
     assert row["budget_amount"] == "800.00"
+
+
+def test_usage_names_a_child_categorys_parent(client):
+    """The Unused card lists leaf categories, which is exactly where a bare
+    name is least distinguishable - two preset groups each own an
+    "Insurance".
+    """
+
+    parent_id = make_category(client, name="Food")
+    child_id = client.post(
+        "/api/categories",
+        json={"name": "Groceries", "kind": "expense", "parent_id": parent_id},
+    ).json()["id"]
+
+    assert usage_for(client, child_id)["parent_name"] == "Food"
+    assert usage_for(client, parent_id)["parent_name"] is None

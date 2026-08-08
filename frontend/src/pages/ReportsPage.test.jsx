@@ -68,9 +68,9 @@ function mockLoad(report = sampleReport, periods = samplePeriods) {
   })
 }
 
-function renderPage() {
+function renderPage(initialEntry = '/reports') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <ReportsPage />
     </MemoryRouter>
   )
@@ -238,5 +238,38 @@ describe('ReportsPage', () => {
     // The period columns themselves are unaffected - not sortable, and
     // Apple's own June/July figures still show against its own row.
     expect(within(rows[0]).getAllByText('1.00')).toHaveLength(2)
+  })
+})
+
+describe('ReportsPage month in the URL', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('loads the backend default period when the URL names no month', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/reports/monthly'))
+  })
+
+  it('loads the month the URL names - this is what /trends drills into', async () => {
+    mockLoad()
+
+    renderPage('/reports?year=2026&month=6')
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/reports/monthly?year=2026&month=6'))
+  })
+
+  it('puts a month picked from the selector into the URL, so the view is shareable', async () => {
+    mockLoad()
+
+    renderPage()
+    await waitFor(() => expect(screen.getByLabelText('Select month')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Select month'), { target: { value: '2026-6' } })
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/reports/monthly?year=2026&month=6'))
   })
 })
