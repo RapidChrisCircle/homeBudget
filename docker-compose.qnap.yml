@@ -2,38 +2,38 @@
 #
 # Assumes Postgres already runs as its own Container Station application, on
 # its own Docker network. This stack does not create a database - it joins
-# that existing network so the homebudget-api container can reach Postgres
-# by name.
+# that existing network so the api container can reach Postgres by name.
 #
-# Service names are `homebudget-api` / `homebudget-web`, not the shorter
-# `api` / `web` this stack used before - a Compose service is reachable on
-# its OWN service name as a network alias on every network it joins,
-# `dbnet` included, and `api` is an alias generic enough that another
-# application on the same shared network can claim it too. When that
-# happens, Docker's embedded DNS returns BOTH containers' addresses for the
-# name `api`, and nginx (frontend/nginx.conf) round-robins across them -
-# which reads as this app's OWN requests intermittently 404ing or hitting
-# the wrong build, not as a networking collision, and is exactly the
-# incident that prompted this rename (see README.md's "API returns 404 but
-# the page loads" troubleshooting section). A prefixed name is unlikely
-# enough not to collide, but the mechanism at fault - Compose's own
-# alias-equals-service-name behaviour, not anything QNAP-specific - can
-# still bite with any other service name than one that names ITSELF as the
-# app rather than its generic role in the app.
+# Services are named `api` / `web`, same as this stack has always used -
+# NOT the `homebudget-api` / `homebudget-web` a prior version of this file
+# briefly tried instead. The rename was reverted: the YAML actually
+# deployed in Container Station is a hand-maintained copy of this file, not
+# a live pull from the repo, so the rename never reached that deployment,
+# and the failure it produced (the web image already proxying to
+# `homebudget-api`, the deployed compose still calling the service `api`,
+# so the name plainly did not resolve) was misdiagnosed at the time as a
+# Container Station networking quirk. It was not - see README.md's "502 Bad
+# Gateway" troubleshooting section for the corrected account and the
+# container-name arithmetic that proves it (`<project>-<service>-<index>`:
+# `homebudget-api-1` means the service is `api`, not `homebudget-api`).
 #
-# frontend/nginx.conf's upstream name and this file's service name must
+# What actually fixes the original collision (a DIFFERENT application on
+# the shared network also naming a service `api`, so the Docker DNS name
+# `api` resolved to both) without renaming anything: `container_name:`
+# below pins each container to a name that is unique per Docker HOST by
+# construction, unlike a network alias, which several containers can claim
+# at once - that is the whole mechanism the collision exploited. The web
+# container's nginx (frontend/nginx.conf) targets `homebudget-api`, the
+# pinned name, not the service name `api` - a service still named `api`
+# continues to OFFER that generic alias to the shared network, so a
+# neighbouring application resolving plain `api` may still reach this one;
+# renaming the services remains an option for anyone who wants to stop
+# offering it, but is not needed for this app's own requests to resolve
+# correctly.
+#
+# frontend/nginx.conf's upstream name and this file's container_name must
 # match, and travel together: a web image from this version or later
 # requires this compose file's version or later.
-#
-# Even so, a Compose service's OWN service name becoming its network alias
-# is Compose's behaviour to provide, not this file's - a rename alone was
-# NOT enough to fix this on a prior deployment: both containers were up,
-# the name had just been changed on both sides, and `homebudget-api` still
-# came back "Host not found" from the web container regardless. Two things
-# below exist because of that specifically: `aliases:` below states the
-# name explicitly rather than trusting it to be inferred, and API_UPSTREAM
-# is an escape hatch so a future mismatch is a one-field change in
-# Container Station instead of another release.
 #
 # When creating the application in Container Station (Create > Application >
 # pull from GitHub, pointing at this file), you will be prompted to fill in
@@ -54,9 +54,11 @@
 # API_PORT          - host port to publish the api on (default 8000)
 # WEB_PORT          - host port to publish the web UI on (default 8080)
 # API_UPSTREAM      - host:port the web container's nginx proxies /api/ to
-#                      (default homebudget-api:8000, i.e. this same stack's
-#                      own api service). Override this ONLY if that name
-#                      does not resolve from the web container on your
+#                      (default homebudget-api:8000, matching the api
+#                      service's own pinned container_name below - see the
+#                      header comment for why a container_name rather than
+#                      a service name or alias). Override this ONLY if that
+#                      name does not resolve from the web container on your
 #                      setup (README's "502 Bad Gateway" troubleshooting
 #                      section covers how to find one that does) - it is
 #                      not meant to point at a different deployment.
@@ -67,20 +69,17 @@ networks:
     name: ${DB_NETWORK_NAME:?set DB_NETWORK_NAME to the existing Postgres stack's docker network name}
 
 services:
-  homebudget-api:
+  api:
     image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/homebudget-api:latest
+    # Pinned rather than left to Compose's default (<project>-<service>-N)
+    # or relied on as an inferred network alias - see the header comment.
+    # This exact name is what frontend/nginx.conf's default $API_UPSTREAM
+    # targets.
+    container_name: homebudget-api
     restart: unless-stopped
     networks:
-      # Explicit aliases, not just this service's own name relied on
-      # implicitly - see the header comment above. Same name Compose
-      # should already provide on its own; stated outright because one
-      # deployment demonstrated it cannot be assumed to.
-      dbnet:
-        aliases:
-          - homebudget-api
-      default:
-        aliases:
-          - homebudget-api
+      - dbnet
+      - default
     environment:
       DATABASE_HOST: ${DATABASE_HOST:?set DATABASE_HOST to the Postgres container/service name on DB_NETWORK_NAME}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
@@ -92,17 +91,19 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
 
-  homebudget-web:
+  web:
     image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/homebudget-web:latest
+    container_name: homebudget-web
     restart: unless-stopped
     depends_on:
-      - homebudget-api
+      - api
     environment:
       # Read by nginx at container start (frontend/nginx.conf, substituted
       # via the entrypoint's envsubst templating - see frontend/Dockerfile)
-      # - the escape hatch described above, defaulting to this stack's own
-      # api service so nothing changes for a deployment where that name
-      # resolves correctly, which is the common case.
+      # - the escape hatch described above, defaulting to the api
+      # service's own pinned container_name so nothing changes for a
+      # deployment where that name resolves correctly, which is the
+      # common case.
       API_UPSTREAM: ${API_UPSTREAM:-homebudget-api:8000}
     ports:
       - "${WEB_PORT:-8080}:80"
