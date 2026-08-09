@@ -341,6 +341,7 @@ Steps:
    | `ALLOWED_ORIGINS` | only needed for local dev against a remote API; leave as default for QNAP |
    | `DEBUG_SQL` | leave as default (`false`) unless debugging a query issue |
    | `API_PORT` / `WEB_PORT` | host ports to publish (default `8000` / `8080`) |
+   | `API_UPSTREAM` | leave as default (`homebudget-api:8000`) unless the ["502 Bad Gateway" troubleshooting section](#troubleshooting-502-bad-gateway) below says otherwise for your setup |
 
 4. Deploy. The app is reachable at `http://<nas-ip>:8080`, and the API directly at `http://<nas-ip>:8000`.
 
@@ -358,3 +359,21 @@ Images are published as both `:latest` and `:<commit-sha>`. `docker-compose.qnap
 - The frontend performs the header comparison itself on every response and shows *"Responses are coming from more than one API build"* in the footer the moment it notices — no devtools needed. Error messages are also no longer bare "Not Found": `frontend/src/services/api.ts`'s response interceptor enriches an ambiguous error (no `detail`, or FastAPI's own generic route-matching body) with the method, the actual requested path, the status, and — when the headers are present — which build answered, e.g. `404 Not Found — GET /api/transactions did not match any route on the API that answered (answered by build 0.1.0 · 884ba6d)`. A real, specific error from one of this app's own endpoints (`"Category not found"`) is left completely untouched.
 
 **A separate, less likely cause**, from before this rename existed: a Container Station application created uncleanly produces a **doubled** container name prefix (e.g. `homebudget-homebudget-web-1` instead of `homebudget-web-1`) or leaves an extra container of its own running. Check the containers list (Container Station → your app → containers) for either; the remedy is the same delete-and-recreate — never stop containers one at a time to fix either kind of duplication, since a partial cleanup is how it happens in the first place.
+
+### Troubleshooting: 502 Bad Gateway
+
+Every `/api/...` call fails the same way every time (not intermittently, unlike the 404 case above), and the page itself shows a message naming the configured upstream and pointing back at this section — `frontend/nginx.conf`'s `@api_unreachable` location returns that JSON body itself whenever nginx's own proxy to the API fails (can't resolve the name, connection refused, timed out), rather than a bare "502 Bad Gateway". The `homebudget-web` container's own nginx error log (Container Station → the web container → Logs, or `docker logs`) says which of the three it was — `Host not found` means the name below didn't resolve at all; `Connection refused` means it resolved but nothing is listening; a timeout means something in between is dropping the connection.
+
+**This happened once already**, after the `api`/`web` → `homebudget-api`/`homebudget-web` rename described above: both containers were confirmed running, the application had been recreated cleanly from the updated compose file, and `homebudget-api` *still* came back `Host not found` from the web container. The rename assumed a Compose service's own name always becomes its network alias — evidently not guaranteed on every Container Station setup. Two changes exist because of that:
+
+1. **`docker-compose.qnap.yml`** now states the network alias explicitly (`aliases: [homebudget-api]` under both `dbnet` and `default`) rather than relying on it being inferred from the service name.
+2. **`API_UPSTREAM`** is a compose variable (default `homebudget-api:8000`) read by nginx at container start, so if the explicit alias still doesn't resolve on your setup, pointing nginx at whatever name *does* is a one-field change in Container Station — not a new image.
+
+**To find the right value**, from a shell in the `homebudget-web` container:
+
+```
+getent hosts homebudget-api                       # the configured default
+getent hosts <the API container's exact name from Container Station's list>
+```
+
+Whichever of those resolves to exactly one address is a working value for `API_UPSTREAM` — set it to `<that name>:8000` and recreate the application (an environment variable change also requires recreating, the same as the service rename did). Confirm it is genuinely this app before relying on it: `wget -qO- http://<name>:8000/api/version` should report the current version and a commit that appears in this repository's `git log` — not a foreign build, per the 404 section above.

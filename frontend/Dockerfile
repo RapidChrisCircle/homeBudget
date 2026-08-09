@@ -27,7 +27,27 @@ RUN npm run build
 FROM nginx:1.27-alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# /etc/nginx/templates/*.template - not conf.d/default.conf directly - is a
+# convention the base image's own entrypoint scripts already provide: on
+# startup, before nginx itself starts, it runs `envsubst` over every
+# *.template file here and writes the result to the matching path under
+# conf.d/, picking up API_UPSTREAM (below) from this container's own
+# environment. No custom entrypoint script needed - CMD is overridden below,
+# not ENTRYPOINT, so the base image's own entrypoint (which does this
+# substitution, then execs CMD) still runs first.
+#
+# NGINX_ENVSUBST_FILTER restricts substitution to variables matching this
+# pattern - without it, envsubst would also try to substitute nginx's OWN
+# runtime variables ($host, $uri, $request_uri, $remote_addr) that
+# nginx.conf uses, silently blanking them since they are not environment
+# variables of this container.
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+ENV NGINX_ENVSUBST_FILTER=^API_UPSTREAM$
+# Default here matches docker-compose.qnap.yml's own default for
+# API_UPSTREAM - this container can still run (e.g. `docker run` outside
+# that compose file entirely) without the variable being set explicitly.
+ENV API_UPSTREAM=homebudget-api:8000
 
 EXPOSE 80
 

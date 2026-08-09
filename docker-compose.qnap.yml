@@ -25,6 +25,16 @@
 # match, and travel together: a web image from this version or later
 # requires this compose file's version or later.
 #
+# Even so, a Compose service's OWN service name becoming its network alias
+# is Compose's behaviour to provide, not this file's - a rename alone was
+# NOT enough to fix this on a prior deployment: both containers were up,
+# the name had just been changed on both sides, and `homebudget-api` still
+# came back "Host not found" from the web container regardless. Two things
+# below exist because of that specifically: `aliases:` below states the
+# name explicitly rather than trusting it to be inferred, and API_UPSTREAM
+# is an escape hatch so a future mismatch is a one-field change in
+# Container Station instead of another release.
+#
 # When creating the application in Container Station (Create > Application >
 # pull from GitHub, pointing at this file), you will be prompted to fill in
 # the variables below - Container Station does not read a .env file.
@@ -43,6 +53,13 @@
 # DEBUG_SQL         - set to true to log every SQL statement (verbose - dev/debug only)
 # API_PORT          - host port to publish the api on (default 8000)
 # WEB_PORT          - host port to publish the web UI on (default 8080)
+# API_UPSTREAM      - host:port the web container's nginx proxies /api/ to
+#                      (default homebudget-api:8000, i.e. this same stack's
+#                      own api service). Override this ONLY if that name
+#                      does not resolve from the web container on your
+#                      setup (README's "502 Bad Gateway" troubleshooting
+#                      section covers how to find one that does) - it is
+#                      not meant to point at a different deployment.
 
 networks:
   dbnet:
@@ -54,8 +71,16 @@ services:
     image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/homebudget-api:latest
     restart: unless-stopped
     networks:
-      - dbnet
-      - default
+      # Explicit aliases, not just this service's own name relied on
+      # implicitly - see the header comment above. Same name Compose
+      # should already provide on its own; stated outright because one
+      # deployment demonstrated it cannot be assumed to.
+      dbnet:
+        aliases:
+          - homebudget-api
+      default:
+        aliases:
+          - homebudget-api
     environment:
       DATABASE_HOST: ${DATABASE_HOST:?set DATABASE_HOST to the Postgres container/service name on DB_NETWORK_NAME}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
@@ -72,5 +97,12 @@ services:
     restart: unless-stopped
     depends_on:
       - homebudget-api
+    environment:
+      # Read by nginx at container start (frontend/nginx.conf, substituted
+      # via the entrypoint's envsubst templating - see frontend/Dockerfile)
+      # - the escape hatch described above, defaulting to this stack's own
+      # api service so nothing changes for a deployment where that name
+      # resolves correctly, which is the common case.
+      API_UPSTREAM: ${API_UPSTREAM:-homebudget-api:8000}
     ports:
       - "${WEB_PORT:-8080}:80"

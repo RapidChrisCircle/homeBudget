@@ -4,6 +4,17 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
+## [0.21.3] - 2026-08-09
+
+0.21.2's rename shipped, and after a clean recreate of the Container Station application — both containers confirmed running — `homebudget-api` still came back `Host not found` from the web container, now consistently rather than intermittently (a `502 Bad Gateway` on every call instead of the previous 404s). The rename assumed a Compose service's own name always becomes its network alias; that assumption doesn't hold on every setup, and there was no way to correct it short of another release.
+
+### Fixed
+
+- `docker-compose.qnap.yml` now states the API service's network alias explicitly (`aliases: [homebudget-api]` on both `dbnet` and `default`) instead of relying on it being inferred from the service name.
+- A new `API_UPSTREAM` compose variable (default `homebudget-api:8000`) is read by nginx at container start via the `nginx:1.27-alpine` base image's own template-substitution entrypoint (`frontend/Dockerfile` now copies `nginx.conf` to `/etc/nginx/templates/default.conf.template` rather than `conf.d/` directly, with `NGINX_ENVSUBST_FILTER` scoped to just that one variable so nginx's own `$host`/`$uri`/`$request_uri`/`$remote_addr` are untouched). A future mismatch between the configured name and whatever actually resolves is now a one-field change in Container Station, not another image build.
+- A bare `502 Bad Gateway` explains nothing about which upstream failed or why. `frontend/nginx.conf` now returns a JSON body naming the configured `API_UPSTREAM` and pointing at the new README section whenever nginx's own proxy to the API fails (`error_page 502 504`) — rendered by the frontend the same way any other API error is, so the failure is legible on the page itself rather than requiring a container log.
+- README gains a "Troubleshooting: 502 Bad Gateway" section covering this incident and how to find a working `API_UPSTREAM` value from a shell in the web container.
+
 ## [0.21.2] - 2026-08-09
 
 0.21.1's diagnostics worked on the first reload after deploying — and showed the actual cause was different from what that release assumed. The API build answering some requests was reporting `v0.1.0 · 884ba6d`: a version and commit that appear nowhere in this repository's history, meaning the container involved isn't a stale or duplicated homeBudget deployment at all, but a **different application** whose service also happens to be named `api` on the shared Docker network — Compose makes a service reachable on its own service name as a network alias on every network it joins, and `api` is generic enough for a collision. Docker's DNS then hands back both containers' addresses for the name `api`, and nginx (resolving that name once at startup) round-robins across them for the life of the process.
