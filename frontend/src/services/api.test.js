@@ -10,21 +10,28 @@ import {
 // Plain fake axios-error shapes - no network mocking needed, since
 // describeApiError only ever reads error.response/.config/.message, the
 // same fields axios itself populates on a real rejected request.
-function axiosError({ status, data, statusText = 'Not Found', method = 'get', url = '/transactions' } = {}) {
+// baseURL defaults to "/api", matching the real `api` instance's own
+// axios.create({ baseURL: "/api" }) - config.url alone (e.g.
+// "/transactions") is NOT the path that was actually requested, which is
+// the exact bug a first version of this file's error messages had (see
+// requestedPath's own comment in api.ts).
+function axiosError({
+  status, data, statusText = 'Not Found', method = 'get', url = '/transactions', baseURL = '/api', headers = {},
+} = {}) {
   return {
-    config: { method, url },
-    response: status === undefined ? undefined : { status, statusText, data },
+    config: { method, url, baseURL },
+    response: status === undefined ? undefined : { status, statusText, data, headers },
     message: 'Request failed with status code ' + status,
   }
 }
 
 describe('describeApiError', () => {
-  it('enriches a bare 404 with the method, path and status', async () => {
+  it('enriches a bare 404 with the actual requested path (baseURL + url), method and status', async () => {
     const error = axiosError({ status: 404, data: { detail: 'Not Found' } })
 
     await expect(describeApiError(error)).rejects.toBe(error)
     expect(error.response.data.detail).toBe(
-      '404 Not Found — GET /transactions did not match any route on the API that answered'
+      '404 Not Found — GET /api/transactions did not match any route on the API that answered'
     )
   })
 
@@ -35,8 +42,29 @@ describe('describeApiError', () => {
 
     await expect(describeApiError(error)).rejects.toBe(error)
     expect(error.response.data.detail).toBe(
-      '405 Method Not Allowed — POST /transactions did not match any route on the API that answered'
+      '405 Method Not Allowed — POST /api/transactions did not match any route on the API that answered'
     )
+  })
+
+  it('names the build that answered when the response carries the identity headers', async () => {
+    const error = axiosError({
+      status: 404,
+      data: { detail: 'Not Found' },
+      headers: { 'x-app-version': '0.1.0', 'x-app-commit': '884ba6d' },
+    })
+
+    await expect(describeApiError(error)).rejects.toBe(error)
+    expect(error.response.data.detail).toBe(
+      '404 Not Found — GET /api/transactions did not match any route on the API that answered'
+      + ' (answered by build 0.1.0 · 884ba6d)'
+    )
+  })
+
+  it('names no build at all when the headers are absent, rather than guessing', async () => {
+    const error = axiosError({ status: 404, data: { detail: 'Not Found' }, headers: {} })
+
+    await expect(describeApiError(error)).rejects.toBe(error)
+    expect(error.response.data.detail).not.toContain('answered by build')
   })
 
   it('leaves a real, specific detail from this API completely untouched', async () => {
@@ -65,11 +93,11 @@ describe('describeApiError', () => {
     expect(error.response.data.detail).toBe('Not Found')
   })
 
-  it('fills in a status line when there is no detail at all', async () => {
+  it('fills in a status line (with the real path) when there is no detail at all', async () => {
     const error = axiosError({ status: 500, statusText: 'Internal Server Error', data: {} })
 
     await expect(describeApiError(error)).rejects.toBe(error)
-    expect(error.response.data.detail).toBe('500 Internal Server Error — GET /transactions')
+    expect(error.response.data.detail).toBe('500 Internal Server Error — GET /api/transactions')
   })
 
   it('leaves a network error (no response reached) untouched', async () => {

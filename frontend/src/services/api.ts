@@ -28,6 +28,40 @@ function isGenericRouteError(status: number | undefined, detail: unknown): boole
     );
 }
 
+// The path axios actually requested: config.url is relative to
+// config.baseURL ("/api"), held separately by design (it's what lets every
+// call site write `api.get('/accounts')` instead of repeating "/api" a
+// hundred times) - but that means config.url ALONE is exactly the string
+// that was never requested. An enriched error message exists specifically
+// to say what failed; naming a path that isn't the real one is worse than
+// naming nothing; read literally it points at a frontend routing bug that
+// does not exist. (A first version of this file got exactly this wrong -
+// see the incident this comment is here to prevent a repeat of.)
+function requestedPath(config: any): string {
+    return `${config?.baseURL ?? ""}${config?.url ?? "?"}`;
+}
+
+// Names which build actually answered, from the X-App-Version/X-App-Commit
+// headers every response now carries (backend/app/main.py's
+// add_build_identity_headers). This is the fact that took a git-history
+// check to recover by hand the one time this mattered - a response
+// reporting a version/commit that matches nothing in this repo's history
+// at all is not this application, most often another one answering the
+// same Docker network alias (see docker-compose.qnap.yml's comment on
+// why the service is no longer just named `api`). Blank when the headers
+// are absent (an older build, or a response that didn't reach any HTTP
+// server we control) rather than guessing.
+function respondingBuild(response: any): string {
+    const version = response?.headers?.["x-app-version"];
+    const commit = response?.headers?.["x-app-commit"];
+
+    if (!version && !commit) {
+        return "";
+    }
+
+    return ` (answered by build ${version ?? "?"} · ${commit ?? "?"})`;
+}
+
 // Every page renders errors via `err?.response?.data?.detail || err?.message`
 // (dozens of call sites, all reading the SAME field) - so this is the one
 // place that needs to fix "Not Found" reading as content-free, rather than
@@ -50,17 +84,18 @@ export function describeApiError(error: any) {
     const { status } = response;
     const detail = response.data?.detail;
     const method = (error.config?.method || "?").toUpperCase();
-    const path = error.config?.url || "?";
+    const path = requestedPath(error.config);
+    const build = respondingBuild(response);
 
     if (isGenericRouteError(status, detail)) {
         response.data = {
             ...response.data,
-            detail: `${status} ${detail} — ${method} ${path} did not match any route on the API that answered`,
+            detail: `${status} ${detail} — ${method} ${path} did not match any route on the API that answered${build}`,
         };
     } else if (!detail) {
         response.data = {
             ...response.data,
-            detail: `${status} ${response.statusText || "Error"} — ${method} ${path}`,
+            detail: `${status} ${response.statusText || "Error"} — ${method} ${path}${build}`,
         };
     }
 

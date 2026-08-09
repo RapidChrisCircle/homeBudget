@@ -2,7 +2,28 @@
 #
 # Assumes Postgres already runs as its own Container Station application, on
 # its own Docker network. This stack does not create a database - it joins
-# that existing network so the api container can reach Postgres by name.
+# that existing network so the homebudget-api container can reach Postgres
+# by name.
+#
+# Service names are `homebudget-api` / `homebudget-web`, not the shorter
+# `api` / `web` this stack used before - a Compose service is reachable on
+# its OWN service name as a network alias on every network it joins,
+# `dbnet` included, and `api` is an alias generic enough that another
+# application on the same shared network can claim it too. When that
+# happens, Docker's embedded DNS returns BOTH containers' addresses for the
+# name `api`, and nginx (frontend/nginx.conf) round-robins across them -
+# which reads as this app's OWN requests intermittently 404ing or hitting
+# the wrong build, not as a networking collision, and is exactly the
+# incident that prompted this rename (see README.md's "API returns 404 but
+# the page loads" troubleshooting section). A prefixed name is unlikely
+# enough not to collide, but the mechanism at fault - Compose's own
+# alias-equals-service-name behaviour, not anything QNAP-specific - can
+# still bite with any other service name than one that names ITSELF as the
+# app rather than its generic role in the app.
+#
+# frontend/nginx.conf's upstream name and this file's service name must
+# match, and travel together: a web image from this version or later
+# requires this compose file's version or later.
 #
 # When creating the application in Container Station (Create > Application >
 # pull from GitHub, pointing at this file), you will be prompted to fill in
@@ -29,7 +50,7 @@ networks:
     name: ${DB_NETWORK_NAME:?set DB_NETWORK_NAME to the existing Postgres stack's docker network name}
 
 services:
-  api:
+  homebudget-api:
     image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/homebudget-api:latest
     restart: unless-stopped
     networks:
@@ -46,10 +67,10 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
 
-  web:
+  homebudget-web:
     image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/homebudget-web:latest
     restart: unless-stopped
     depends_on:
-      - api
+      - homebudget-api
     ports:
       - "${WEB_PORT:-8080}:80"
