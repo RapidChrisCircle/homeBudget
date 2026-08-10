@@ -4,106 +4,91 @@
 # its own Docker network. This stack does not create a database - it joins
 # that existing network so the api container can reach Postgres by name.
 #
-# Services are named `api` / `web`, same as this stack has always used -
-# NOT the `homebudget-api` / `homebudget-web` a prior version of this file
-# briefly tried instead. The rename was reverted: the YAML actually
-# deployed in Container Station is a hand-maintained copy of this file, not
-# a live pull from the repo, so the rename never reached that deployment,
-# and the failure it produced (the web image already proxying to
-# `homebudget-api`, the deployed compose still calling the service `api`,
-# so the name plainly did not resolve) was misdiagnosed at the time as a
-# Container Station networking quirk. It was not - see README.md's "502 Bad
-# Gateway" troubleshooting section for the corrected account and the
-# container-name arithmetic that proves it (`<project>-<service>-<index>`:
-# `homebudget-api-1` means the service is `api`, not `homebudget-api`).
+# THE ONE RULE THAT MAKES THIS SAFE TO RUN ALONGSIDE OTHER APPS:
+# `api` joins the shared `dbnet`, `web` NEVER does.
 #
-# What actually fixes the original collision (a DIFFERENT application on
-# the shared network also naming a service `api`, so the Docker DNS name
-# `api` resolved to both) without renaming anything: `container_name:`
-# below pins each container to a name that is unique per Docker HOST by
-# construction, unlike a network alias, which several containers can claim
-# at once - that is the whole mechanism the collision exploited. The web
-# container's nginx (frontend/nginx.conf) targets `homebudget-api`, the
-# pinned name, not the service name `api` - a service still named `api`
-# continues to OFFER that generic alias to the shared network, so a
-# neighbouring application resolving plain `api` may still reach this one;
-# renaming the services remains an option for anyone who wants to stop
-# offering it, but is not needed for this app's own requests to resolve
-# correctly.
+# Docker's embedded DNS is per-network - a container can only resolve names
+# of containers on networks IT is attached to. `web` is therefore on this
+# project's own default network and nothing else, which means the name
+# `api` resolves to exactly one thing: this project's own api container. It
+# does not matter how many other applications on the NAS also name a
+# service `api` - none of them are on this project's default network, so
+# none of them are even visible to resolve.
 #
-# frontend/nginx.conf's upstream name and this file's container_name must
-# match, and travel together: a web image from this version or later
-# requires this compose file's version or later.
+# Attaching `web` to `dbnet` breaks that guarantee, and is the actual cause
+# of the intermittent 404s this stack chased through three releases: on the
+# shared network EVERY app's api service claims the generic alias `api`
+# (a Compose service is always reachable on its own service name, on every
+# network it joins), so Docker's DNS returns several addresses and nginx
+# round-robins across them - some requests answered by this app's API,
+# others by a completely different application, which 404s every path it
+# doesn't recognise. The fix was never renaming things (0.21.2's service
+# rename, 0.21.3's aliases and 0.21.4's container_name pinning were all
+# treating the symptom); it was keeping `web` off the shared network.
+#
+# One residual, harmless consequence: this app's api service still OFFERS
+# the alias `api` on dbnet, since a service name is always an alias and
+# cannot be removed without renaming the service. Nothing here resolves
+# over dbnet, so it cannot affect this app - but a neighbouring app that
+# wrongly resolves `api` while attached to dbnet could reach this API. See
+# README.md's "Running several apps from this template on one NAS".
+#
+# `dbnet` must already exist on the NAS, named exactly that (it is the
+# network the existing Postgres application runs on).
 #
 # When creating the application in Container Station (Create > Application >
 # pull from GitHub, pointing at this file), you will be prompted to fill in
 # the variables below - Container Station does not read a .env file.
 #
-# DB_NETWORK_NAME   - docker network the existing Postgres container is on
-#                      (docker network ls on the NAS, or Container Station's
-#                      network view for that application)
 # DATABASE_HOST     - container/service name of the existing Postgres container
 # DATABASE_PORT     - Postgres port (default 5432)
 # DATABASE_NAME     - database name to use/create
 # DATABASE_USER     - database user
 # DATABASE_PASSWORD - database password
-# ALLOWED_ORIGINS   - comma-separated origins allowed to call the api directly
-#                      (not needed for browsing through the web container,
-#                      only for local dev against a remote api)
-# DEBUG_SQL         - set to true to log every SQL statement (verbose - dev/debug only)
-# API_PORT          - host port to publish the api on (default 8000)
-# WEB_PORT          - host port to publish the web UI on (default 8080)
-# API_UPSTREAM      - host:port the web container's nginx proxies /api/ to
-#                      (default homebudget-api:8000, matching the api
-#                      service's own pinned container_name below - see the
-#                      header comment for why a container_name rather than
-#                      a service name or alias). Override this ONLY if that
-#                      name does not resolve from the web container on your
-#                      setup (README's "502 Bad Gateway" troubleshooting
-#                      section covers how to find one that does) - it is
-#                      not meant to point at a different deployment.
+# WEB_PORT          - host port to publish the web UI on (default 8080).
+#                      MUST be unique per application on this NAS - every
+#                      app cloned from this template defaults to 8080 and
+#                      the second one to start simply fails to bind.
 
 networks:
   dbnet:
     external: true
-    name: ${DB_NETWORK_NAME:?set DB_NETWORK_NAME to the existing Postgres stack's docker network name}
 
 services:
   api:
     image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/homebudget-api:latest
-    # Pinned rather than left to Compose's default (<project>-<service>-N)
-    # or relied on as an inferred network alias - see the header comment.
-    # This exact name is what frontend/nginx.conf's default $API_UPSTREAM
-    # targets.
-    container_name: homebudget-api
     restart: unless-stopped
     networks:
+      # dbnet to reach Postgres; default to be reachable by `web`. Both are
+      # required - on dbnet alone, `web` (which is deliberately not there)
+      # could not reach this container by any name at all.
       - dbnet
       - default
     environment:
-      DATABASE_HOST: ${DATABASE_HOST:?set DATABASE_HOST to the Postgres container/service name on DB_NETWORK_NAME}
+      DATABASE_HOST: ${DATABASE_HOST:?set DATABASE_HOST to the Postgres container/service name on dbnet}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       DATABASE_NAME: ${DATABASE_NAME:?set DATABASE_NAME}
       DATABASE_USER: ${DATABASE_USER:?set DATABASE_USER}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
-      DEBUG_SQL: ${DEBUG_SQL:-false}
-    ports:
-      - "${API_PORT:-8000}:8000"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
 
   web:
     image: ghcr.io/${GHCR_OWNER:-rapidchriscircle}/homebudget-web:latest
-    container_name: homebudget-web
     restart: unless-stopped
+    networks:
+      # This project's own network ONLY. Stated explicitly rather than left
+      # implicit because it is load-bearing: adding `dbnet` here is the one
+      # edit that would re-expose this app to every other application's
+      # `api` on the shared network. See the header comment.
+      - default
     depends_on:
+      # Startup order only - it does not wait for the API to be ready, and
+      # deliberately doesn't need to: nginx resolves and connects to the
+      # upstream per request (frontend/nginx.conf), so a `web` that starts
+      # first serves 502s for a few seconds and then recovers on its own.
       - api
-    environment:
-      # Read by nginx at container start (frontend/nginx.conf, substituted
-      # via the entrypoint's envsubst templating - see frontend/Dockerfile)
-      # - the escape hatch described above, defaulting to the api
-      # service's own pinned container_name so nothing changes for a
-      # deployment where that name resolves correctly, which is the
-      # common case.
-      API_UPSTREAM: ${API_UPSTREAM:-homebudget-api:8000}
     ports:
       - "${WEB_PORT:-8080}:80"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"

@@ -44,10 +44,18 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # variables of this container.
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 ENV NGINX_ENVSUBST_FILTER=^API_UPSTREAM$
-# Default here matches docker-compose.qnap.yml's own default for
-# API_UPSTREAM - this container can still run (e.g. `docker run` outside
-# that compose file entirely) without the variable being set explicitly.
-ENV API_UPSTREAM=homebudget-api:8000
+# The compose SERVICE name, deliberately - not a container_name, an alias,
+# or anything else this image would have to agree with the compose file
+# about. Any stack built from docker-compose.qnap.yml puts the API on a
+# service called `api` sharing this container's own project network, so
+# this default just works, and no image/compose version coupling exists to
+# get out of step. That coupling is not theoretical: Watchtower replaces
+# this image automatically, with no human present and no way to update the
+# compose file in the same action, so a default that only worked with one
+# specific compose file would be a scheduled outage. Override with
+# API_UPSTREAM only if a deployment genuinely names the service something
+# else - see README.md's "502 Bad Gateway" troubleshooting section.
+ENV API_UPSTREAM=api:8000
 
 EXPOSE 80
 
