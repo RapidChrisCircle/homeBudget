@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     Date,
@@ -28,6 +29,19 @@ CATEGORY_KINDS = ("expense", "income", "transfer")
 # to beats a complete one it invented. There is no "other" bucket for
 # exactly this reason.
 ACCOUNT_TYPES = ("everyday", "savings", "investment", "credit_card", "loan", "mortgage")
+
+# Shared by DashboardWidget validation (api/dashboard.py) and the frontend's
+# own widgetRegistry.jsx (kept in sync by hand, the same way this list and
+# CATEGORY_KINDS above are each the one source of truth on their own side -
+# there is no single shared schema file between the two languages). Each
+# entry names one of frontend/src/components/widgets/*.jsx.
+DASHBOARD_WIDGET_TYPES = (
+    "stat_tile", "transaction_calendar", "comparison_sparkline", "net_worth_change",
+    "cash_flow", "net_worth_chart", "accounts", "goals", "summary",
+    "needs_attention", "recurring", "uncategorized", "recent_activity",
+)
+
+DASHBOARD_WIDGET_WIDTHS = ("quarter", "half", "full")
 
 ACCOUNT_CLASSES = {
     "everyday": "asset",
@@ -546,6 +560,21 @@ class ImportBatch(Base):
         default=0
     )
 
+    # Rows dropped as pending card authorisations (narration prefixed
+    # "AUTHORISATION ONLY - " with a numeric debit - a bank's placeholder
+    # for a hold that later settles as its own row, so importing both would
+    # double-count the spend) - see services/csv_import.py's
+    # _is_pending_authorisation. server_default backfills existing batches
+    # to 0, the correct historical value: this filter did not exist when
+    # they were imported, so nothing in them was ever skipped for this
+    # reason.
+    skipped_authorisation_count = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0"
+    )
+
     transactions = relationship(
         "Transaction",
         back_populates="import_batch",
@@ -967,3 +996,68 @@ class SavingsGoal(Base):
     )
 
     account = relationship("Account")
+
+
+class DashboardWidget(Base):
+    """One widget on the customisable Dashboard - see
+    frontend/src/widgetRegistry.jsx for what each widget_type renders and
+    what its own config shape means; this table only stores the layout
+    (which widgets, in what order, how wide, with which options), never
+    the data a widget shows - every widget still reads its own data live
+    from the same endpoints the page always used (GET /reports/monthly,
+    GET /trends, and so on), the same way the dashboard worked before it
+    was customisable.
+
+    position is an ordering key, not a dense index - move_dashboard_widget
+    (api/dashboard.py) swaps two widgets' position values exactly the way
+    CategoryRule.priority already does for /rules, so "move up"/"move
+    down" is one UPDATE, not a renumbering of the whole list.
+
+    config is a free-form JSON blob (months, an account_id, a chosen KPI
+    metric, a comparison basis - whatever that widget_type's own config
+    needs) rather than a column per possible option across every widget
+    type, most of which would be NULL for most rows. The API layer, not
+    the database, is what knows which keys a given widget_type expects.
+
+    The migration that creates this table SEEDS the default layout (see
+    that migration's own upgrade()) rather than the application seeding an
+    empty table on first read - a user's own edits (removing a widget
+    entirely) must stay removed, which re-seeding on every empty-table read
+    could not tell apart from "nobody has customised this yet".
+    """
+
+    __tablename__ = "dashboard_widgets"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    widget_type = Column(
+        String,
+        nullable=False
+    )
+
+    position = Column(
+        Integer,
+        nullable=False,
+        default=0
+    )
+
+    width = Column(
+        String,
+        nullable=False,
+        default="quarter",
+        server_default="quarter"
+    )
+
+    config = Column(
+        JSON,
+        nullable=True
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )

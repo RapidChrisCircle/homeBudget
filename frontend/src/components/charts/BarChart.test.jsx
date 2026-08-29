@@ -67,8 +67,9 @@ describe('BarChart', () => {
 
   describe('drill-down', () => {
     const series = [
-      { label: 'Budgeted', values: [500, 500, 500] },
-      { label: 'Actual', values: [480, 520, 495] },
+      { label: 'Income', values: [5000, 5200, 4800] },
+      { label: 'Spending', values: [3200, 3400, 3100] },
+      { label: 'Net saved', values: [1800, 1800, 1700], selectable: false },
     ]
 
     it('is entirely absent unless the caller asks for it', () => {
@@ -77,35 +78,33 @@ describe('BarChart', () => {
       expect(screen.queryByRole('button')).not.toBeInTheDocument()
     })
 
-    it('reports the period behind a clicked column, not one bar within it', () => {
-      const onSelectPeriod = vi.fn()
-      render(<BarChart periods={periods} series={series} onSelectPeriod={onSelectPeriod} />)
+    it('reports which series, period and value a clicked bar belongs to', () => {
+      const onSelectBar = vi.fn()
+      render(<BarChart periods={periods} series={series} onSelectBar={onSelectBar} />)
 
-      fireEvent.click(screen.getByRole('button', { name: 'View 2026-02' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Income — 2026-02: 5200' }))
 
-      expect(onSelectPeriod).toHaveBeenCalledWith({ period: '2026-02', periodIndex: 1 })
+      expect(onSelectBar).toHaveBeenCalledWith(expect.objectContaining({
+        seriesIndex: 0,
+        periodIndex: 1,
+        period: '2026-02',
+        value: 5200,
+      }))
     })
 
-    it('activates a column from the keyboard', () => {
-      const onSelectPeriod = vi.fn()
-      render(<BarChart periods={periods} series={series} onSelectPeriod={onSelectPeriod} />)
+    it('activates a bar from the keyboard, not just the mouse', () => {
+      const onSelectBar = vi.fn()
+      render(<BarChart periods={periods} series={series} onSelectBar={onSelectBar} />)
 
-      fireEvent.keyDown(screen.getByRole('button', { name: 'View 2026-03' }), { key: ' ' })
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Spending — 2026-03: 3100' }), { key: ' ' })
 
-      expect(onSelectPeriod).toHaveBeenCalledWith({ period: '2026-03', periodIndex: 2 })
+      expect(onSelectBar).toHaveBeenCalledTimes(1)
     })
 
-    it('lets the caller own the hit area label, since it replaces the bars\' own tooltips', () => {
-      render(
-        <BarChart
-          periods={periods}
-          series={series}
-          onSelectPeriod={vi.fn()}
-          periodSelectLabel={(period) => `${period}: budgeted 500`}
-        />
-      )
+    it('offers no affordance on a series that opts out', () => {
+      render(<BarChart periods={periods} series={series} onSelectBar={vi.fn()} />)
 
-      expect(screen.getByRole('button', { name: '2026-01: budgeted 500' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^Net saved — /})).not.toBeInTheDocument()
     })
   })
 })

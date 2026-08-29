@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
 import DashboardPage from './DashboardPage.jsx'
@@ -7,6 +7,9 @@ import DashboardPage from './DashboardPage.jsx'
 vi.mock('../services/api', () => ({
   api: {
     get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    delete: vi.fn(),
   },
 }))
 
@@ -139,24 +142,62 @@ const emptyRecurring = {
 
 const emptyGoals = { goals: [], account_envelope_summaries: [] }
 
+const sampleKpis = {
+  periods: sampleTrends.periods,
+  total_income: '30000.00',
+  total_expenses: '19000.00',
+  net_saved: '11000.00',
+  transaction_count: 120,
+  avg_per_month: '3166.67',
+  avg_per_transaction: '158.33',
+}
+
+// The default seeded layout (see the migration this mirrors,
+// e4a2c9f1b7d3_add_dashboard_widgets.py) minus its four new-widget-family
+// entries (stat_tile x4, net_worth_change, transaction_calendar,
+// comparison_sparkline) - most tests below only care about the nine
+// card-shaped widgets that existed before the dashboard became
+// customisable, and adding the new ones here would need every one of
+// those tests to also mock GET /reports/daily. Tests that specifically
+// cover a new widget type pass their own `widgets` override.
+const sampleWidgets = [
+  { id: 1, widget_type: 'accounts', position: 1, width: 'half', config: null },
+  { id: 2, widget_type: 'goals', position: 2, width: 'half', config: null },
+  { id: 3, widget_type: 'cash_flow', position: 3, width: 'half', config: null },
+  { id: 4, widget_type: 'net_worth_chart', position: 4, width: 'half', config: null },
+  { id: 5, widget_type: 'summary', position: 5, width: 'half', config: null },
+  { id: 6, widget_type: 'needs_attention', position: 6, width: 'half', config: null },
+  { id: 7, widget_type: 'recurring', position: 7, width: 'half', config: null },
+  { id: 8, widget_type: 'uncategorized', position: 8, width: 'half', config: null },
+  { id: 9, widget_type: 'recent_activity', position: 9, width: 'full', config: null },
+]
+
 function mockLoad({
   accounts = sampleAccounts,
   report = sampleReport,
   trends = sampleTrends,
+  kpis = sampleKpis,
   netWorth = sampleNetWorth,
   goals = emptyGoals,
   transactions = [sampleTransaction],
   listResponse = null,
   recurring = emptyRecurring,
+  widgets = sampleWidgets,
 } = {}) {
   const list = listResponse || envelope(transactions)
 
   api.get.mockImplementation((path) => {
+    if (path === '/dashboard/widgets') {
+      return Promise.resolve({ data: widgets })
+    }
     if (path === '/accounts') {
       return Promise.resolve({ data: accounts })
     }
     if (path.startsWith('/reports/monthly')) {
       return Promise.resolve({ data: report })
+    }
+    if (path.startsWith('/reports/kpis')) {
+      return Promise.resolve({ data: kpis })
     }
     if (path.startsWith('/trends')) {
       return Promise.resolve({ data: trends })
@@ -180,9 +221,20 @@ function mockLoad({
 function renderPage() {
   return render(
     <MemoryRouter>
-      <DashboardPage />
+      <Routes>
+        <Route path="/" element={<DashboardPage />} />
+        {/* Stands in for the ledger, so a test can assert where a chart
+            click LANDED - see TrendsPage.test.jsx for the same pattern. */}
+        <Route path="/transactions" element={<LocationProbe label="ledger" />} />
+      </Routes>
     </MemoryRouter>
   )
+}
+
+function LocationProbe({ label }) {
+  const location = useLocation()
+
+  return <div>{`${label}${location.search}`}</div>
 }
 
 describe('DashboardPage', () => {
@@ -271,14 +323,18 @@ describe('DashboardPage', () => {
 
   // --- Goals summary card ------------------------------------------------
 
-  it('does not render the Goals card when there are no goals', async () => {
+  it('shows an empty state in the Goals card when there are no goals, rather than hiding it', async () => {
+    // Unlike before the dashboard became customisable: a widget the user
+    // explicitly kept in their layout shows an honest "nothing yet"
+    // message instead of silently disappearing (see GoalsWidget.jsx's own
+    // docstring).
     mockLoad()
 
     renderPage()
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Goals' })).toBeInTheDocument())
 
-    expect(screen.queryByRole('heading', { name: 'Goals' })).not.toBeInTheDocument()
+    expect(screen.getByText('No savings goals yet.')).toBeInTheDocument()
   })
 
   it('lists goals with their progress and links to the full Goals page', async () => {
@@ -420,7 +476,11 @@ describe('DashboardPage', () => {
     expect(api.get).toHaveBeenCalledWith('/trends?months=6')
   })
 
-  it('hides the cash flow chart when the charted window has no real activity', async () => {
+  it('shows an empty state in the Cash Flow card when the charted window has no real activity', async () => {
+    // The card itself stays (a customisable widget the user kept shows an
+    // honest empty state rather than vanishing) - only the chart inside it
+    // is replaced, so a fully-categorized-but-zero window doesn't draw a
+    // misleadingly flat chart at zero.
     mockLoad({
       trends: {
         ...sampleTrends,
@@ -431,9 +491,9 @@ describe('DashboardPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Cash Flow' })).toBeInTheDocument()
     })
-    expect(screen.queryByRole('heading', { name: 'Cash Flow' })).not.toBeInTheDocument()
+    expect(screen.getByText('No categorized income or spending in this window yet.')).toBeInTheDocument()
   })
 
   it('draws spending as a negative value so it falls below the zero line, opposite income', async () => {
@@ -452,6 +512,34 @@ describe('DashboardPage', () => {
     expect(screen.getByText('Income — 2026-07: 5000.00')).toBeInTheDocument()
   })
 
+  it('opens the ledger filtered to kind=income from the Income bar', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Cash Flow' })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Income — 2026-07: 5000.00' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('ledger?kind=income&date_from=2026-07-01&date_to=2026-07-31')).toBeInTheDocument()
+    })
+  })
+
+  it('opens the ledger filtered to kind=expense from the Spending bar, using the real (positive) kind', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Cash Flow' })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Spending — 2026-07: -3200.00' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('ledger?kind=expense&date_from=2026-07-01&date_to=2026-07-31')).toBeInTheDocument()
+    })
+  })
+
   it('shows a net worth chart when there is balance history', async () => {
     mockLoad()
 
@@ -466,7 +554,21 @@ describe('DashboardPage', () => {
     expect(screen.queryByText(/not net worth/)).not.toBeInTheDocument()
   })
 
-  it('hides the net worth chart when no account has any balance history yet', async () => {
+  it('opens the ledger for that month, unscoped by kind or account, from a Net Worth point', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Net Worth' })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Net worth — 2026-07: 50900.00' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('ledger?date_from=2026-07-01&date_to=2026-07-31')).toBeInTheDocument()
+    })
+  })
+
+  it('shows an empty state in the Net Worth card when no account has any balance history yet', async () => {
     mockLoad({
       trends: {
         ...sampleTrends,
@@ -477,9 +579,9 @@ describe('DashboardPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Net Worth' })).toBeInTheDocument()
     })
-    expect(screen.queryByRole('heading', { name: 'Net Worth' })).not.toBeInTheDocument()
+    expect(screen.getByText('No account balance history in this window yet.')).toBeInTheDocument()
   })
 
   it('shows an empty state when nothing has been imported', async () => {
@@ -503,14 +605,15 @@ describe('DashboardPage', () => {
     })
   })
 
-  it('does not render the Recurring card when nothing recurs', async () => {
+  it('shows an empty state in the Recurring card when nothing recurs, rather than hiding it', async () => {
     mockLoad()
 
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    expect(screen.queryByText('Recurring')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Recurring' })).toBeInTheDocument()
+    expect(screen.getByText('No recurring payments detected yet.')).toBeInTheDocument()
   })
 
   it('lists what is due soon with a total, and links to the recurring page', async () => {
@@ -663,6 +766,251 @@ describe('DashboardPage', () => {
 
     const rows = card.querySelectorAll('tbody tr')
     expect(within(rows[0]).getByText('Apple Inc')).toBeInTheDocument()
+  })
+
+  // --- Customisable dashboard (widget layout) --------------------------
+
+  describe('Widget layout', () => {
+    it('renders widgets in position order', async () => {
+      mockLoad({
+        widgets: [
+          { id: 1, widget_type: 'goals', position: 1, width: 'half', config: null },
+          { id: 2, widget_type: 'accounts', position: 2, width: 'half', config: null },
+        ],
+      })
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+
+      const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)
+      const goalsIndex = headings.findIndex((text) => text.includes('Goals'))
+      const accountsIndex = headings.findIndex((text) => text.includes('Accounts'))
+      expect(goalsIndex).toBeGreaterThanOrEqual(0)
+      expect(goalsIndex).toBeLessThan(accountsIndex)
+    })
+
+    it('skips a widget_type this build does not recognise, rather than crashing', async () => {
+      mockLoad({
+        widgets: [
+          { id: 1, widget_type: 'some_future_widget', position: 1, width: 'half', config: null },
+          { id: 2, widget_type: 'accounts', position: 2, width: 'half', config: null },
+        ],
+      })
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+    })
+
+    it('fetches one shared KPI window regardless of how many stat_tile widgets are on the page', async () => {
+      mockLoad({
+        widgets: [
+          { id: 1, widget_type: 'stat_tile', position: 1, width: 'quarter', config: { metric: 'total_income' } },
+          { id: 2, widget_type: 'stat_tile', position: 2, width: 'quarter', config: { metric: 'total_expenses' } },
+        ],
+      })
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByText('Total Income')).toBeInTheDocument())
+      expect(screen.getByText('Total Expenses')).toBeInTheDocument()
+
+      const kpiCalls = api.get.mock.calls.filter(([path]) => path.startsWith('/reports/kpis'))
+      expect(kpiCalls).toHaveLength(1)
+    })
+
+    it('renders a stat_tile widget without a surrounding Card wrapper', async () => {
+      mockLoad({
+        widgets: [
+          { id: 1, widget_type: 'stat_tile', position: 1, width: 'quarter', config: { metric: 'total_income' } },
+        ],
+      })
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByText('Total Income')).toBeInTheDocument())
+      // A bare widget's label is its own text, not a Card heading.
+      expect(screen.queryByRole('heading', { name: 'Total Income' })).not.toBeInTheDocument()
+    })
+
+    it('renders a net_worth_change widget from the same trends data as the Net Worth chart', async () => {
+      mockLoad({
+        widgets: [
+          { id: 1, widget_type: 'net_worth_change', position: 1, width: 'quarter', config: null },
+        ],
+      })
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByText('Net Worth Change')).toBeInTheDocument())
+      // 50900.00 (July, last known) - 40000.00 (February, first known) = 10900.00.
+      expect(screen.getByText('10900.00')).toBeInTheDocument()
+    })
+  })
+
+  describe('Editing the dashboard', () => {
+    it('shows no edit controls until Edit dashboard is turned on', async () => {
+      mockLoad()
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+
+      expect(screen.queryByRole('button', { name: /^Move/ })).not.toBeInTheDocument()
+    })
+
+    it('moves a widget up, persisting through the move endpoint', async () => {
+      mockLoad()
+      api.post.mockResolvedValue({
+        data: [
+          { ...sampleWidgets[1], position: 1 },
+          { ...sampleWidgets[0], position: 2 },
+          ...sampleWidgets.slice(2),
+        ],
+      })
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Edit dashboard' }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Move Goals up' }))
+
+      await waitFor(() => {
+        expect(api.post).toHaveBeenCalledWith('/dashboard/widgets/2/move', { direction: 'up' })
+      })
+    })
+
+    it('disables moving the first widget up and the last widget down', async () => {
+      mockLoad()
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Edit dashboard' }))
+
+      expect(screen.getByRole('button', { name: 'Move Accounts up' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: /Move Recent Activity down/ })).toBeDisabled()
+    })
+
+    it('changes a widget\'s width', async () => {
+      mockLoad()
+      api.put.mockResolvedValue({})
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Edit dashboard' }))
+
+      fireEvent.change(screen.getByLabelText('Width for Accounts'), { target: { value: 'full' } })
+
+      await waitFor(() => {
+        expect(api.put).toHaveBeenCalledWith('/dashboard/widgets/1', { width: 'full', config: null })
+      })
+    })
+
+    it('removes a widget after confirming', async () => {
+      mockLoad()
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      api.delete.mockResolvedValue({})
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Edit dashboard' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Remove Accounts' }))
+
+      await waitFor(() => {
+        expect(api.delete).toHaveBeenCalledWith('/dashboard/widgets/1')
+      })
+    })
+
+    it('does not remove a widget when the confirmation is declined', async () => {
+      mockLoad()
+      vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Edit dashboard' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Remove Accounts' }))
+
+      expect(api.delete).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Adding a widget', () => {
+    it('opens and closes the add-widget form', async () => {
+      mockLoad()
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add new widget' }))
+      expect(screen.getByRole('heading', { name: 'Add a Widget' })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByRole('heading', { name: 'Add a Widget' })).not.toBeInTheDocument()
+    })
+
+    it('adds a widget with its default width when none is chosen', async () => {
+      mockLoad()
+      api.post.mockResolvedValue({ data: {} })
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Add new widget' }))
+
+      fireEvent.change(screen.getByLabelText('Widget type'), { target: { value: 'recent_activity' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Add Widget' }))
+
+      await waitFor(() => {
+        expect(api.post).toHaveBeenCalledWith('/dashboard/widgets', {
+          widget_type: 'recent_activity', width: 'full', config: null,
+        })
+      })
+    })
+
+    it('shows the metric field for a stat_tile and sends its chosen config', async () => {
+      mockLoad()
+      api.post.mockResolvedValue({ data: {} })
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Add new widget' }))
+
+      // stat_tile is the default selection, so its own Metric field is
+      // already showing.
+      fireEvent.change(screen.getByLabelText('Metric'), { target: { value: 'total_expenses' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Add Widget' }))
+
+      await waitFor(() => {
+        expect(api.post).toHaveBeenCalledWith('/dashboard/widgets', {
+          widget_type: 'stat_tile', width: 'quarter', config: { metric: 'total_expenses' },
+        })
+      })
+    })
+
+    it('closes the form and refreshes the layout after adding', async () => {
+      mockLoad()
+      api.post.mockResolvedValue({ data: {} })
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Add new widget' }))
+      fireEvent.change(screen.getByLabelText('Widget type'), { target: { value: 'recent_activity' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Add Widget' }))
+
+      await waitFor(() => expect(screen.queryByRole('heading', { name: 'Add a Widget' })).not.toBeInTheDocument())
+
+      const widgetsCalls = api.get.mock.calls.filter(([path]) => path === '/dashboard/widgets')
+      expect(widgetsCalls.length).toBeGreaterThan(1)
+    })
   })
 
   it('sorts Recent Activity by Narration', async () => {

@@ -54,6 +54,61 @@ describe('ledgerFilterParams account/account_group_id encoding', () => {
   })
 })
 
+// The category field maps to ONE of uncategorized/kind/category_id - the
+// same single-field-stands-for-several-params shape the account field above
+// uses. `kind-<kind>` is what the Category header popover's Income/Expenses/
+// Transfers options encode, and what every chart's drill-down navigates to.
+describe('ledgerFilterParams category/kind encoding', () => {
+  it('encodes a plain category selection as category_id', () => {
+    const params = searchParamsFromFilters({ ...EMPTY_FILTERS, category: '5' })
+
+    expect(params.get('category_id')).toBe('5')
+    expect(params.get('kind')).toBeNull()
+    expect(params.get('uncategorized')).toBeNull()
+  })
+
+  it('encodes uncategorized as uncategorized=true, not a category_id', () => {
+    const params = searchParamsFromFilters({ ...EMPTY_FILTERS, category: 'uncategorized' })
+
+    expect(params.get('uncategorized')).toBe('true')
+    expect(params.get('category_id')).toBeNull()
+  })
+
+  it('encodes a kind-<kind> selection as kind, not a category_id', () => {
+    const params = searchParamsFromFilters({ ...EMPTY_FILTERS, category: 'kind-income' })
+
+    expect(params.get('kind')).toBe('income')
+    expect(params.get('category_id')).toBeNull()
+  })
+
+  it('omits all three when no category filter is selected', () => {
+    const params = searchParamsFromFilters(EMPTY_FILTERS)
+
+    expect(params.get('category_id')).toBeNull()
+    expect(params.get('kind')).toBeNull()
+    expect(params.get('uncategorized')).toBeNull()
+  })
+
+  it('decodes kind back to a kind-<kind> value', () => {
+    const params = new URLSearchParams({ kind: 'expense' })
+
+    expect(filtersFromSearchParams(params).category).toBe('kind-expense')
+  })
+
+  it('decodes uncategorized=true ahead of a kind param, which the API rejects together anyway', () => {
+    const params = new URLSearchParams({ uncategorized: 'true' })
+
+    expect(filtersFromSearchParams(params).category).toBe('uncategorized')
+  })
+
+  it('round-trips a kind selection through encode then decode', () => {
+    const encoded = searchParamsFromFilters({ ...EMPTY_FILTERS, category: 'kind-transfer' })
+    const decoded = filtersFromSearchParams(encoded)
+
+    expect(decoded.category).toBe('kind-transfer')
+  })
+})
+
 // The merchant-grouping view (Group by merchant, TransactionsPage.jsx) reads
 // this query too - without carrying category_id/uncategorized/
 // account_group_id through, "Uncategorized only" + grouping showed groups
@@ -76,6 +131,12 @@ describe('groupsQueryFromSearchParams', () => {
     const query = groupsQueryFromSearchParams(new URLSearchParams({ account_group_id: '3' }))
 
     expect(query).toContain('account_group_id=3')
+  })
+
+  it('carries kind through to the groups query', () => {
+    const query = groupsQueryFromSearchParams(new URLSearchParams({ kind: 'income' }))
+
+    expect(query).toContain('kind=income')
   })
 
   it('still omits page and page_size - groups are not paginated', () => {

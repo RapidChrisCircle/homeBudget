@@ -335,28 +335,66 @@ describe('TrendsPage drill-down', () => {
     })
   })
 
-  it('opens that month\'s report from the income-vs-spending chart', async () => {
+  it('opens the ledger filtered to kind=income from the Income bar', async () => {
     mockLoad({ categories: groupedCategories })
 
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Income vs Spending vs Net')).toBeInTheDocument())
 
-    fireEvent.click(screen.getAllByRole('button', { name: /^2026-06 — Income/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Income — 2026-06: 5000.00' }))
 
-    await waitFor(() => expect(screen.getByText('reports?year=2026&month=6')).toBeInTheDocument())
+    await waitFor(() => {
+      expect(screen.getByText('ledger?kind=income&date_from=2026-06-01&date_to=2026-06-30')).toBeInTheDocument()
+    })
   })
 
-  it('opens that month\'s report from the budget-vs-actual chart', async () => {
+  it('opens the ledger filtered to kind=expense from the Spending bar', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Income vs Spending vs Net')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Spending — 2026-07: 90.00' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('ledger?kind=expense&date_from=2026-07-01&date_to=2026-07-31')).toBeInTheDocument()
+    })
+  })
+
+  it('offers no drill-down on the Net saved bar - a difference, not a transaction kind', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Income vs Spending vs Net')).toBeInTheDocument())
+
+    expect(screen.queryByRole('button', { name: /^Net saved — / })).not.toBeInTheDocument()
+  })
+
+  it('opens the ledger filtered to kind=expense from the budget-vs-actual chart\'s Actual bar', async () => {
     mockLoad({ categories: groupedCategories })
 
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Budget vs Actual')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: /^2026-07 — Budgeted/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Actual — 2026-07: 90.00' }))
 
-    await waitFor(() => expect(screen.getByText('reports?year=2026&month=7')).toBeInTheDocument())
+    await waitFor(() => {
+      expect(screen.getByText('ledger?kind=expense&date_from=2026-07-01&date_to=2026-07-31')).toBeInTheDocument()
+    })
+  })
+
+  it('offers no drill-down on the Budgeted bar - a projection, not real transactions', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Budget vs Actual')).toBeInTheDocument())
+
+    expect(screen.queryByRole('button', { name: /^Budgeted — / })).not.toBeInTheDocument()
   })
 
   it('drops the drilled-in group when the window changes', async () => {

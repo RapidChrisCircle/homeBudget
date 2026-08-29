@@ -637,7 +637,11 @@ export default function TransactionsPage() {
         {!uploading && uploadResult && (
           <p>
             Imported {uploadResult.imported_count} transaction(s), skipped{' '}
-            {uploadResult.skipped_duplicate_count} duplicate(s), created{' '}
+            {uploadResult.skipped_duplicate_count} duplicate(s){
+              uploadResult.skipped_authorisation_count > 0
+                ? <>, skipped {uploadResult.skipped_authorisation_count} pending authorisation(s)</>
+                : null
+            }, created{' '}
             {uploadResult.new_account_count} new account(s), auto-categorized{' '}
             {uploadResult.auto_categorized_count} transaction(s).
           </p>
@@ -678,6 +682,7 @@ export default function TransactionsPage() {
               <th scope="col">Imported At</th>
               <th scope="col" className="numeric">Imported</th>
               <th scope="col" className="numeric">Skipped Duplicates</th>
+              <th scope="col" className="numeric">Skipped Pending Auth</th>
               <th scope="col"></th>
             </tr>
           </thead>
@@ -688,6 +693,7 @@ export default function TransactionsPage() {
                 <td>{new Date(batch.imported_at).toLocaleString()}</td>
                 <td className="numeric">{batch.row_count}</td>
                 <td className="numeric">{batch.skipped_duplicate_count}</td>
+                <td className="numeric">{batch.skipped_authorisation_count}</td>
                 <td>
                   <button type="button" className="button-danger" onClick={() => handleDeleteBatch(batch.id)}>
                     Delete
@@ -841,6 +847,14 @@ export default function TransactionsPage() {
                         <CategorySelect categories={categories} value={draft} onChange={(event) => setDraft(event.target.value)}>
                           <option value="">All categories</option>
                           <option value="uncategorized">Uncategorized only</option>
+                          {/* Every kind, regardless of which specific category - what
+                              /trends' drill-down and the Dashboard's Cash Flow chart
+                              land on ("the transactions behind the Income bar"), and
+                              available here too so it's a real, clearable filter
+                              rather than a URL param the UI itself can't reach. */}
+                          <option value="kind-income">Income</option>
+                          <option value="kind-expense">Expenses</option>
+                          <option value="kind-transfer">Transfers</option>
                         </CategorySelect>
                       </label>
                     )}
@@ -1191,6 +1205,9 @@ export default function TransactionsPage() {
                           <CategorySelect categories={categories} value={draft} onChange={(event) => setDraft(event.target.value)}>
                             <option value="">All categories</option>
                             <option value="uncategorized">Uncategorized only</option>
+                            <option value="kind-income">Income</option>
+                            <option value="kind-expense">Expenses</option>
+                            <option value="kind-transfer">Transfers</option>
                           </CategorySelect>
                         </label>
                       )}

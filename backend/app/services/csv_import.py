@@ -133,6 +133,60 @@ def _parse_decimal(value: str, field_name: str, row_number: int, errors: list[tu
         return None
 
 
+# Matched case-insensitively and as a PREFIX - the merchant name legitimately
+# follows ("AUTHORISATION ONLY - WOOLWORTHS 1234"), so this can never be a
+# full-string match.
+_PENDING_AUTHORISATION_PREFIX = "authorisation only - "
+
+
+def _has_numeric_debit(raw_row: list[str], mapping: ColumnMapping, cell) -> bool:
+    """Whether this row's own figure is a genuine debit - used only to
+    decide whether a row matching _PENDING_AUTHORISATION_PREFIX is really
+    the bank's pre-authorisation hold (narration alone isn't enough; some
+    banks reuse similar wording for a purely informational row with no
+    money actually pending). Deliberately never appends to the caller's
+    validation errors - a malformed value here just means "not a numeric
+    debit, don't skip it", and the row's own validation (below, once it
+    isn't skipped) is what reports a genuinely bad amount.
+
+    single_amount mode has no literal "Debit column" - a debit there is a
+    NEGATIVE signed amount (see _parse_rows' own amount_mode branch below,
+    which stores it the same way).
+    """
+
+    if mapping.amount_mode == "single_amount":
+        raw = cell(raw_row, mapping.amount_index)
+        if _blank(raw):
+            return False
+        try:
+            return Decimal(_clean_amount(raw)) < 0
+        except InvalidOperation:
+            return False
+
+    raw = cell(raw_row, mapping.debit_index)
+    if _blank(raw):
+        return False
+    try:
+        Decimal(_clean_amount(raw))
+    except InvalidOperation:
+        return False
+    return True
+
+
+def _is_pending_authorisation(narration: str, raw_row: list[str], mapping: ColumnMapping, cell) -> bool:
+    """A bank's placeholder row for a card authorisation hold that has not
+    yet settled - the same purchase reappears as its own transaction once
+    it clears (usually with a different narration and always a different
+    row), so importing both would double-count the spend. Applies to
+    FUTURE imports only; nothing already in the ledger is touched.
+    """
+
+    if not narration.strip().upper().startswith(_PENDING_AUTHORISATION_PREFIX.upper()):
+        return False
+
+    return _has_numeric_debit(raw_row, mapping, cell)
+
+
 def _read_header_and_rows(file_bytes: bytes):
     """Shared by parse_and_validate and preview_import - decodes the file,
     reads off the header row, and returns (header, reader) with the reader
@@ -167,11 +221,12 @@ def _parse_rows(mapping: ColumnMapping, header: list[str], reader, *, stop_after
     instead of a fixed positional order, so the same code serves the
     built-in ANZ layout and any saved mapping alike.
 
-    Returns (rows, errors) and never raises for row-level problems, so
-    preview_import can show partial results alongside errors instead of an
-    all-or-nothing rejection; parse_and_validate (the real import path) is
-    what turns a non-empty errors list into a raised CsvValidationError,
-    since import ITSELF is still all-or-nothing.
+    Returns (rows, errors, skipped_authorisation_count) and never raises
+    for row-level problems, so preview_import can show partial results
+    alongside errors instead of an all-or-nothing rejection;
+    parse_and_validate (the real import path) is what turns a non-empty
+    errors list into a raised CsvValidationError, since import ITSELF is
+    still all-or-nothing.
 
     stop_after limits how many DATA rows are COLLECTED - once that many
     valid rows exist, the loop stops scanning the rest of the file
@@ -181,6 +236,11 @@ def _parse_rows(mapping: ColumnMapping, header: list[str], reader, *, stop_after
     accepted tradeoff, since preview's job is "does this mapping look
     right", not a full validation pass; parse_and_validate (no stop_after)
     is what scans the whole file for the real import.
+
+    A row matching _is_pending_authorisation is skipped entirely - like a
+    blank row, it never reaches `rows`, is never validated, and does not
+    count toward stop_after - since it is not being imported at all, not
+    imported-with-a-problem.
     """
 
     column_count = len(header)
@@ -196,13 +256,14 @@ def _parse_rows(mapping: ColumnMapping, header: list[str], reader, *, stop_after
     ]
 
     if any(i >= column_count or i < 0 for i in mapped_indices):
-        return [], [(1, f"mapping references a column beyond this file's {column_count} columns")]
+        return [], [(1, f"mapping references a column beyond this file's {column_count} columns")], 0
 
     def cell(raw_row: list[str], index: int | None) -> str:
         return raw_row[index] if index is not None else ""
 
     errors: list[tuple[int, str]] = []
     rows: list[ParsedRow] = []
+    skipped_authorisation_count = 0
     last_row_number = 1
 
     try:
@@ -224,6 +285,12 @@ def _parse_rows(mapping: ColumnMapping, header: list[str], reader, *, stop_after
                 errors.append((row_number, "row appears to be a repeated header row"))
                 continue
 
+            narration = cell(raw_row, mapping.narration_index).strip()
+
+            if _is_pending_authorisation(narration, raw_row, mapping, cell):
+                skipped_authorisation_count += 1
+                continue
+
             errors_before = len(errors)
 
             account_number = cell(raw_row, mapping.account_number_index).strip()
@@ -241,7 +308,6 @@ def _parse_rows(mapping: ColumnMapping, header: list[str], reader, *, stop_after
             except ValueError:
                 errors.append((row_number, f"invalid Transaction Date '{date_raw}', expected format {mapping.date_format}"))
 
-            narration = cell(raw_row, mapping.narration_index).strip()
             if _blank(narration):
                 errors.append((row_number, "Narration is required"))
 
@@ -317,10 +383,10 @@ def _parse_rows(mapping: ColumnMapping, header: list[str], reader, *, stop_after
     except csv.Error as exc:
         errors.append((last_row_number + 1, f"malformed CSV data near this row: {exc}"))
 
-    return rows, errors
+    return rows, errors, skipped_authorisation_count
 
 
-def parse_and_validate(db: Session, file_bytes: bytes) -> tuple[ColumnMapping, list[ParsedRow]]:
+def parse_and_validate(db: Session, file_bytes: bytes) -> tuple[ColumnMapping, list[ParsedRow], int]:
     """The real import path. Auto-detects the format from the header
     (built-in or saved - see services.csv_formats.find_format_for_header)
     and requires the WHOLE file to be valid, raising CsvValidationError
@@ -330,6 +396,11 @@ def parse_and_validate(db: Session, file_bytes: bytes) -> tuple[ColumnMapping, l
     Raises UnrecognizedFormatError (not CsvValidationError) when the header
     matches nothing at all - the caller (api/transactions.py) turns that
     into a distinct "needs mapping" response rather than a flat rejection.
+
+    The third return value is how many rows were skipped as pending card
+    authorisations (see _is_pending_authorisation) - reported back so the
+    caller can persist it on the ImportBatch and show it in the result,
+    the same way skipped_duplicate_count already is.
     """
 
     header, reader = _read_header_and_rows(file_bytes)
@@ -347,7 +418,7 @@ def parse_and_validate(db: Session, file_bytes: bytes) -> tuple[ColumnMapping, l
 
         raise UnrecognizedFormatError(header, sample_rows)
 
-    rows, errors = _parse_rows(mapping, header, reader)
+    rows, errors, skipped_authorisation_count = _parse_rows(mapping, header, reader)
 
     if errors:
         raise CsvValidationError(errors)
@@ -355,12 +426,12 @@ def parse_and_validate(db: Session, file_bytes: bytes) -> tuple[ColumnMapping, l
     if not rows:
         raise CsvValidationError([(2, "CSV has no data rows to import")])
 
-    return mapping, rows
+    return mapping, rows, skipped_authorisation_count
 
 
 def preview_import(
     db: Session, file_bytes: bytes, mapping: ColumnMapping
-) -> tuple[list[ParsedRow], list[tuple[int, str]]]:
+) -> tuple[list[ParsedRow], list[tuple[int, str]], int]:
     """Parses with an EXPLICIT candidate mapping, bypassing auto-detection
     entirely - the caller is deliberately testing a mapping that may not be
     saved, or even valid, yet. Limited to PREVIEW_SAMPLE_ROWS and never
@@ -368,6 +439,11 @@ def preview_import(
     (or right) without an all-or-nothing rejection. Writes nothing
     regardless of outcome - there is no import_rows call anywhere in this
     function, deliberately.
+
+    The third return value (rows skipped as pending card authorisations)
+    lets the mapping panel say up front how many rows a real import would
+    drop, before anything is committed - the same "preview and apply must
+    never disagree" property services/categorization.py maintains for rules.
 
     `db` is accepted for signature symmetry with parse_and_validate even
     though it's unused here (an explicit mapping never needs a database
@@ -383,8 +459,14 @@ def import_rows(
     db: Session,
     filename: str,
     mapping: ColumnMapping,
-    rows: list[ParsedRow]
+    rows: list[ParsedRow],
+    skipped_authorisation_count: int = 0,
 ) -> tuple[ImportBatch, int, int]:
+    """skipped_authorisation_count is purely for the batch record - see
+    parse_and_validate's own docstring; `rows` here already excludes those
+    rows entirely, so nothing in this function's own loop needs to know
+    about them.
+    """
 
     account_numbers = {row.account_number for row in rows}
 
@@ -404,7 +486,10 @@ def import_rows(
     new_account_count = 0
     auto_categorized_count = 0
 
-    batch = ImportBatch(filename=filename, row_count=0, skipped_duplicate_count=0)
+    batch = ImportBatch(
+        filename=filename, row_count=0, skipped_duplicate_count=0,
+        skipped_authorisation_count=skipped_authorisation_count,
+    )
     db.add(batch)
     db.flush()
 

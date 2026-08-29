@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
 import AccountDetailPage from './AccountDetailPage.jsx'
@@ -92,9 +92,19 @@ function renderPage(initialEntry = '/accounts/1') {
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/accounts/:accountId" element={<AccountDetailPage />} />
+        {/* Stands in for the ledger, so a test can assert where the
+            balance-history chart's drill-down LANDED - see
+            TrendsPage.test.jsx for the same pattern. */}
+        <Route path="/transactions" element={<LocationProbe label="ledger" />} />
       </Routes>
     </MemoryRouter>
   )
+}
+
+function LocationProbe({ label }) {
+  const location = useLocation()
+
+  return <div>{`${label}${location.search}`}</div>
 }
 
 // Opens a column's HeaderFilter popover, runs `fill` against the now-visible
@@ -379,6 +389,20 @@ describe('AccountDetailPage', () => {
 
     expect(screen.getByRole('img', { name: 'Balance history' })).toBeInTheDocument()
     expect(screen.getByText('Balance — 2026-07: -4838.18')).toBeInTheDocument()
+  })
+
+  it('opens the ledger filtered to this account and that month from a balance history point', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Balance History')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Balance — 2026-07: -4838.18' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('ledger?account_id=1&date_from=2026-07-01&date_to=2026-07-31')).toBeInTheDocument()
+    })
   })
 
   it('does not fetch the balance history again when the ledger filters change', async () => {

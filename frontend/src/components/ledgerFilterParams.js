@@ -3,10 +3,13 @@
 // account detail page so the two can't drift apart on what "uncategorized"
 // or an empty field means.
 //
-// The form has a single `category` field standing in for two distinct query
-// params: 'uncategorized' maps to uncategorized=true, anything else non-empty
-// maps to category_id. The API rejects the two being sent together, so they
-// can never both be set from here.
+// The form has a single `category` field standing in for THREE distinct
+// query params: 'uncategorized' maps to uncategorized=true, 'kind-<kind>'
+// maps to kind=<kind> (the Category header popover's Income/Expenses/
+// Transfers options - the same choice /trends' drill-down and the
+// Dashboard's Cash Flow chart land on), and anything else non-empty maps to
+// category_id. The API rejects uncategorized from being combined with
+// either of the other two, so this field can never express a contradiction.
 
 // Mirrors services/ledger.py's DEFAULT_PAGE_SIZE/MAX_PAGE_SIZE - kept as a
 // small, fixed set of choices rather than free entry, so a value can never
@@ -28,7 +31,10 @@ export const EMPTY_FILTERS = {
   // the same single-field-stands-for-two-params shape `category` below
   // already uses for uncategorized/category_id.
   account: '',
-  category: '', // '' = all, 'uncategorized' = uncategorized only, else a category id
+  // '' = all, 'uncategorized' = uncategorized only, 'kind-income' /
+  // 'kind-expense' / 'kind-transfer' = that kind regardless of category,
+  // else a category id.
+  category: '',
   date_from: '',
   date_to: '',
   search: '',
@@ -39,12 +45,15 @@ export const EMPTY_FILTERS = {
 
 export function filtersFromSearchParams(searchParams) {
   const accountGroupId = searchParams.get('account_group_id')
+  const kind = searchParams.get('kind')
 
   return {
     account: accountGroupId ? `group-${accountGroupId}` : (searchParams.get('account_id') || ''),
     category: searchParams.get('uncategorized') === 'true'
       ? 'uncategorized'
-      : searchParams.get('category_id') || '',
+      : kind
+        ? `kind-${kind}`
+        : searchParams.get('category_id') || '',
     date_from: searchParams.get('date_from') || '',
     date_to: searchParams.get('date_to') || '',
     search: searchParams.get('search') || '',
@@ -74,6 +83,8 @@ export function searchParamsFromFilters(filters, pageSize) {
 
   if (filters.category === 'uncategorized') {
     params.set('uncategorized', 'true')
+  } else if (filters.category?.startsWith('kind-')) {
+    params.set('kind', filters.category.slice('kind-'.length))
   } else if (filters.category) {
     params.set('category_id', filters.category)
   }
@@ -102,7 +113,7 @@ export function searchParamsFromFilters(filters, pageSize) {
 // separate from searchParamsFromFilters so changing pages doesn't
 // needlessly refetch the groups view.
 const GROUPS_FILTER_KEYS = [
-  'account_id', 'account_group_id', 'category_id', 'uncategorized',
+  'account_id', 'account_group_id', 'category_id', 'uncategorized', 'kind',
   'date_from', 'date_to', 'search', 'transaction_type', 'min_amount', 'max_amount',
 ]
 

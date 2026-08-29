@@ -30,6 +30,24 @@ describe('LineChart', () => {
     expect(screen.getByText('Fuel')).toBeInTheDocument()
   })
 
+  it('renders a muted series as a dashed, text-muted line rather than a categorical hue', () => {
+    const { container } = render(
+      <LineChart
+        periods={periods}
+        series={[
+          { label: 'This month', values: [100, 120, 90] },
+          { label: 'Last month', values: [90, 100, 80], muted: true },
+        ]}
+      />
+    )
+
+    const paths = container.querySelectorAll('path')
+    expect(paths[0]).toHaveAttribute('stroke', 'var(--series-1)')
+    expect(paths[0]).not.toHaveAttribute('stroke-dasharray')
+    expect(paths[1]).toHaveAttribute('stroke', 'var(--text-muted)')
+    expect(paths[1]).toHaveAttribute('stroke-dasharray', '4 3')
+  })
+
   it('does not render a legend for a single series', () => {
     render(<LineChart periods={periods} series={[{ label: 'Balance', values: [100, 120, 90] }]} />)
 

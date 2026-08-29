@@ -417,6 +417,65 @@ def test_list_transactions_still_serializes_related_names(client):
     assert [t["category_name"] for t in items if t["category_id"] is not None] == ["Groceries"]
 
 
+def test_list_transactions_filters_by_kind(client):
+
+    upload(client, SAMPLE_CSV)
+    transactions = list_transactions(client)
+
+    expense_id = client.post("/api/categories", json={"name": "Groceries", "kind": "expense"}).json()["id"]
+    income_id = client.post("/api/categories", json={"name": "Salary", "kind": "income"}).json()["id"]
+    client.patch(f"/api/transactions/{transactions[0]['id']}/category", json={"category_id": expense_id})
+    client.patch(f"/api/transactions/{transactions[1]['id']}/category", json={"category_id": income_id})
+
+    response = client.get("/api/transactions?kind=expense")
+
+    ids = [t["id"] for t in response.json()["items"]]
+    assert ids == [transactions[0]["id"]]
+
+
+def test_list_transactions_kind_filter_matches_a_split_transactions_allocations(client):
+    """A split transaction's own category_id is always NULL - it must
+    still match `kind` through its allocations, the same way it already
+    matches category_id (see test_transaction_splits.py's own version of
+    this for a single category).
+    """
+
+    upload(client, HEADER + ',1111,24/07/2026,"Split me",,,150.00,150.00,DEP\n')
+    transaction = list_transactions(client)[0]
+
+    groceries_id = client.post("/api/categories", json={"name": "Groceries", "kind": "expense"}).json()["id"]
+    salary_id = client.post("/api/categories", json={"name": "Salary", "kind": "income"}).json()["id"]
+
+    client.put(
+        f"/api/transactions/{transaction['id']}/splits",
+        json={"splits": [
+            {"category_id": groceries_id, "amount": "50.00"},
+            {"category_id": salary_id, "amount": "100.00"},
+        ]},
+    )
+
+    expense_ids = [t["id"] for t in client.get("/api/transactions?kind=expense").json()["items"]]
+    income_ids = [t["id"] for t in client.get("/api/transactions?kind=income").json()["items"]]
+
+    assert expense_ids == [transaction["id"]]
+    assert income_ids == [transaction["id"]]
+
+
+def test_list_transactions_rejects_unknown_kind(client):
+
+    response = client.get("/api/transactions?kind=bogus")
+
+    assert response.status_code == 422
+    assert "kind" in response.json()["detail"]
+
+
+def test_list_transactions_rejects_uncategorized_with_kind(client):
+
+    response = client.get("/api/transactions?uncategorized=true&kind=expense")
+
+    assert response.status_code == 422
+
+
 def test_list_transactions_filters_by_account_id(client):
 
     upload(client, SAMPLE_CSV)

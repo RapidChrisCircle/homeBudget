@@ -136,22 +136,31 @@ export default function TrendsPage() {
   const activeGroupId = groupName ? groupId : ''
 
   const categorySeries = buildSeries(periods, buildLevel(periods, categories, activeGroupId))
+  // Income/Spending and Actual each carry which `kind` their own bar
+  // stands for, so one handler (openKindMonth below) can drill any of them
+  // into the ledger. Net saved and Budgeted opt out with `selectable:
+  // false` - a difference and a projection respectively, neither is
+  // something any transaction ever "is", so neither has a bar's worth of
+  // transactions to show.
   const incomeSpendingSeries = [
-    { label: 'Income', values: monthly.map((m) => Number(m.total_income)) },
-    { label: 'Spending', values: monthly.map((m) => Number(m.total_spending)) },
-    { label: 'Net saved', values: monthly.map((m) => Number(m.net_saved)) },
+    { label: 'Income', values: monthly.map((m) => Number(m.total_income)), drill: { kind: 'income' } },
+    { label: 'Spending', values: monthly.map((m) => Number(m.total_spending)), drill: { kind: 'expense' } },
+    { label: 'Net saved', values: monthly.map((m) => Number(m.net_saved)), selectable: false },
   ]
   const budgetSeries = [
-    { label: 'Budgeted', values: budget.map((b) => Number(b.budgeted)) },
-    { label: 'Actual', values: budget.map((b) => Number(b.actual)) },
+    { label: 'Budgeted', values: budget.map((b) => Number(b.budgeted)), selectable: false },
+    // Budget vs actual is scoped to expense categories only (see /reports'
+    // own budget-vs-actual table), so "Actual" here always means expense
+    // spending.
+    { label: 'Actual', values: budget.map((b) => Number(b.actual)), drill: { kind: 'expense' } },
   ]
   const hasBudget = budget.some((b) => Number(b.budgeted) !== 0)
 
-  // A month drills into that month's own report - the full per-category
-  // budget-vs-actual table these two charts are the summary of.
-  const openMonth = ({ period }) => {
-    const [year, month] = period.split('-')
-    navigate(`/reports?year=${year}&month=${Number(month)}`)
+  // A bar drills into the transactions behind it: the ledger, filtered to
+  // that bar's kind and that month.
+  const openKindMonth = ({ series, period }) => {
+    const { from, to } = monthBounds(period)
+    navigate(`/transactions?kind=${series.drill.kind}&date_from=${from}&date_to=${to}`)
   }
 
   // A category drills into the transactions behind that one point: the
@@ -173,13 +182,6 @@ export default function TrendsPage() {
       drillIntoGroup(series.drill.id)
     }
   }
-
-  // Folded into the drill-down hit area's own tooltip and accessible name -
-  // see BarChart's note on why the caller owns this text.
-  const summaryLabel = (values) => (period, periodIndex) => (
-    `${period} — ${values.map((v) => `${v.label} ${formatAmount(v.series[periodIndex])}`).join(', ')}`
-    + ' (open this month\'s report)'
-  )
 
   return (
     <section className="page">
@@ -223,32 +225,26 @@ export default function TrendsPage() {
       </Card>
 
       <Card id="trends-income-vs-spending" title="Income vs Spending vs Net">
-        <p>Click a month to open its full report.</p>
+        <p>Click the Income or Spending bar for a month to see the transactions behind it.</p>
         <BarChart
           periods={periodLabels}
           series={incomeSpendingSeries}
           formatValue={formatAmount}
           title="Income vs spending vs net"
-          onSelectPeriod={openMonth}
-          periodSelectLabel={summaryLabel(
-            incomeSpendingSeries.map((s) => ({ label: s.label, series: s.values }))
-          )}
+          onSelectBar={openKindMonth}
         />
       </Card>
 
       <Card id="trends-budget-vs-actual" title="Budget vs Actual">
         {hasBudget ? (
           <>
-            <p>Click a month to open its full budget-vs-actual table.</p>
+            <p>Click the Actual bar for a month to see the transactions behind it.</p>
             <BarChart
               periods={periodLabels}
               series={budgetSeries}
               formatValue={formatAmount}
               title="Budget vs actual"
-              onSelectPeriod={openMonth}
-              periodSelectLabel={summaryLabel(
-                budgetSeries.map((s) => ({ label: s.label, series: s.values }))
-              )}
+              onSelectBar={openKindMonth}
             />
           </>
         ) : (

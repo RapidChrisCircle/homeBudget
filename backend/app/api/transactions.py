@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
-from ..models import Category, ImportBatch, Transaction, TransactionSplit
+from ..models import CATEGORY_KINDS, Category, ImportBatch, Transaction, TransactionSplit
 from ..schemas import (
     BulkCategoryUpdate,
     CsvColumnMappingInput,
@@ -101,7 +101,7 @@ def import_transactions(
     content = file.file.read()
 
     try:
-        mapping, rows = parse_and_validate(db, content)
+        mapping, rows, skipped_authorisation_count = parse_and_validate(db, content)
 
     except UnrecognizedFormatError as exc:
         # Distinct from the row-validation shape below via needs_mapping -
@@ -129,13 +129,15 @@ def import_transactions(
         )
 
     batch, new_account_count, auto_categorized_count = import_rows(
-        db, filename=file.filename, mapping=mapping, rows=rows
+        db, filename=file.filename, mapping=mapping, rows=rows,
+        skipped_authorisation_count=skipped_authorisation_count,
     )
 
     return ImportResultResponse(
         batch=ImportBatchResponse.model_validate(batch),
         imported_count=batch.row_count,
         skipped_duplicate_count=batch.skipped_duplicate_count,
+        skipped_authorisation_count=batch.skipped_authorisation_count,
         new_account_count=new_account_count,
         auto_categorized_count=auto_categorized_count,
     )
@@ -172,11 +174,12 @@ def preview_transaction_import(
     mapping = _column_mapping_from_input(payload)
     content = file.file.read()
 
-    rows, errors = preview_import(db, content, mapping)
+    rows, errors, skipped_authorisation_count = preview_import(db, content, mapping)
 
     return CsvImportPreviewResponse(
         rows=[CsvPreviewRowResponse(**vars(row)) for row in rows],
         errors=[{"row_number": n, "message": m} for n, m in errors],
+        skipped_authorisation_count=skipped_authorisation_count,
     )
 
 
@@ -186,6 +189,7 @@ def list_transactions(
     account_group_id: int | None = None,
     category_id: int | None = None,
     uncategorized: bool = False,
+    kind: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     search: str | None = None,
@@ -209,6 +213,15 @@ def list_transactions(
             status_code=422,
             detail="uncategorized and category_id are contradictory - use one or the other",
         )
+
+    if uncategorized and kind is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="uncategorized and kind are contradictory - an uncategorized transaction has no kind",
+        )
+
+    if kind is not None and kind not in CATEGORY_KINDS:
+        raise HTTPException(status_code=422, detail=f"kind must be one of: {', '.join(CATEGORY_KINDS)}")
 
     if account_id is not None and account_group_id is not None:
         raise HTTPException(
@@ -250,6 +263,7 @@ def list_transactions(
         account_group_id=account_group_id,
         category_id=category_id,
         uncategorized=uncategorized,
+        kind=kind,
         date_from=date_from,
         date_to=date_to,
         search=search,
@@ -300,6 +314,7 @@ def list_transaction_groups(
     account_group_id: int | None = None,
     category_id: int | None = None,
     uncategorized: bool = False,
+    kind: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     search: str | None = None,
@@ -324,7 +339,7 @@ def list_transaction_groups(
     promises and this endpoint used to silently break for these three.
     """
 
-    # Same two contradiction checks list_transactions applies, for the same
+    # Same contradiction checks list_transactions applies, for the same
     # reason: a 422 surfaces the mistake instead of quietly grouping the
     # wrong rows.
     if uncategorized and category_id is not None:
@@ -332,6 +347,15 @@ def list_transaction_groups(
             status_code=422,
             detail="uncategorized and category_id are contradictory - use one or the other",
         )
+
+    if uncategorized and kind is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="uncategorized and kind are contradictory - an uncategorized transaction has no kind",
+        )
+
+    if kind is not None and kind not in CATEGORY_KINDS:
+        raise HTTPException(status_code=422, detail=f"kind must be one of: {', '.join(CATEGORY_KINDS)}")
 
     if account_id is not None and account_group_id is not None:
         raise HTTPException(
@@ -356,6 +380,7 @@ def list_transaction_groups(
         account_group_id=account_group_id,
         category_id=category_id,
         uncategorized=uncategorized,
+        kind=kind,
         date_from=date_from,
         date_to=date_to,
         search=search,

@@ -991,6 +991,207 @@ th .amount {
   flex: 1 1 140px;
 }
 
+/* Dashboard widgets (components/widgets/) - the customisable widget grid's
+   own row of cards. */
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.dashboard-header h2 {
+  margin: 0;
+}
+
+.dashboard-header-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Edit-mode toolbar shown above a widget's own content (inside its Card
+   body for a normal widget, above the bare tile for a stat_tile/
+   net_worth_change) - move up/down and remove are real, keyboard- and
+   screen-reader-operable buttons, matching /rules' own move controls. */
+.widget-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+.widget-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-5);
+}
+
+/* One widget per its own `width` config - quarter/half/full of the grid.
+   Below the grid's own breakpoint every widget is full-width regardless,
+   the same collapse-to-one-column rule a KPI row and a calendar grid both
+   need on a narrow screen. */
+.widget-quarter { grid-column: span 1; }
+.widget-half { grid-column: span 2; }
+.widget-full { grid-column: span 4; }
+
+@media (max-width: 900px) {
+  .widget-grid {
+    grid-template-columns: 1fr;
+  }
+  .widget-quarter,
+  .widget-half,
+  .widget-full {
+    grid-column: span 1;
+  }
+}
+
+/* StatTile - a single headline figure over a period (dataviz skill's
+   "stat tile" form). Nested-surface background, matching how .card .card
+   already reads as a surface one step up from its parent card. */
+.stat-tile {
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  text-align: left;
+}
+
+.stat-tile-clickable {
+  width: 100%;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.stat-tile-label {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.stat-tile-period {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* Proportional numerals, not tabular - a large standalone figure reads
+   better without every digit forced to the same width (see StatTile.jsx's
+   own docstring on why this deliberately does not reuse <Amount>). */
+.stat-tile-value {
+  margin: var(--space-1) 0 0;
+  font-size: 1.75rem;
+  font-weight: 600;
+  font-variant-numeric: normal;
+}
+
+/* Colored by MEANING (which kind of figure this is), not by the value's
+   own arithmetic sign - every StatTile value is already a positive
+   magnitude. Reused as-is by NetWorthChange and ComparisonSparkline's own
+   delta caption, where the same two tones mean "up is good" / "spending
+   more is bad" instead of "income" / "expense" literally. */
+.stat-tile-income {
+  color: var(--success);
+}
+
+.stat-tile-expense {
+  color: var(--danger);
+}
+
+/* TransactionCalendar - a diverging heatmap grid (see the component's own
+   docstring on why diverging, not sequential). */
+
+.tx-calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: var(--space-2);
+  font-size: 0.85rem;
+}
+
+.tx-calendar-month {
+  font-weight: 600;
+}
+
+.tx-calendar-grid {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.tx-calendar-grid th {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  padding-bottom: var(--space-1);
+}
+
+.tx-calendar-grid td {
+  text-align: center;
+  padding: 2px;
+  vertical-align: bottom;
+}
+
+.tx-calendar-day,
+.tx-calendar-cell-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 44px;
+  border-radius: var(--radius-sm);
+}
+
+.tx-calendar-day {
+  width: 100%;
+}
+
+/* A <button>, reset to look like a plain grid cell - same "look like the
+   inert version, keep the button's own hover/focus-visible for free" idiom
+   .card-toggle already establishes. */
+.tx-calendar-day-clickable {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tx-calendar-day-number {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.tx-calendar-bar {
+  width: 60%;
+  min-height: 0;
+  border-radius: 2px 2px 0 0;
+  margin-top: 2px;
+}
+
+.tx-calendar-bar-in {
+  background: var(--success);
+}
+
+.tx-calendar-bar-out {
+  background: var(--danger);
+}
+
+/* ComparisonSparkline - the delta caption above its chart. */
+.comparison-sparkline-delta {
+  margin: 0 0 var(--space-2);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
 /* Every animation in this file, turned off in one place - a card
    appearing, a filter popover opening, a modal entering. Not chasing
    accessibility conformance for its own sake here, but this one costs four

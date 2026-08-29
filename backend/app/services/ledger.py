@@ -7,6 +7,18 @@ Filter semantics, in one place so the API and any future caller agree:
   transaction's own category_id is always NULL - see TransactionSplit's
   docstring in models.py - so a plain equality check alone would silently
   hide split transactions from this filter).
+- kind matches a transaction whose own category (or, for a split, ANY of
+  its allocations' categories) has that kind - "the transactions behind
+  the Income bar for August" needs this, and nothing before it could
+  express "which kind", only "which specific category". Mirrors
+  category_id's own split-aware shape (Transaction.category.has(...) /
+  Transaction.splits.any(...)) rather than routing through
+  services/allocations.allocation_subquery - that module exists to SUM
+  amounts per category over a date range for reporting, a different job
+  from this filter's plain "does a matching row exist" check, and pulling
+  it in here would join in machinery this query doesn't need. An
+  uncategorized transaction matches no kind, same as it matches no
+  category_id.
 - uncategorized=True means `category_id IS NULL AND no splits` and takes
   precedence over category_id - the API layer rejects the two being
   combined rather than silently picking a winner, since "this category" and
@@ -137,6 +149,12 @@ class TransactionFilters:
     account_group_id: int | None = None
     category_id: int | None = None
     uncategorized: bool = False
+    # One of models.CATEGORY_KINDS, validated by the API layer (mirrors
+    # transaction_type below, which validates nothing itself either - the
+    # dataclass trusts its caller). Independent of category_id/uncategorized
+    # - combining kind with a specific category_id is redundant, not
+    # contradictory, so unlike uncategorized/category_id it is not rejected.
+    kind: str | None = None
     date_from: date | None = None
     date_to: date | None = None
     search: str | None = None
@@ -163,6 +181,14 @@ def build_transaction_query(
             or_(
                 Transaction.category_id == filters.category_id,
                 Transaction.splits.any(TransactionSplit.category_id == filters.category_id),
+            )
+        )
+
+    if filters.kind is not None:
+        query = query.filter(
+            or_(
+                Transaction.category.has(Category.kind == filters.kind),
+                Transaction.splits.any(TransactionSplit.category.has(Category.kind == filters.kind)),
             )
         )
 

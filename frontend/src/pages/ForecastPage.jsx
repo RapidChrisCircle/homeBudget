@@ -119,6 +119,12 @@ export default function ForecastPage() {
         guarantee - a month that closes comfortably can still dip lower partway through it.
       </p>
 
+      {/* Deliberately NOT wired for drill-down, unlike every other chart in
+          the app: every series here is a PROJECTION of months that mostly
+          haven't happened yet (services/forecast.py) - there are no
+          transactions behind a forecast point to open the ledger to, and
+          offering a click that can only land on an empty or misleading
+          result is worse than offering none. */}
       <Card id="forecast-closing-balance" title="Projected Closing Balance">
         <LineChart
           periods={periodLabels}

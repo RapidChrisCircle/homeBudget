@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
@@ -422,6 +422,12 @@ class ImportBatchResponse(BaseModel):
     imported_at: datetime
     row_count: int
     skipped_duplicate_count: int
+    # Rows dropped as pending card authorisations (narration prefixed
+    # "AUTHORISATION ONLY - " with a numeric debit) - see
+    # services/csv_import.py's _is_pending_authorisation. Counted
+    # separately from skipped_duplicate_count since they are skipped for a
+    # different reason and were never candidates for import at all.
+    skipped_authorisation_count: int
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -431,6 +437,7 @@ class ImportResultResponse(BaseModel):
     batch: ImportBatchResponse
     imported_count: int
     skipped_duplicate_count: int
+    skipped_authorisation_count: int
     new_account_count: int
     auto_categorized_count: int
 
@@ -505,6 +512,11 @@ class CsvImportPreviewResponse(BaseModel):
 
     rows: list[CsvPreviewRowResponse]
     errors: list[dict]
+    # Scoped to the same handful of rows `rows`/`errors` themselves cover
+    # (preview_import's stop_after) - a lower bound on what a real import
+    # would skip, not the whole file's count; parse_and_validate's own
+    # response is what reports the real, whole-file figure.
+    skipped_authorisation_count: int
 
 
 class ReportPeriodResponse(BaseModel):
@@ -586,6 +598,32 @@ class MonthlyReportResponse(BaseModel):
     budgets: list[BudgetLineResponse]
     grid: CategoryGridResponse
     uncategorized: UncategorizedSummaryResponse
+
+
+class DashboardKpiResponse(BaseModel):
+    """See services/dashboard_metrics.dashboard_kpis for what each figure
+    means. avg_per_transaction is null (not zero) when the window has no
+    expense transactions at all - see that function's own docstring.
+    """
+
+    periods: list[CategoryGridPeriodResponse]
+    total_income: Decimal
+    total_expenses: Decimal
+    net_saved: Decimal
+    transaction_count: int
+    avg_per_month: Decimal
+    avg_per_transaction: Optional[Decimal]
+
+
+class DailyActivityResponse(BaseModel):
+    """total_in/total_out are both positive magnitudes - see
+    services/dashboard_metrics.py's module docstring.
+    """
+
+    date: date
+    total_in: Decimal
+    total_out: Decimal
+    count: int
 
 
 class RecurringSeriesResponse(BaseModel):
@@ -883,3 +921,38 @@ class GoalListResponse(BaseModel):
 
     goals: list[GoalResponse]
     account_envelope_summaries: list[AccountEnvelopeSummaryResponse]
+
+
+class DashboardWidgetResponse(BaseModel):
+
+    id: int
+    widget_type: str
+    position: int
+    width: str
+    config: Optional[dict[str, Any]]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DashboardWidgetCreate(BaseModel):
+
+    widget_type: str
+    width: str = "quarter"
+    config: Optional[dict[str, Any]] = None
+
+
+class DashboardWidgetUpdate(BaseModel):
+    """Width and config only - widget_type is not editable (a widget that
+    should show something else is a different widget: remove this one, add
+    the one you actually want), and position changes through the dedicated
+    move endpoint, mirroring CategoryRule's own split between PUT (fields)
+    and POST .../move (order).
+    """
+
+    width: str
+    config: Optional[dict[str, Any]] = None
+
+
+class DashboardWidgetMove(BaseModel):
+
+    direction: str

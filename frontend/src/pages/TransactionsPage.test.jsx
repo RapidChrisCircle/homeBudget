@@ -43,6 +43,7 @@ const sampleBatch = {
   imported_at: '2026-07-24T10:00:00Z',
   row_count: 1,
   skipped_duplicate_count: 0,
+  skipped_authorisation_count: 0,
 }
 
 const sampleCategory = { id: 1, name: 'Groceries' }
@@ -246,6 +247,69 @@ describe('TransactionsPage', () => {
     expect(screen.getByText(/auto-categorized\s+2 transaction\(s\)/)).toBeInTheDocument()
   })
 
+  it('mentions skipped pending authorisations only when any were skipped', async () => {
+    mockLoad({ transactions: [], batches: [] })
+    api.post.mockResolvedValue({
+      data: {
+        imported_count: 1,
+        skipped_duplicate_count: 0,
+        skipped_authorisation_count: 2,
+        new_account_count: 0,
+        auto_categorized_count: 0,
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.queryByText('Loading transactions...')).not.toBeInTheDocument())
+
+    const file = new File(['a,b'], 'good.csv', { type: 'text/csv' })
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [file] } })
+
+    await waitFor(() => {
+      expect(screen.getByText(/skipped 2 pending authorisation\(s\)/)).toBeInTheDocument()
+    })
+  })
+
+  it('says nothing about pending authorisations when none were skipped', async () => {
+    mockLoad({ transactions: [], batches: [] })
+    api.post.mockResolvedValue({
+      data: {
+        imported_count: 1,
+        skipped_duplicate_count: 0,
+        skipped_authorisation_count: 0,
+        new_account_count: 0,
+        auto_categorized_count: 0,
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.queryByText('Loading transactions...')).not.toBeInTheDocument())
+
+    const file = new File(['a,b'], 'good.csv', { type: 'text/csv' })
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.getByText(/Imported 1 transaction\(s\)/)).toBeInTheDocument())
+    expect(screen.queryByText(/pending authorisation/)).not.toBeInTheDocument()
+  })
+
+  it('shows the skipped-pending-authorisation count in the import history table', async () => {
+    mockLoad({
+      transactions: [],
+      batches: [{ ...sampleBatch, skipped_authorisation_count: 3 }],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.queryByText('Loading transactions...')).not.toBeInTheDocument())
+
+    const headerRow = screen.getByText('Skipped Pending Auth').closest('tr')
+    const headerIndex = Array.from(headerRow.children).findIndex((c) => c.textContent === 'Skipped Pending Auth')
+    const bodyRow = screen.getByText('transactions.csv').closest('tr')
+    expect(bodyRow.children[headerIndex]).toHaveTextContent('3')
+  })
+
   it('calls the category patch endpoint when a row category is changed', async () => {
     mockLoad()
     api.patch.mockResolvedValue({})
@@ -415,6 +479,23 @@ describe('TransactionsPage', () => {
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/uncategorized=true/))
     })
+  })
+
+  it('requests kind=income when the Income option is chosen - the same filter every chart drills down to', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    applyHeaderFilter('Category', () => {
+      fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'kind-income' } })
+    })
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/kind=income/))
+    })
+    expect(api.get).not.toHaveBeenCalledWith(expect.stringMatching(/category_id=/))
   })
 
   it('does not request merchant groups until the toggle is turned on', async () => {

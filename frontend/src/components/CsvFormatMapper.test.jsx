@@ -111,6 +111,49 @@ describe('CsvFormatMapper', () => {
     })
   })
 
+  it('reports how many rows a preview skipped as pending card authorisations', async () => {
+    api.post.mockResolvedValue({
+      data: {
+        rows: [{
+          bsb_number: '304-559', account_number: '9999', transaction_date: '2026-07-24',
+          narration: 'Coffee', cheque_number: null, debit: '5.00', credit: null, balance: '95.00',
+          transaction_type: '',
+        }],
+        errors: [],
+        skipped_authorisation_count: 1,
+      },
+    })
+    renderMapper()
+    fillRequiredFields()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 pending card authorisation row\(s\)/)).toBeInTheDocument()
+    })
+  })
+
+  it('shows nothing about pending authorisations when none were skipped', async () => {
+    api.post.mockResolvedValue({
+      data: {
+        rows: [{
+          bsb_number: '304-559', account_number: '9999', transaction_date: '2026-07-24',
+          narration: 'Coffee', cheque_number: null, debit: '5.00', credit: null, balance: '95.00',
+          transaction_type: '',
+        }],
+        errors: [],
+        skipped_authorisation_count: 0,
+      },
+    })
+    renderMapper()
+    fillRequiredFields()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+
+    await waitFor(() => expect(screen.getByText('Preview - parsed correctly')).toBeInTheDocument())
+    expect(screen.queryByText(/pending card authorisation/)).not.toBeInTheDocument()
+  })
+
   it('shows preview errors instead of a parsed table', async () => {
     api.post.mockResolvedValue({ data: { rows: [], errors: [{ row_number: 2, message: 'invalid date' }] } })
     renderMapper()

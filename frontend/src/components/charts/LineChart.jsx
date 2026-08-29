@@ -25,6 +25,13 @@ const PLOT_HEIGHT = CHART_HEIGHT - CHART_MARGIN.top - CHART_MARGIN.bottom
 // line stands for several categories at once and has nothing to drill
 // into - and matters because an affordance that looks clickable and does
 // nothing is worse than no affordance.
+//
+// A series can opt IN to `muted: true` for the "emphasis" job (dataviz
+// skill: "one series is the point, rest are context") - a dashed
+// `--text-muted` line instead of a categorical hue, so a comparison line
+// (last month, a budget, a rolling average) reads as context rather than
+// competing with the real series it's being measured against. Widgets/
+// ComparisonSparkline.jsx is the first caller.
 export default function LineChart({
   periods,
   series,
@@ -65,7 +72,7 @@ export default function LineChart({
           )}
 
           {series.map((s, seriesIndex) => {
-            const color = seriesColor(seriesIndex)
+            const color = s.muted ? 'var(--text-muted)' : seriesColor(seriesIndex)
             const pointsClickable = Boolean(onSelectPoint) && s.selectable !== false
             let path = ''
             let drawing = false
@@ -83,7 +90,13 @@ export default function LineChart({
 
             return (
               <g key={s.label}>
-                <path d={path} fill="none" stroke={color} strokeWidth="2" />
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="2"
+                  strokeDasharray={s.muted ? '4 3' : undefined}
+                />
                 {s.values.map((value, index) => {
                   if (value === null || value === undefined) {
                     return null
@@ -146,7 +159,7 @@ export default function LineChart({
         <ul>
           {series.map((s, index) => (
             <li key={s.label}>
-              <span style={{ color: seriesColor(index) }}>■</span>{' '}
+              <span style={{ color: s.muted ? 'var(--text-muted)' : seriesColor(index) }}>■</span>{' '}
               {onSelectSeries && s.selectable !== false ? (
                 <button type="button" onClick={() => onSelectSeries({ series: s, seriesIndex: index })}>
                   {s.label}

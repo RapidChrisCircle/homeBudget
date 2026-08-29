@@ -414,6 +414,54 @@ def test_groups_endpoint_honours_category_id_with_include_categorized(client, db
     assert response.json()["groups"] == []
 
 
+def test_groups_endpoint_honours_kind_with_include_categorized(client, db_session):
+    """The Category header popover's Income/Expenses/Transfers option is
+    shared with the grouped view (README: "the grouped table ... falls
+    back to the same popovers rendered inline above the table") - kind
+    must narrow groups the same way category_id already does, or applying
+    it while grouped would silently do nothing.
+    """
+
+    account = make_account(db_session)
+    groceries = make_category(db_session, name="Groceries", kind="expense")
+    salary = make_category(db_session, name="Salary", kind="income")
+
+    for day in (1, 8, 15):
+        make_transaction(
+            db_session, account.id, date(2026, 7, day), "IGA NEWPORT              NEWPORT", -4.45,
+            category_id=groceries.id,
+        )
+    for day in (1, 8, 15):
+        make_transaction(
+            db_session, account.id, date(2026, 7, day), "ACME PTY LTD             PAYROLL", 1000.00, credit=True,
+            category_id=salary.id,
+        )
+    db_session.commit()
+
+    response = client.get("/api/transactions/groups", params={
+        "include_categorized": "true", "kind": "income",
+    })
+
+    assert response.status_code == 200
+    groups = response.json()["groups"]
+    assert len(groups) == 1
+    assert groups[0]["transaction_count"] == 3
+
+
+def test_groups_endpoint_rejects_unknown_kind(client):
+
+    response = client.get("/api/transactions/groups", params={"kind": "bogus"})
+
+    assert response.status_code == 422
+
+
+def test_groups_endpoint_rejects_uncategorized_with_kind(client):
+
+    response = client.get("/api/transactions/groups", params={"uncategorized": "true", "kind": "expense"})
+
+    assert response.status_code == 422
+
+
 def test_groups_endpoint_honours_account_group_id(client, db_session):
 
     from app.models import AccountGroup

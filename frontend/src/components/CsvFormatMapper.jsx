@@ -81,6 +81,7 @@ export default function CsvFormatMapper({ file, header, sampleRows, onClose, onI
   const [form, setForm] = useState(EMPTY_FORM)
   const [previewRows, setPreviewRows] = useState(null)
   const [previewErrors, setPreviewErrors] = useState(null)
+  const [previewSkippedAuthorisationCount, setPreviewSkippedAuthorisationCount] = useState(0)
   const [previewing, setPreviewing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -109,6 +110,7 @@ export default function CsvFormatMapper({ file, header, sampleRows, onClose, onI
     // longer the one on screen.
     setPreviewRows(null)
     setPreviewErrors(null)
+    setPreviewSkippedAuthorisationCount(0)
   }
 
   const handlePreview = async (event) => {
@@ -117,6 +119,7 @@ export default function CsvFormatMapper({ file, header, sampleRows, onClose, onI
     setError('')
     setPreviewRows(null)
     setPreviewErrors(null)
+    setPreviewSkippedAuthorisationCount(0)
 
     const formData = new FormData()
     formData.append('file', file)
@@ -126,6 +129,7 @@ export default function CsvFormatMapper({ file, header, sampleRows, onClose, onI
       const response = await api.post('/transactions/import/preview', formData)
       setPreviewRows(response.data.rows)
       setPreviewErrors(response.data.errors)
+      setPreviewSkippedAuthorisationCount(response.data.skipped_authorisation_count)
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Preview failed'
       setError(String(message))
@@ -288,6 +292,13 @@ export default function CsvFormatMapper({ file, header, sampleRows, onClose, onI
               </table>
             </div>
           </div>
+        )}
+
+        {previewErrors !== null && previewSkippedAuthorisationCount > 0 && (
+          <p>
+            {previewSkippedAuthorisationCount} pending card authorisation row(s) in this preview will be
+            skipped, not imported - a hold that later settles as its own transaction.
+          </p>
         )}
 
         {previewErrors && previewErrors.length > 0 && (

@@ -14,28 +14,24 @@ const GROUP_PADDING_FRACTION = 0.15
 // loss) draws sensibly below the zero line rather than needing special
 // casing by the caller.
 //
-// DRILL-DOWN, when onSelectPeriod is passed, is per PERIOD rather than per
-// bar: what a grouped bar chart's columns mean here is one month compared
-// several ways (income vs spending vs net, budgeted vs actual), so "March"
-// is the thing there is more detail about, not "March's income bar"
-// specifically. It is one full-height transparent hit area per column, so
-// the target is the whole month rather than a 20px-wide bar. That hit area
-// necessarily sits ON TOP of its column's bars and so takes over their
-// hover tooltips - which is why periodSelectLabel is a function of the
-// period rather than fixed text: a caller that turns drill-down on is
-// expected to fold the month's own figures into it, so nothing that was
-// discoverable by hovering stops being discoverable. Omit the prop and the
-// chart renders exactly as it always did.
+// DRILL-DOWN, when onSelectBar is passed, is per BAR - mirroring
+// LineChart's own per-point onSelectPoint - not per period/column: a
+// grouped bar chart's columns compare several series for one month (income
+// vs spending vs net, budgeted vs actual), and those series usually mean
+// different things ("Income" and "Spending" are opposite questions with
+// opposite answers), so the bar clicked is part of what was asked, not
+// just which month. A series can opt out with `selectable: false` (a
+// derived figure with nothing behind it to drill into - "Net saved" is a
+// difference, not a transaction kind; "Budgeted" is a projection, no
+// transactions are ever "budgeted") - the same escape hatch LineChart's
+// own series carry. Omit the prop and the chart renders exactly as it
+// always did, with nothing focusable and no pointer cursor.
 export default function BarChart({
   periods,
   series,
   formatValue = (v) => v,
   title,
-  onSelectPeriod = null,
-  // (period, periodIndex) - the index is what lets a caller fold that
-  // column's own figures into the label without re-deriving which column
-  // it is looking at.
-  periodSelectLabel = (period) => `View ${period}`,
+  onSelectBar = null,
 }) {
 
   const allValues = series.flatMap((s) => s.values)
@@ -80,7 +76,27 @@ export default function BarChart({
                 const barX = periodIndex * groupWidth + groupPadding + seriesIndex * barWidth
                 const barY = Math.min(valueY, zeroY)
                 const barHeight = Math.abs(valueY - zeroY)
+                const description = `${s.label} — ${period}: ${formatValue(value)}`
+                const barClickable = Boolean(onSelectBar) && s.selectable !== false
+
+                if (!barClickable) {
+                  return (
+                    <rect
+                      key={s.label}
+                      x={barX}
+                      y={barY}
+                      width={Math.max(barWidth - 2, 1)}
+                      height={barHeight}
+                      fill={seriesColor(seriesIndex)}
+                    >
+                      <title>{description}</title>
+                    </rect>
+                  )
+                }
+
                 return (
+                  // A real, keyboard-reachable button - see LineChart's own
+                  // point circles for the identical reasoning.
                   <rect
                     key={s.label}
                     x={barX}
@@ -88,36 +104,23 @@ export default function BarChart({
                     width={Math.max(barWidth - 2, 1)}
                     height={barHeight}
                     fill={seriesColor(seriesIndex)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={description}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => onSelectBar({ series: s, seriesIndex, periodIndex, period, value })}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        onSelectBar({ series: s, seriesIndex, periodIndex, period, value })
+                      }
+                    }}
                   >
-                    <title>{`${s.label} — ${period}: ${formatValue(value)}`}</title>
+                    <title>{description}</title>
                   </rect>
                 )
               })}
             </g>
-          ))}
-
-          {onSelectPeriod && periods.map((period, periodIndex) => (
-            <rect
-              key={`hit-${period}`}
-              x={periodIndex * groupWidth}
-              y={0}
-              width={groupWidth}
-              height={PLOT_HEIGHT}
-              fill="transparent"
-              role="button"
-              tabIndex={0}
-              aria-label={periodSelectLabel(period, periodIndex)}
-              style={{ cursor: 'pointer' }}
-              onClick={() => onSelectPeriod({ period, periodIndex })}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  onSelectPeriod({ period, periodIndex })
-                }
-              }}
-            >
-              <title>{periodSelectLabel(period, periodIndex)}</title>
-            </rect>
           ))}
 
           {periods.map((period, index) => (

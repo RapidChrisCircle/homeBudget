@@ -1,4 +1,5 @@
 import io
+import json
 from decimal import Decimal
 
 import pytest
@@ -114,3 +115,157 @@ def test_import_still_rejects_genuinely_malformed_amount(client):
     assert response.status_code == 422
     errors = response.json()["detail"]["errors"]
     assert any("not-a-number" in e["message"] for e in errors)
+
+
+# --- pending card authorisations (AUTHORISATION ONLY - ...) ----------------
+#
+# Columns, per HEADER above: bsb,account,date,narration,cheque,debit,credit,
+# balance,type.
+
+def test_import_skips_a_pending_authorisation_row(client):
+
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"AUTHORISATION ONLY - WOOLWORTHS 1234",,"45.00",,"100.00",WDL\n'
+        ',1111,25/07/2026,"Coles",,"12.00",,"88.00",WDL\n'
+    )
+
+    response = upload(client, csv_content)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["imported_count"] == 1
+    assert body["skipped_authorisation_count"] == 1
+    assert body["batch"]["skipped_authorisation_count"] == 1
+
+    narrations = [t["narration"] for t in client.get("/api/transactions", params={"page_size": 10}).json()["items"]]
+    assert narrations == ["Coles"]
+
+
+def test_import_keeps_an_authorisation_only_row_with_no_debit(client):
+    """The prefix alone isn't enough - a bank can label a settled REFUND
+    the same way, and that one carries real money that must not vanish.
+    """
+
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"AUTHORISATION ONLY - REFUND",,,"20.00","120.00",DEP\n'
+    )
+
+    response = upload(client, csv_content)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["imported_count"] == 1
+    assert body["skipped_authorisation_count"] == 0
+
+
+def test_import_matches_the_prefix_case_insensitively(client):
+
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"authorisation only - shop",,"5.00",,"95.00",WDL\n'
+        ',1111,25/07/2026,"Coles",,"12.00",,"83.00",WDL\n'
+    )
+
+    response = upload(client, csv_content)
+
+    assert response.status_code == 201
+    assert response.json()["skipped_authorisation_count"] == 1
+
+
+def test_a_pending_authorisation_row_is_skipped_before_its_own_fields_are_validated(client):
+    """A pending hold is a placeholder, not a real transaction - its other
+    fields (here, a blank Balance that would otherwise reject the whole
+    file) are never even looked at once the narration+Debit match.
+    """
+
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"AUTHORISATION ONLY - CAFE",,"12.50",,,WDL\n'
+        ',1111,25/07/2026,"Coles",,"12.00",,"88.00",WDL\n'
+    )
+
+    response = upload(client, csv_content)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["imported_count"] == 1
+    assert body["skipped_authorisation_count"] == 1
+
+
+def test_a_row_matching_the_prefix_with_a_non_numeric_debit_is_not_skipped(client):
+    """"Contains a numeric value in the Debit column" is the second half of
+    the rule - a non-numeric Debit cell means this isn't recognizably a
+    pending hold, so it is treated as an ordinary (here, malformed) row
+    instead of silently disappearing.
+    """
+
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"AUTHORISATION ONLY - CAFE",,"not-a-number",,"100.00",WDL\n'
+    )
+
+    response = upload(client, csv_content)
+
+    assert response.status_code == 422
+    errors = response.json()["detail"]["errors"]
+    assert any("not-a-number" in e["message"] for e in errors)
+
+
+def test_a_file_of_only_pending_authorisations_is_rejected_as_having_no_data_rows(client):
+
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"AUTHORISATION ONLY - WOOLWORTHS",,"45.00",,"100.00",WDL\n'
+    )
+
+    response = upload(client, csv_content)
+
+    assert response.status_code == 422
+    assert "no data rows" in response.json()["detail"]["errors"][0]["message"]
+
+
+def _built_in_mapping(**overrides):
+    """Mirrors the built-in HEADER's own column order, for the preview
+    endpoint - which (unlike /transactions/import) always needs an
+    explicit mapping rather than auto-detecting one.
+    """
+
+    payload = {
+        "name": "Built-in",
+        "institution": "Built-in",
+        "date_format": "%d/%m/%Y",
+        "amount_mode": "debit_credit",
+        "bsb_index": 0,
+        "account_number_index": 1,
+        "transaction_date_index": 2,
+        "narration_index": 3,
+        "cheque_number_index": 4,
+        "debit_index": 5,
+        "credit_index": 6,
+        "balance_index": 7,
+        "transaction_type_index": 8,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def preview(client, content: str, mapping: dict):
+
+    return client.post(
+        "/api/transactions/import/preview",
+        files={"file": ("transactions.csv", io.BytesIO(content.encode("utf-8")), "text/csv")},
+        data={"mapping_json": json.dumps(mapping)},
+    )
+
+
+def test_preview_reports_skipped_authorisation_count(client):
+
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"AUTHORISATION ONLY - WOOLWORTHS 1234",,"45.00",,"100.00",WDL\n'
+        ',1111,25/07/2026,"Coles",,"12.00",,"88.00",WDL\n'
+    )
+
+    preview_response = preview(client, csv_content, _built_in_mapping())
+    assert preview_response.status_code == 200
+    assert preview_response.json()["skipped_authorisation_count"] == 1
+    # Nothing is written by preview - the point of the endpoint.
+    assert len(preview_response.json()["rows"]) == 1
+
+    import_response = upload(client, csv_content)
+    assert import_response.json()["skipped_authorisation_count"] == 1

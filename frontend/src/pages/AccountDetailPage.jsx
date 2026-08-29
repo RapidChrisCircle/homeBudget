@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
@@ -21,6 +21,7 @@ import {
 import { api } from '../services/api'
 import { accountTypeLabel } from '../utils/accountTypes.js'
 import { formatAmount, formatBalance, formatDate, transactionAmount } from '../utils/format.js'
+import { monthBounds } from '../utils/trendsSeries.js'
 
 // account_id is implicit from the route here, so it is never a form field and
 // never carried in this page's own URL - it is added only when calling the API.
@@ -31,6 +32,7 @@ function queryParamsFromFilters(accountId, filters, pageSize) {
 }
 
 export default function AccountDetailPage() {
+  const navigate = useNavigate()
   const { accountId } = useParams()
   const [account, setAccount] = useState(null)
   const [transactions, setTransactions] = useState([])
@@ -221,9 +223,12 @@ export default function AccountDetailPage() {
           {account.group_name && (
             <p className="text-muted">
               This account is part of the &quot;{account.group_name}&quot; group - the chart below
-              is the group&apos;s stitched history, continuous across every member.
+              is the group&apos;s stitched history, continuous across every member. A point still
+              drills into THIS physical account's own transactions for that month, which reads as
+              empty for a month a different member of the group was actually carrying.
             </p>
           )}
+          <p>Click a point to see this account&apos;s transactions for that month.</p>
           <LineChart
             periods={balanceHistory.periods.map((p) => p.label)}
             series={[{
@@ -235,6 +240,10 @@ export default function AccountDetailPage() {
             }]}
             formatValue={formatAmount}
             title="Balance history"
+            onSelectPoint={({ period }) => {
+              const { from, to } = monthBounds(period)
+              navigate(`/transactions?account_id=${accountId}&date_from=${from}&date_to=${to}`)
+            }}
           />
         </Card>
       )}
@@ -386,6 +395,9 @@ export default function AccountDetailPage() {
                       <CategorySelect categories={categories} value={draft} onChange={(event) => setDraft(event.target.value)}>
                         <option value="">All categories</option>
                         <option value="uncategorized">Uncategorized only</option>
+                        <option value="kind-income">Income</option>
+                        <option value="kind-expense">Expenses</option>
+                        <option value="kind-transfer">Transfers</option>
                       </CategorySelect>
                     </label>
                   )}
