@@ -458,7 +458,9 @@ describe('TransactionsPage', () => {
       expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/min_amount=10/))
     })
     expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/max_amount=50/))
-    expect(screen.getByRole('button', { name: 'Filter by Amount' }).querySelector('.header-filter-marker')).toBeInTheDocument()
+    // The chip states its value rather than only flagging that something
+    // is set, which is the whole point of the toolbar rework.
+    expect(screen.getByRole('button', { name: 'Filter by Amount' })).toHaveTextContent('10.00 – 50.00')
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter by Amount' }))
     expect(screen.getByLabelText('Min amount')).toHaveValue(10)
@@ -521,20 +523,85 @@ describe('TransactionsPage', () => {
     })
   })
 
-  it('the ledger headers are the only filter surface when ungrouped', async () => {
+  it('mounts exactly one control per filter - the chips are the only filter surface', async () => {
     mockLoad()
 
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
-    // The grouped view's inline (as="div") fallback filters aren't also
-    // mounted underneath the ungrouped ledger table.
+    // Filtering lives in the toolbar chips alone; the table headers below
+    // carry sorting only, so no filter is offered from two places at once.
     expect(screen.getAllByRole('button', { name: 'Filter by Date' })).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: 'Filter by Account' })).toHaveLength(1)
   })
 
-  it('the grouped view falls back to inline filters for columns the merchant table lacks', async () => {
+  // The rework's actual promise: the filter bar is the same set of
+  // controls, in the same place, whichever view is on. The old toolbar
+  // moved five filters into (and out of) the table headers as the toggle
+  // flipped, which is what made it hard to follow.
+  it('offers the identical filter set before and after toggling Group by merchant', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const filterNames = () => screen
+      .getAllByRole('button', { name: /^Filter by / })
+      .map((button) => button.getAttribute('aria-label'))
+      .sort()
+
+    const ungrouped = filterNames()
+    expect(ungrouped).toEqual([
+      'Filter by Account',
+      'Filter by Amount',
+      'Filter by Category',
+      'Filter by Date',
+      'Filter by Narration',
+      'Filter by Type',
+    ])
+
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/transactions/groups')))
+    expect(filterNames()).toEqual(ungrouped)
+  })
+
+  it('keeps an applied filter, and its chip, across a view toggle', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    applyHeaderFilter('Narration', () => {
+      fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Filter by Narration' })).toHaveTextContent('woolworths')
+    })
+
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/transactions/groups')))
+    expect(screen.getByRole('button', { name: 'Filter by Narration' })).toHaveTextContent('woolworths')
+    expect(screen.getByRole('button', { name: 'Clear all filters (1)' })).toBeEnabled()
+  })
+
+  it('counts a date range as one filter, not two', async () => {
+    mockLoad()
+
+    renderPage('/transactions?date_from=2026-07-01&date_to=2026-07-31')
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(screen.getByRole('button', { name: 'Clear all filters (1)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filter by Date' })).toHaveTextContent('01/07/26 – 31/07/26')
+  })
+
+  it('keeps every filter available, and applying, once Group by merchant is on', async () => {
     mockLoad()
 
     renderPage()
@@ -955,11 +1022,15 @@ describe('TransactionsPage', () => {
     expect(screen.getByLabelText('Narration contains')).toHaveValue('woolworths')
     fireEvent.keyDown(document, { key: 'Escape' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear all filters' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all filters (1)' }))
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith('/transactions?')
     })
+
+    // Nothing left to clear, so the button stays put but goes inert -
+    // never disappearing, which is what used to move the toolbar around.
+    expect(screen.getByRole('button', { name: 'Clear all filters' })).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter by Narration' }))
     expect(screen.getByLabelText('Narration contains')).toHaveValue('')

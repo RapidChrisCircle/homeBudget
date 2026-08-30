@@ -24,12 +24,19 @@ import { useEffect, useRef, useState } from 'react'
 // entirely (sortKey omitted) for a column that's filterable but not
 // meaningfully sortable.
 // `as="th"` (the default) is a real table column header, used wherever the
-// filter has a matching visible column. `as="div"` renders the identical
-// popover - same draft state, same Apply/Clear, same Esc/outside-click -
-// as a plain element instead, for the one place a filter needs to exist
-// OUTSIDE a <thead> row: TransactionsPage's grouped-by-merchant view, whose
-// table has no Date/Account/Narration/Amount/Category columns to hang
-// these on. `sortKey` is meaningless there and simply isn't passed.
+// filter both has a matching visible column and doubles as that column's
+// sort control (the account-detail ledger). `as="div"` renders the
+// identical popover - same draft state, same Apply/Clear, same
+// Esc/outside-click - as a standalone CHIP instead, for a filter that
+// lives in a toolbar rather than a <thead>: the whole chip is one button,
+// so the click target is the label rather than a 20px caret beside it, and
+// `valueLabel` renders the current value inside it. `sortKey` is
+// meaningless there and simply isn't passed.
+//
+// `valueLabel` is what makes a row of chips readable at a glance: "Account:
+// Everyday" states what the view is narrowed to, where the <th> flavour has
+// only room for a dot saying that SOMETHING is set. Pass null (or omit) and
+// the chip shows just its label, exactly as an inactive one does.
 //
 // `numeric` right-aligns the header for a money column (Debit/Credit here) -
 // same reasoning and same class as SortableHeader.jsx's own `numeric` prop.
@@ -46,6 +53,7 @@ export default function HeaderFilter({
   onSort = null,
   as = 'th',
   numeric = false,
+  valueLabel = null,
 }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(value)
@@ -101,6 +109,46 @@ export default function HeaderFilter({
     closePopover()
   }
 
+  const className = [
+    'header-filter-cell',
+    as === 'div' && 'header-filter-inline',
+    numeric && 'numeric',
+  ].filter(Boolean).join(' ')
+
+  const popover = open && (
+    <div id={popoverId} className="header-filter-popover" role="dialog" aria-label={`Filter by ${label}`}>
+      <form onSubmit={handleSubmit}>
+        {children(draft, setDraft)}
+        <div className="header-filter-actions">
+          <button type="submit" className="button-primary">Apply</button>
+          <button type="button" onClick={handleClear}>Clear</button>
+        </div>
+      </form>
+    </div>
+  )
+
+  if (as === 'div') {
+    return (
+      <div className={className} ref={containerRef}>
+        <button
+          type="button"
+          className={`header-filter-chip${isActive ? ' header-filter-chip-active' : ''}`}
+          aria-expanded={open}
+          aria-controls={popoverId}
+          aria-label={`Filter by ${label}`}
+          onClick={toggleOpen}
+        >
+          <span className="header-filter-chip-label">{label}</span>
+          {isActive && valueLabel && <span className="header-filter-chip-value">{valueLabel}</span>}
+          <span aria-hidden="true" className="header-filter-chip-caret">▾</span>
+        </button>
+        {popover}
+      </div>
+    )
+  }
+
+  // Sorting is a <th>-only concern: a chip has no column to order by, and
+  // the branch above has already returned by here.
   const isSortable = sortKey !== null
   const sortIsActive = isSortable && sortKey === activeSortKey
   const ariaSort = isSortable ? (sortIsActive ? (activeDirection === 'asc' ? 'ascending' : 'descending') : 'none') : undefined
@@ -109,12 +157,6 @@ export default function HeaderFilter({
   const tagProps = as === 'th'
     ? { scope: 'col', 'aria-sort': ariaSort }
     : {}
-
-  const className = [
-    'header-filter-cell',
-    as === 'div' && 'header-filter-inline',
-    numeric && 'numeric',
-  ].filter(Boolean).join(' ')
 
   return (
     <Tag className={className} ref={containerRef} {...tagProps}>
@@ -144,17 +186,7 @@ export default function HeaderFilter({
         </button>
       </div>
 
-      {open && (
-        <div id={popoverId} className="header-filter-popover" role="dialog" aria-label={`Filter by ${label}`}>
-          <form onSubmit={handleSubmit}>
-            {children(draft, setDraft)}
-            <div className="header-filter-actions">
-              <button type="submit" className="button-primary">Apply</button>
-              <button type="button" onClick={handleClear}>Clear</button>
-            </div>
-          </form>
-        </div>
-      )}
+      {popover}
     </Tag>
   )
 }

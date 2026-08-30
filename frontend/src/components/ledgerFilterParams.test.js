@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   EMPTY_FILTERS,
+  activeFilterCount,
+  describeFilters,
   filtersFromSearchParams,
   groupsQueryFromSearchParams,
   nextSortParams,
@@ -201,5 +203,59 @@ describe('sortFromSearchParams / nextSortParams', () => {
     const next = nextSortParams(new URLSearchParams({ page: '3' }), 'date')
 
     expect(next.get('page')).toBe('1')
+  })
+
+  it('activeFilterCount counts a date range as one filter, not two fields', () => {
+    expect(activeFilterCount({ ...EMPTY_FILTERS, date_from: '2026-07-01', date_to: '2026-07-31' })).toBe(1)
+    expect(activeFilterCount({ ...EMPTY_FILTERS, min_amount: '10', max_amount: '50' })).toBe(1)
+  })
+
+  it('activeFilterCount counts distinct filters separately, and nothing when unfiltered', () => {
+    expect(activeFilterCount(EMPTY_FILTERS)).toBe(0)
+    expect(activeFilterCount({ ...EMPTY_FILTERS, search: 'coles', account: '3' })).toBe(2)
+  })
+
+  it('describeFilters resolves ids to the names the chips show', () => {
+    const labels = describeFilters(
+      { ...EMPTY_FILTERS, account: '3', category: '7' },
+      {
+        accounts: [{ id: 3, name: 'Joint Everyday' }],
+        categories: [{ id: 7, name: 'Groceries', parent_name: 'Food' }],
+      },
+    )
+
+    expect(labels.account).toBe('Joint Everyday')
+    expect(labels.category).toBe('Food › Groceries')
+  })
+
+  it('describeFilters names an account GROUP, not the raw group- value', () => {
+    const labels = describeFilters(
+      { ...EMPTY_FILTERS, account: 'group-2' },
+      { accountGroups: [{ id: 2, name: 'Reissued Card' }] },
+    )
+
+    expect(labels.account).toBe('Reissued Card')
+  })
+
+  it('describeFilters spells out the category filter\'s two non-id modes', () => {
+    expect(describeFilters({ ...EMPTY_FILTERS, category: 'uncategorized' }).category).toBe('Uncategorized')
+    expect(describeFilters({ ...EMPTY_FILTERS, category: 'kind-income' }).category).toBe('Income')
+  })
+
+  it('describeFilters falls back to the raw value for an id it cannot resolve', () => {
+    // A deleted account, or a hand-edited URL - showing the id beats an
+    // empty chip, which would read as "no filter" while still filtering.
+    expect(describeFilters({ ...EMPTY_FILTERS, account: '99' }, { accounts: [] }).account).toBe('99')
+  })
+
+  it('describeFilters renders open-ended ranges as From/To rather than a dash', () => {
+    expect(describeFilters({ ...EMPTY_FILTERS, date_from: '2026-07-01' }).date).toBe('From 01/07/26')
+    expect(describeFilters({ ...EMPTY_FILTERS, max_amount: '50' }).amount).toBe('To 50.00')
+  })
+
+  it('describeFilters returns null for anything unset, so a chip shows just its label', () => {
+    const labels = describeFilters(EMPTY_FILTERS)
+
+    expect(Object.values(labels).every((value) => value === null)).toBe(true)
   })
 })

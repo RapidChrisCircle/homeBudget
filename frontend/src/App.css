@@ -415,12 +415,14 @@ input[type='checkbox'] {
   margin-bottom: var(--space-4);
 }
 
-/* Ledger filter bar (TransactionsPage) - what's left over once every filter
-   that maps to a column moved into that column's own header (see
-   .header-filter-cell below): Transaction type, which has no column, one
-   Clear all filters, and Group by merchant - a VIEW over the same filtered
-   set, not a data action, which is why it lives here and not in
-   .ledger-toolbar below despite both being "a control near the table". */
+/* Ledger filter bar (TransactionsPage) - EVERY filter, as a row of chips,
+   identical whether or not Group by merchant is on. Filters used to be
+   split between column headers (ungrouped) and an inline copy of the same
+   popovers (grouped, whose table has none of those columns), so toggling
+   the view rearranged the toolbar under the reader. One row, one home.
+   Group by merchant sits here rather than in .ledger-toolbar because it
+   reshapes what's SHOWN, not the data - the same split that separates
+   these two rows. */
 .ledger-filter-bar {
   display: flex;
   align-items: center;
@@ -431,10 +433,39 @@ input[type='checkbox'] {
   border-bottom: 1px solid var(--border);
 }
 
-.ledger-filter-bar label {
+/* Names the row for both eyes and screen readers - the chips are a labelled
+   group (aria-labelledby), so "Filters" is read once rather than every chip
+   having to repeat the word. */
+.ledger-filter-bar-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.ledger-filter-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Pushed to the far end, so the chips grow leftward into free space and
+   these two keep a fixed home instead of drifting with the chip count. */
+.ledger-filter-bar-end {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+.ledger-view-toggle {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  white-space: nowrap;
 }
 
 /* Grouped-by-merchant Set-category cell (TransactionsPage) - a plain select
@@ -584,17 +615,70 @@ a:focus-visible {
   position: relative;
 }
 
-/* The as="div" flavour (TransactionsPage's grouped-by-merchant view, which
-   has no Date/Account/Narration/Amount/Category columns of its own to
-   carry these as real headers) - same popover, sitting inline in the
-   leftover bar instead of a <thead> row. */
+/* The as="div" flavour - the ledger toolbar's filter chips. Same popover,
+   anchored to a standalone pill instead of a <thead> cell. */
 .header-filter-inline {
   display: inline-flex;
 }
 
-.header-filter-inline .header-filter-heading span {
+/* The whole chip is the button, not a caret beside a label: a filter is
+   reached by clicking the word "Account", which is where anyone aims. */
+.header-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 22rem;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-1);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.header-filter-chip:hover {
+  background: var(--surface-2);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+/* An active chip carries its value, so it needs to read as filled-in
+   rather than merely available - the accent border and tint do that at a
+   glance across a row of six, where the <th> flavour's corner dot could
+   only say "something is set". */
+.header-filter-chip-active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--text-primary);
+}
+
+.header-filter-chip[aria-expanded='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.header-filter-chip-label {
   font-weight: 600;
-  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* The value is the part that can be long (a narration fragment, a category
+   path) - it alone truncates, so a chip never grows past its max-width and
+   the label stays readable. */
+.header-filter-chip-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.header-filter-chip-caret {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--text-muted);
 }
 
 .header-filter-heading {

@@ -11,6 +11,9 @@
 // category_id. The API rejects uncategorized from being combined with
 // either of the other two, so this field can never express a contradiction.
 
+import { categoryPathLabel } from '../utils/categories.js'
+import { formatAmount, formatDate } from '../utils/format.js'
+
 // Mirrors services/ledger.py's DEFAULT_PAGE_SIZE/MAX_PAGE_SIZE - kept as a
 // small, fixed set of choices rather than free entry, so a value can never
 // slip past the backend's 1-200 bound.
@@ -175,4 +178,73 @@ export function nextSortParams(searchParams, key) {
 
   next.set('page', '1')
   return next
+}
+
+// Which of the ledger's filters are actually narrowing anything. The
+// eight fields collapse to SIX user-facing filters (the ledger's own
+// toolbar shows one control per pair): date_from/date_to are one Date
+// filter, min_amount/max_amount one Amount filter. Counting the raw
+// fields instead would report "2 filters" for one date range, which is
+// not what the person who set it did.
+export const LEDGER_FILTER_GROUPS = [
+  ['date_from', 'date_to'],
+  ['account'],
+  ['search'],
+  ['min_amount', 'max_amount'],
+  ['category'],
+  ['transaction_type'],
+]
+
+export function activeFilterCount(filters) {
+  return LEDGER_FILTER_GROUPS.filter((fields) => fields.some((field) => filters[field])).length
+}
+
+// Human-readable summaries of what each filter is currently narrowing to,
+// for the toolbar's filter chips. A chip that says "Narration: coles"
+// answers "what is this view showing?" without opening anything, which a
+// bare active-dot never could.
+//
+// Needs the accounts/groups/categories lists because three of the filters
+// store an ID: the component holding those lists passes them in rather
+// than this module fetching anything of its own. An id with no match (an
+// account since deleted, a stale URL) falls back to showing the raw value
+// rather than an empty chip that reads as "no filter".
+export function describeFilters(filters, { accounts = [], accountGroups = [], categories = [] } = {}) {
+  const range = (from, to, format) => {
+    if (from && to) return `${format(from)} – ${format(to)}`
+    if (from) return `From ${format(from)}`
+    if (to) return `To ${format(to)}`
+    return null
+  }
+
+  const accountLabel = () => {
+    if (!filters.account) return null
+
+    if (String(filters.account).startsWith('group-')) {
+      const id = String(filters.account).slice('group-'.length)
+      return accountGroups.find((group) => String(group.id) === id)?.name || filters.account
+    }
+
+    return accounts.find((account) => String(account.id) === String(filters.account))?.name || filters.account
+  }
+
+  const categoryLabel = () => {
+    if (!filters.category) return null
+    if (filters.category === 'uncategorized') return 'Uncategorized'
+
+    const kinds = { 'kind-income': 'Income', 'kind-expense': 'Expenses', 'kind-transfer': 'Transfers' }
+    if (kinds[filters.category]) return kinds[filters.category]
+
+    const category = categories.find((c) => String(c.id) === String(filters.category))
+    return category ? categoryPathLabel(category) : filters.category
+  }
+
+  return {
+    date: range(filters.date_from, filters.date_to, formatDate),
+    account: accountLabel(),
+    search: filters.search || null,
+    amount: range(filters.min_amount, filters.max_amount, formatAmount),
+    category: categoryLabel(),
+    transaction_type: filters.transaction_type || null,
+  }
 }

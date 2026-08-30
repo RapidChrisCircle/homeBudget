@@ -4,6 +4,16 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
+## [0.22.1] - 2026-08-10
+
+### Changed
+
+- **The ledger's filter toolbar is one consistent row of chips, the same whether or not Group by merchant is on.** Filtering lived on the column headers it narrowed, Excel-style — which had no answer for the grouped view, whose table has none of those columns, so the same five popovers were duplicated inline and appeared only while grouped. Toggling the view therefore rearranged the toolbar (and moved the filters) exactly when someone reached for them. Now every filter is a chip above the table in both views, the table headers keep sorting only, and the duplicated popover bodies collapse into one definition (`filterChips` in `TransactionsPage.jsx`).
+- An active chip **shows its value** — `Narration: woolworths`, `Date: 01/07/26 – 31/07/26`, `Account: Joint Everyday` — so a glance at the row says what the view is narrowed to. Previously the only indication was a dot next to a `▾`, which said that *something* was set but never what. Ids are resolved to names (including account groups and category paths) by `describeFilters` in `components/ledgerFilterParams.js`, falling back to the raw value for an id it can't resolve rather than rendering an empty chip that would read as "no filter".
+- **Transaction type is a chip like the rest.** Having no column of its own used to make it the one filter rendered as a bare `<select>` among the popovers; that stopped meaning anything once the chips were no longer tied to columns.
+- **Clear all filters** stays put and greys out when nothing is filtered, rather than sitting there always-enabled, and carries the number of filters in force — where a date or amount *range* counts once, not twice, because one range is one thing the reader set.
+- `HeaderFilter`'s `as="div"` flavour is now a proper chip: the whole pill is the button, so the click target is the word "Account" rather than a 20px caret beside it, with the label, the value and the caret inside one control. The `as="th"` flavour (the account-detail ledger, where the header also sorts) is unchanged.
+
 ## [0.22.0] - 2026-08-10
 
 Three changes, prompted by a screenshot of another finance app's reports dashboard used as UI inspiration.

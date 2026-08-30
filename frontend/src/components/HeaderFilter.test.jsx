@@ -159,3 +159,75 @@ describe('HeaderFilter', () => {
     expect(screen.getByRole('columnheader')).not.toHaveClass('numeric')
   })
 })
+
+// The as="div" chip flavour (the ledger's filter toolbar). Rendered
+// standalone rather than inside a <table>, which is the point of it.
+function renderChip(props = {}) {
+  const onApply = vi.fn()
+  const onClear = vi.fn()
+  const utils = render(
+    <HeaderFilter
+      as="div"
+      label="Narration"
+      value=""
+      isActive={false}
+      onApply={onApply}
+      onClear={onClear}
+      {...props}
+    >
+      {(draft, setDraft) => (
+        <label>
+          Narration contains
+          <input type="text" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        </label>
+      )}
+    </HeaderFilter>
+  )
+  return { ...utils, onApply, onClear }
+}
+
+describe('HeaderFilter chip (as="div")', () => {
+  it('is one button carrying the label - not a caret beside it', () => {
+    renderChip()
+
+    const chip = screen.getByRole('button', { name: 'Filter by Narration' })
+    expect(chip).toHaveTextContent('Narration')
+    // The <th> flavour splits label and toggle into two controls so the
+    // label can sort; a chip has nothing to sort, so it is one target.
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('shows the current value when active, so the row reads without opening anything', () => {
+    renderChip({ isActive: true, valueLabel: 'woolworths' })
+
+    expect(screen.getByRole('button', { name: 'Filter by Narration' })).toHaveTextContent('woolworths')
+  })
+
+  it('shows no value when inactive, even if a stale label is passed', () => {
+    renderChip({ isActive: false, valueLabel: 'woolworths' })
+
+    expect(screen.getByRole('button', { name: 'Filter by Narration' })).not.toHaveTextContent('woolworths')
+  })
+
+  it('marks an active chip for styling without relying on colour alone to say what is set', () => {
+    const { container } = renderChip({ isActive: true, valueLabel: 'woolworths' })
+
+    expect(container.querySelector('.header-filter-chip-active')).toBeInTheDocument()
+  })
+
+  it('opens the same popover, and Apply commits the draft', () => {
+    const { onApply } = renderChip()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Narration' }))
+    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coles' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    expect(onApply).toHaveBeenCalledWith('coles')
+  })
+
+  it('carries no aria-sort - a chip is not a column header', () => {
+    const { container } = renderChip()
+
+    expect(container.querySelector('[aria-sort]')).not.toBeInTheDocument()
+  })
+})

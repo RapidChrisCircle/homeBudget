@@ -15,6 +15,8 @@ import RuleEditor from '../components/RuleEditor.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import SplitEditor from '../components/SplitEditor.jsx'
 import {
+  activeFilterCount,
+  describeFilters,
   DEFAULT_PAGE_SIZE,
   EMPTY_FILTERS,
   filtersFromSearchParams,
@@ -138,6 +140,193 @@ export default function TransactionsPage() {
   }
 
   const clearAllFilters = () => applyFilterPatch(EMPTY_FILTERS)
+
+  // Every ledger filter, defined ONCE, as the toolbar chips both views
+  // share. This used to exist twice - as <th> popovers on the ungrouped
+  // table and, because the grouped table has none of those columns, as a
+  // near-identical inline copy that only appeared while grouped. Two
+  // consequences, both of which this replaces: ~250 lines of duplicated
+  // popover bodies that had to be kept in step by hand, and a toolbar
+  // that rearranged itself the moment Group by merchant was toggled, so
+  // the filters you were using moved (or vanished into a column header)
+  // exactly when you looked for them. The chips are now the one home for
+  // filtering, identical in both views; the ungrouped table's headers keep
+  // SORTING, which is genuinely per-column and has no equivalent problem.
+  const filterValueLabels = describeFilters(committedFilters, { accounts, accountGroups, categories })
+  const activeFilters = activeFilterCount(committedFilters)
+
+  const filterChips = [
+    <HeaderFilter
+      key="date"
+      as="div"
+      label="Date"
+      valueLabel={filterValueLabels.date}
+      value={{ from: committedFilters.date_from, to: committedFilters.date_to }}
+      isActive={Boolean(committedFilters.date_from || committedFilters.date_to)}
+      onApply={(draft) => applyFilterPatch({ date_from: draft.from, date_to: draft.to })}
+      onClear={() => applyFilterPatch({ date_from: '', date_to: '' })}
+    >
+      {(draft, setDraft) => (
+        <>
+          <label>
+            From date
+            <input
+              type="date"
+              value={draft.from}
+              onChange={(event) => setDraft({ ...draft, from: event.target.value })}
+            />
+          </label>
+          <label>
+            To date
+            <input
+              type="date"
+              value={draft.to}
+              onChange={(event) => setDraft({ ...draft, to: event.target.value })}
+            />
+          </label>
+        </>
+      )}
+    </HeaderFilter>,
+    <HeaderFilter
+      key="account"
+      as="div"
+      label="Account"
+      valueLabel={filterValueLabels.account}
+      value={committedFilters.account}
+      isActive={Boolean(committedFilters.account)}
+      onApply={(draft) => applyFilterPatch({ account: draft })}
+      onClear={() => applyFilterPatch({ account: '' })}
+    >
+      {(draft, setDraft) => (
+        <label>
+          Account
+          <select value={draft} onChange={(event) => setDraft(event.target.value)}>
+            <option value="">All accounts</option>
+            {accountGroups.map((group) => (
+              <option key={`group-${group.id}`} value={`group-${group.id}`}>
+                {group.name}
+              </option>
+            ))}
+            {accounts.filter((account) => !account.group_id).map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </HeaderFilter>,
+    <HeaderFilter
+      key="narration"
+      as="div"
+      label="Narration"
+      valueLabel={filterValueLabels.search}
+      value={committedFilters.search}
+      isActive={Boolean(committedFilters.search)}
+      onApply={(draft) => applyFilterPatch({ search: draft })}
+      onClear={() => applyFilterPatch({ search: '' })}
+    >
+      {(draft, setDraft) => (
+        <label>
+          Narration contains
+          <input type="text" value={draft} onChange={(event) => setDraft(event.target.value)} />
+        </label>
+      )}
+    </HeaderFilter>,
+    <HeaderFilter
+      key="amount"
+      as="div"
+      label="Amount"
+      valueLabel={filterValueLabels.amount}
+      value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
+      isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
+      onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
+      onClear={() => applyFilterPatch({ min_amount: '', max_amount: '' })}
+    >
+      {(draft, setDraft) => (
+        <>
+          <label>
+            Min amount
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={draft.min}
+              onChange={(event) => setDraft({ ...draft, min: event.target.value })}
+            />
+          </label>
+          <label>
+            Max amount
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={draft.max}
+              onChange={(event) => setDraft({ ...draft, max: event.target.value })}
+            />
+          </label>
+        </>
+      )}
+    </HeaderFilter>,
+    <HeaderFilter
+      key="category"
+      as="div"
+      label="Category"
+      valueLabel={filterValueLabels.category}
+      value={committedFilters.category}
+      isActive={Boolean(committedFilters.category)}
+      onApply={(draft) => applyFilterPatch({ category: draft })}
+      onClear={() => applyFilterPatch({ category: '' })}
+    >
+      {(draft, setDraft) => (
+        <label>
+          Category
+          <CategorySelect categories={categories} value={draft} onChange={(event) => setDraft(event.target.value)}>
+            <option value="">All categories</option>
+            <option value="uncategorized">Uncategorized only</option>
+            {/* Every kind, regardless of which specific category - what
+                /trends' drill-down and the Dashboard's Cash Flow chart
+                land on ("the transactions behind the Income bar"), and
+                available here too so it's a real, clearable filter
+                rather than a URL param the UI itself can't reach. */}
+            <option value="kind-income">Income</option>
+            <option value="kind-expense">Expenses</option>
+            <option value="kind-transfer">Transfers</option>
+          </CategorySelect>
+        </label>
+      )}
+    </HeaderFilter>,
+    // Transaction type has never had a column of its own (v0.17.0 moved it
+    // into the Details expander), so it used to sit in the toolbar as a
+    // bare <select> among the popover chips - the one filter that looked
+    // and behaved unlike its neighbours. It is a chip like the rest now;
+    // being column-less stopped being a reason to look different once the
+    // chips stopped being tied to columns at all.
+    <HeaderFilter
+      key="type"
+      as="div"
+      label="Type"
+      valueLabel={filterValueLabels.transaction_type}
+      value={committedFilters.transaction_type}
+      isActive={Boolean(committedFilters.transaction_type)}
+      onApply={(draft) => applyFilterPatch({ transaction_type: draft })}
+      onClear={() => applyFilterPatch({ transaction_type: '' })}
+    >
+      {(draft, setDraft) => (
+        <label>
+          Transaction type
+          <select value={draft} onChange={(event) => setDraft(event.target.value)}>
+            <option value="">Any type</option>
+            {transactionTypes.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </HeaderFilter>,
+  ]
 
   // The lookups that populate the filter dropdowns and the import history.
   // None of them depend on the current filters, so they are deliberately NOT
@@ -711,185 +900,36 @@ export default function TransactionsPage() {
 
         {!loading && !error && (
           <>
-            {/* Everything that maps to a column now filters from that
-                column's own header (see HeaderFilter below) - this is only
-                what's left over: Transaction type has no column (v0.17.0
-                moved it into the Details expander), and one Clear all
-                filters covers every header at once rather than needing to
-                be opened one by one. Applies immediately on change, same
-                as every other single-value select in this codebase. */}
+            {/* One filter bar, identical in both views - see filterChips
+                above for why the grouped/ungrouped split went away. The
+                chips narrow what's SHOWN; the toolbar below changes the
+                data itself, which is why Group by merchant sits here (a
+                view over the same filtered set) rather than there. */}
             <div className="ledger-filter-bar">
-              {/* The grouped-by-merchant table below has its own columns
-                  (Merchant/Count/Total/Date range/Categorized) - none of
-                  them are Date/Account/Narration/Amount/Category, so those
-                  filters have nowhere to live as a real header while
-                  grouped. They fall back to the same HeaderFilter popover,
-                  just rendered inline (as="div") instead of as a <th>,
-                  rather than losing the ability to narrow the grouped view
-                  down to what the ungrouped ledger can already do. */}
-              {groupByMerchant && (
-                <>
-                  <HeaderFilter
-                    as="div"
-                    label="Date"
-                    value={{ from: committedFilters.date_from, to: committedFilters.date_to }}
-                    isActive={Boolean(committedFilters.date_from || committedFilters.date_to)}
-                    onApply={(draft) => applyFilterPatch({ date_from: draft.from, date_to: draft.to })}
-                    onClear={() => applyFilterPatch({ date_from: '', date_to: '' })}
-                  >
-                    {(draft, setDraft) => (
-                      <>
-                        <label>
-                          From date
-                          <input
-                            type="date"
-                            value={draft.from}
-                            onChange={(event) => setDraft({ ...draft, from: event.target.value })}
-                          />
-                        </label>
-                        <label>
-                          To date
-                          <input
-                            type="date"
-                            value={draft.to}
-                            onChange={(event) => setDraft({ ...draft, to: event.target.value })}
-                          />
-                        </label>
-                      </>
-                    )}
-                  </HeaderFilter>
-                  <HeaderFilter
-                    as="div"
-                    label="Account"
-                    value={committedFilters.account}
-                    isActive={Boolean(committedFilters.account)}
-                    onApply={(draft) => applyFilterPatch({ account: draft })}
-                    onClear={() => applyFilterPatch({ account: '' })}
-                  >
-                    {(draft, setDraft) => (
-                      <label>
-                        Account
-                        <select value={draft} onChange={(event) => setDraft(event.target.value)}>
-                          <option value="">All accounts</option>
-                          {accountGroups.map((group) => (
-                            <option key={`group-${group.id}`} value={`group-${group.id}`}>
-                              {group.name}
-                            </option>
-                          ))}
-                          {accounts.filter((account) => !account.group_id).map((account) => (
-                            <option key={account.id} value={account.id}>
-                              {account.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                  </HeaderFilter>
-                  <HeaderFilter
-                    as="div"
-                    label="Narration"
-                    value={committedFilters.search}
-                    isActive={Boolean(committedFilters.search)}
-                    onApply={(draft) => applyFilterPatch({ search: draft })}
-                    onClear={() => applyFilterPatch({ search: '' })}
-                  >
-                    {(draft, setDraft) => (
-                      <label>
-                        Narration contains
-                        <input type="text" value={draft} onChange={(event) => setDraft(event.target.value)} />
-                      </label>
-                    )}
-                  </HeaderFilter>
-                  <HeaderFilter
-                    as="div"
-                    label="Amount"
-                    value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
-                    isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
-                    onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
-                    onClear={() => applyFilterPatch({ min_amount: '', max_amount: '' })}
-                  >
-                    {(draft, setDraft) => (
-                      <>
-                        <label>
-                          Min amount
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={draft.min}
-                            onChange={(event) => setDraft({ ...draft, min: event.target.value })}
-                          />
-                        </label>
-                        <label>
-                          Max amount
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={draft.max}
-                            onChange={(event) => setDraft({ ...draft, max: event.target.value })}
-                          />
-                        </label>
-                      </>
-                    )}
-                  </HeaderFilter>
-                  <HeaderFilter
-                    as="div"
-                    label="Category"
-                    value={committedFilters.category}
-                    isActive={Boolean(committedFilters.category)}
-                    onApply={(draft) => applyFilterPatch({ category: draft })}
-                    onClear={() => applyFilterPatch({ category: '' })}
-                  >
-                    {(draft, setDraft) => (
-                      <label>
-                        Category
-                        <CategorySelect categories={categories} value={draft} onChange={(event) => setDraft(event.target.value)}>
-                          <option value="">All categories</option>
-                          <option value="uncategorized">Uncategorized only</option>
-                          {/* Every kind, regardless of which specific category - what
-                              /trends' drill-down and the Dashboard's Cash Flow chart
-                              land on ("the transactions behind the Income bar"), and
-                              available here too so it's a real, clearable filter
-                              rather than a URL param the UI itself can't reach. */}
-                          <option value="kind-income">Income</option>
-                          <option value="kind-expense">Expenses</option>
-                          <option value="kind-transfer">Transfers</option>
-                        </CategorySelect>
-                      </label>
-                    )}
-                  </HeaderFilter>
-                </>
-              )}
-              <label>
-                Type
-                <select
-                  value={committedFilters.transaction_type}
-                  onChange={(event) => applyFilterPatch({ transaction_type: event.target.value })}
-                >
-                  <option value="">Any type</option>
-                  {transactionTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" onClick={clearAllFilters}>
-                Clear all filters
-              </button>
-              {/* Grouping is a view over the same filtered set, not a data
-                  action - it belongs with Type and Clear all filters
-                  (narrowing/reshaping what's shown), not with the bulk
-                  actions below (changing the data itself). */}
-              <label>
-                <input
-                  type="checkbox"
-                  checked={groupByMerchant}
-                  onChange={(e) => setGroupByMerchant(e.target.checked)}
-                />
-                {' '}Group by merchant
-              </label>
+              <span className="ledger-filter-bar-label" id="ledger-filter-label">
+                Filters
+              </span>
+              <div className="ledger-filter-chips" role="group" aria-labelledby="ledger-filter-label">
+                {filterChips}
+              </div>
+              <div className="ledger-filter-bar-end">
+                <label className="ledger-view-toggle">
+                  <input
+                    type="checkbox"
+                    checked={groupByMerchant}
+                    onChange={(e) => setGroupByMerchant(e.target.checked)}
+                  />
+                  {' '}Group by merchant
+                </label>
+                {/* Disabled rather than hidden when nothing is filtered:
+                    a control that comes and goes is exactly the kind of
+                    shifting toolbar this rework exists to stop. The count
+                    is the same one the chips show individually, so the
+                    bar answers "is anything filtered?" from either end. */}
+                <button type="button" onClick={clearAllFilters} disabled={activeFilters === 0}>
+                  Clear all filters{activeFilters > 0 ? ` (${activeFilters})` : ''}
+                </button>
+              </div>
             </div>
 
             <div className="ledger-toolbar">
@@ -1063,155 +1103,57 @@ export default function TransactionsPage() {
                         disabled={transactions.length === 0}
                       />
                     </th>
-                    <HeaderFilter
+                    {/* Sort only. Filtering moved to the toolbar chips
+                        above so it is in one place regardless of which
+                        view is on - a column header can only carry a
+                        filter while its column exists, which is exactly
+                        what broke when Group by merchant replaced these
+                        columns with Merchant/Count/Total. Sorting has no
+                        such problem: it IS per-column, and the grouped
+                        table sorts its own columns its own way. */}
+                    <SortableHeader
                       label="Date"
-                      value={{ from: committedFilters.date_from, to: committedFilters.date_to }}
-                      isActive={Boolean(committedFilters.date_from || committedFilters.date_to)}
-                      onApply={(draft) => applyFilterPatch({ date_from: draft.from, date_to: draft.to })}
-                      onClear={() => applyFilterPatch({ date_from: '', date_to: '' })}
                       sortKey="date"
                       activeSortKey={activeSort}
                       activeDirection={activeDirection}
                       onSort={handleSort}
-                    >
-                      {(draft, setDraft) => (
-                        <>
-                          <label>
-                            From date
-                            <input
-                              type="date"
-                              value={draft.from}
-                              onChange={(event) => setDraft({ ...draft, from: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            To date
-                            <input
-                              type="date"
-                              value={draft.to}
-                              onChange={(event) => setDraft({ ...draft, to: event.target.value })}
-                            />
-                          </label>
-                        </>
-                      )}
-                    </HeaderFilter>
-                    <HeaderFilter
+                    />
+                    <SortableHeader
                       label="Account"
-                      value={committedFilters.account}
-                      isActive={Boolean(committedFilters.account)}
-                      onApply={(draft) => applyFilterPatch({ account: draft })}
-                      onClear={() => applyFilterPatch({ account: '' })}
                       sortKey="account"
                       activeSortKey={activeSort}
                       activeDirection={activeDirection}
                       onSort={handleSort}
-                    >
-                      {(draft, setDraft) => (
-                        <label>
-                          Account
-                          <select value={draft} onChange={(event) => setDraft(event.target.value)}>
-                            <option value="">All accounts</option>
-                            {accountGroups.map((group) => (
-                              <option key={`group-${group.id}`} value={`group-${group.id}`}>
-                                {group.name}
-                              </option>
-                            ))}
-                            {accounts.filter((account) => !account.group_id).map((account) => (
-                              <option key={account.id} value={account.id}>
-                                {account.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      )}
-                    </HeaderFilter>
-                    <HeaderFilter
+                    />
+                    <SortableHeader
                       label="Narration"
-                      value={committedFilters.search}
-                      isActive={Boolean(committedFilters.search)}
-                      onApply={(draft) => applyFilterPatch({ search: draft })}
-                      onClear={() => applyFilterPatch({ search: '' })}
                       sortKey="narration"
                       activeSortKey={activeSort}
                       activeDirection={activeDirection}
                       onSort={handleSort}
-                    >
-                      {(draft, setDraft) => (
-                        <label>
-                          Narration contains
-                          <input type="text" value={draft} onChange={(event) => setDraft(event.target.value)} />
-                        </label>
-                      )}
-                    </HeaderFilter>
+                    />
                     {/* Debit and Credit are stored as two columns (import
                         enforces exactly one populated per row - see
                         services/csv_import.py) but shown as one Amount
                         column - transactionAmount() picks whichever is set,
                         already signed, so <Amount> colours it exactly as it
                         would have coloured whichever original column held
-                        it. One header now carries the filter and sort that
-                        two headers used to share. */}
-                    <HeaderFilter
+                        it. */}
+                    <SortableHeader
                       label="Amount"
-                      value={{ min: committedFilters.min_amount, max: committedFilters.max_amount }}
-                      isActive={Boolean(committedFilters.min_amount || committedFilters.max_amount)}
-                      onApply={(draft) => applyFilterPatch({ min_amount: draft.min, max_amount: draft.max })}
-                      onClear={() => applyFilterPatch({ min_amount: '', max_amount: '' })}
                       sortKey="amount"
                       activeSortKey={activeSort}
                       activeDirection={activeDirection}
                       onSort={handleSort}
                       numeric
-                    >
-                      {(draft, setDraft) => (
-                        <>
-                          <label>
-                            Min amount
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={draft.min}
-                              onChange={(event) => setDraft({ ...draft, min: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            Max amount
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={draft.max}
-                              onChange={(event) => setDraft({ ...draft, max: event.target.value })}
-                            />
-                          </label>
-                        </>
-                      )}
-                    </HeaderFilter>
-                    <HeaderFilter
+                    />
+                    <SortableHeader
                       label="Category"
-                      value={committedFilters.category}
-                      isActive={Boolean(committedFilters.category)}
-                      onApply={(draft) => applyFilterPatch({ category: draft })}
-                      onClear={() => applyFilterPatch({ category: '' })}
                       sortKey="category"
                       activeSortKey={activeSort}
                       activeDirection={activeDirection}
                       onSort={handleSort}
-                    >
-                      {(draft, setDraft) => (
-                        <label>
-                          Category
-                          <CategorySelect categories={categories} value={draft} onChange={(event) => setDraft(event.target.value)}>
-                            <option value="">All categories</option>
-                            <option value="uncategorized">Uncategorized only</option>
-                            <option value="kind-income">Income</option>
-                            <option value="kind-expense">Expenses</option>
-                            <option value="kind-transfer">Transfers</option>
-                          </CategorySelect>
-                        </label>
-                      )}
-                    </HeaderFilter>
+                    />
                     <th scope="col"></th>
                   </tr>
                 </thead>
