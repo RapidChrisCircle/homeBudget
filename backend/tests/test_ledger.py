@@ -9,7 +9,9 @@ from app.services.ledger import (
     account_balance,
     account_balances,
     build_transaction_query,
+    ledger_totals,
     paginate,
+    transaction_group_totals,
 )
 
 
@@ -406,6 +408,97 @@ def test_pagination_beyond_the_end_returns_empty(db_session):
 
     assert items == []
     assert total == 1
+
+
+def test_ledger_totals_covers_the_whole_filtered_set_not_one_page(db_session):
+
+    for i in range(5):
+        make_transaction(db_session, transaction_date=date(2026, 7, 1), narration=f"Row {i}", debit=Decimal("-10.00"))
+    db_session.commit()
+
+    query = build_transaction_query(db_session, TransactionFilters())
+    paginate(query, page=1, page_size=1)  # a 1-row page should not shrink the totals below
+
+    total_in, total_out, net_total = ledger_totals(query)
+
+    assert total_in == Decimal("0")
+    assert total_out == Decimal("-50.00")
+    assert net_total == Decimal("-50.00")
+
+
+def test_ledger_totals_splits_income_and_expense_by_sign(db_session):
+
+    make_transaction(db_session, transaction_date=date(2026, 7, 1), narration="Salary", credit=Decimal("2000.00"))
+    make_transaction(db_session, transaction_date=date(2026, 7, 2), narration="Rent", debit=Decimal("-500.00"))
+    db_session.commit()
+
+    query = build_transaction_query(db_session, TransactionFilters())
+    total_in, total_out, net_total = ledger_totals(query)
+
+    assert total_in == Decimal("2000.00")
+    assert total_out == Decimal("-500.00")
+    assert net_total == Decimal("1500.00")
+
+
+def test_ledger_totals_respects_the_active_filters(db_session):
+
+    groceries = make_category(db_session, "Groceries")
+    fuel = make_category(db_session, "Fuel")
+    make_transaction(db_session, transaction_date=date(2026, 7, 1), debit=Decimal("-30.00"), category_id=groceries.id)
+    make_transaction(db_session, transaction_date=date(2026, 7, 2), debit=Decimal("-40.00"), category_id=fuel.id)
+    db_session.commit()
+
+    query = build_transaction_query(db_session, TransactionFilters(category_id=groceries.id))
+    total_in, total_out, net_total = ledger_totals(query)
+
+    assert total_out == Decimal("-30.00")
+
+
+def test_ledger_totals_on_an_empty_result_set_is_zero(db_session):
+
+    query = build_transaction_query(db_session, TransactionFilters())
+    total_in, total_out, net_total = ledger_totals(query)
+
+    assert (total_in, total_out, net_total) == (Decimal("0"), Decimal("0"), Decimal("0"))
+
+
+def test_ledger_totals_counts_a_split_transactions_full_amount(db_session):
+    """Matches what the ledger already displays per row for a split
+    transaction (its own full signed amount, not a per-allocation slice) -
+    see ledger_totals' own docstring for why this is deliberate."""
+
+    from app.models import TransactionSplit
+
+    fuel = make_category(db_session, "Fuel")
+    alcohol = make_category(db_session, "Alcohol")
+    transaction = make_transaction(db_session, transaction_date=date(2026, 7, 1), debit=Decimal("-100.00"))
+    db_session.add(TransactionSplit(transaction_id=transaction.id, category_id=fuel.id, amount=Decimal("-60.00")))
+    db_session.add(TransactionSplit(transaction_id=transaction.id, category_id=alcohol.id, amount=Decimal("-40.00")))
+    db_session.commit()
+
+    query = build_transaction_query(db_session, TransactionFilters(category_id=alcohol.id))
+    total_in, total_out, net_total = ledger_totals(query)
+
+    # Matched via ONE of its two allocations, yet contributes its full
+    # -100.00 - not the -40.00 slice services/allocations.py would use for
+    # a category report.
+    assert total_out == Decimal("-100.00")
+
+
+def test_transaction_group_totals_matches_the_ungrouped_view(db_session):
+
+    make_transaction(db_session, transaction_date=date(2026, 7, 1), narration="Coles run", debit=Decimal("-30.00"))
+    make_transaction(db_session, transaction_date=date(2026, 7, 2), narration="Coles run", debit=Decimal("-20.00"))
+    db_session.commit()
+
+    filters = TransactionFilters()
+    ungrouped_total_in, ungrouped_total_out, ungrouped_net = ledger_totals(build_transaction_query(db_session, filters))
+    grouped_total_in, grouped_total_out, grouped_net = transaction_group_totals(
+        db_session, filters, include_categorized=True
+    )
+
+    assert (grouped_total_in, grouped_total_out, grouped_net) == (ungrouped_total_in, ungrouped_total_out, ungrouped_net)
+    assert grouped_total_out == Decimal("-50.00")
 
 
 def test_account_balance_picks_latest_by_date_not_highest_id(db_session):

@@ -4,6 +4,24 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
+## [0.23.1] - 2026-09-25
+
+Roadmap item T1.2 (`ROADMAP.md`) - Finding 10: the ledger showed a row count for a filtered view but never what it added up to, the one number a household actually wants after narrowing to "Groceries, July".
+
+### Added
+
+- **A totals strip on the ledger** - money in, money out and net for the *whole filtered set*, not just the current page (`services/ledger.ledger_totals`, `GET /api/transactions`'s new `total_in`/`total_out`/`net_total` fields). Sums each matching row's own signed amount - the exact figure already shown per row - so a split transaction matched via only one of its allocations still contributes its full amount, consistent with what the table itself displays rather than the narrower per-category figure `/reports` uses. Identical above both the plain and the grouped-by-merchant table (`services/ledger.transaction_group_totals`, `GET /api/transactions/groups`'s matching fields) - grouping only changes how the same filtered set is shown, never what it totals to.
+
+## [0.23.0] - 2026-09-25
+
+Roadmap item T1.1 (`ROADMAP.md`) - the first practice-gap finding from a full review of the app against household-budgeting norms: import was the only way money could enter the ledger, so cash spending, a reimbursement, or anything not yet on a statement simply couldn't be recorded.
+
+### Added
+
+- **Manual transaction entry.** A new **Add a Transaction** form on `/transactions` (`POST /api/transactions`) records a row by hand against any existing account. Unlike an imported row, its balance is **computed** - the account's own current balance plus the new row's signed amount - which only holds together if the entry becomes the account's new latest transaction, so a manual entry must be dated on or after the account's current latest one (documented in the new "Manual transactions" README section, with the reasoning in `create_transaction`'s own docstring). A row with no category chosen is auto-categorized by a matching rule immediately, same as on import. Every manual entry shares one `ImportBatch` ("Manually added"), so frequent cash entry doesn't flood the batch history with one-row imports.
+- **Editing a manual transaction.** `PUT /api/transactions/{id}` lets a manual row's own date, narration, amount, category, note and type be changed after creation - a new **Edit** action on its Details disclosure, alongside Split/Make rule/Delete. An imported row is unaffected: it has no Edit action and stays editable only via category/note/splits, exactly as before (`Transaction.is_manual`, migration `a762ac78878d`). Editing re-validates the same "must still be the latest" rule against the account's *other* transactions.
+- A **"manual"** badge on a hand-entered row's narration cell, so provenance is visible without opening Details.
+
 ## [0.22.1] - 2026-08-10
 
 ### Changed

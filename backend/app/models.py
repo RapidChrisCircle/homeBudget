@@ -671,6 +671,24 @@ class Transaction(Base):
         nullable=True
     )
 
+    # True for a row entered by hand (POST /transactions) rather than
+    # imported from a bank export. Two things hinge on it, both in
+    # api/transactions.py: only a manual row's own date/narration/amount/
+    # category can be edited after creation (PUT /transactions/{id}) - an
+    # imported row's fields are the bank's own record and stay read-only,
+    # editable only via category/note/splits, exactly as before this
+    # column existed. And a manual row's balance is COMPUTED (previous
+    # balance + this row's signed amount), never a bank-reported figure -
+    # see create_transaction's docstring for why that forces every manual
+    # row to be dated on or after the account's current latest transaction,
+    # never inserted into the middle of a real imported history.
+    is_manual = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false()
+    )
+
     import_batch = relationship(
         "ImportBatch",
         back_populates="transactions"

@@ -244,6 +244,54 @@ def paginate(query: Query, page: int, page_size: int, options=()) -> tuple[list[
     return items, total
 
 
+def ledger_totals(query: Query) -> tuple[Decimal, Decimal, Decimal]:
+    """(total_in, total_out, net_total) for EVERY row the query matches, not
+    just the current page - the same whole-filtered-set scope paginate()'s
+    own count() above already respects, and for the same reason: sorting
+    this in the browser would only total the current page, which is a wrong
+    number dressed up as a right one.
+
+    Mirrors reporting.uncategorized_summary's exact field meaning (total_out
+    NEGATIVE - debits are stored negative - total_in positive, net_total is
+    their sum) so a total shown here and one shown on /reports can never
+    disagree about which direction is which sign, if a user ever compares
+    the two.
+
+    Deliberately sums each matched row's OWN debit/credit - the exact figure
+    already displayed per row via <Amount value={transactionAmount(...)}/> -
+    not a per-allocation split figure. A split transaction matched via only
+    ONE of its several allocations (see build_transaction_query's category_id
+    /kind filters, which match a split through TransactionSplit) still
+    contributes its FULL amount here, exactly as it already appears as one
+    row in the table: this total is defined to agree with what is on
+    screen, not with the stricter per-allocation reading services/
+    allocations.py gives every category-level report instead.
+
+    `.order_by(None)` before aggregating for the identical reason paginate()
+    strips ordering before counting - an ORDER BY is meaningless (and, on
+    some dialects, invalid) alongside a bare aggregate with no GROUP BY.
+    Reuses whatever joins `query` already carries (e.g. account/category
+    outerjoins when sorting by one of those columns) rather than rebuilding
+    it - safe because both are to-one relationships that cannot fan out a
+    transaction into more than one row, the same guarantee LIST_LOADERS'
+    own comment relies on for the count above.
+    """
+
+    total_in, total_out = (
+        query.order_by(None)
+        .with_entities(
+            func.coalesce(func.sum(Transaction.credit), 0),
+            func.coalesce(func.sum(Transaction.debit), 0),
+        )
+        .one()
+    )
+
+    total_in = Decimal(total_in)
+    total_out = Decimal(total_out)
+
+    return total_in, total_out, total_in + total_out
+
+
 def _latest_balance_subquery(db: Session, account_id: int | None = None):
     """One row per (account_id, transaction) with a row_number ranking each
     account's transactions newest-first by (transaction_date, id) - rn == 1
@@ -341,6 +389,32 @@ class TransactionGroup:
     split_count: int
 
 
+def _grouped_filters(filters: TransactionFilters, include_categorized: bool) -> TransactionFilters:
+    """The filters transaction_groups() and transaction_group_totals()
+    actually group/total over - factored out so the two can never drift on
+    what "the grouped view's filters" means. See transaction_groups' own
+    docstring for the include_categorized reasoning.
+    """
+
+    if include_categorized:
+        return filters
+
+    return replace(filters, uncategorized=True, category_id=None)
+
+
+def transaction_group_totals(
+    db: Session, filters: TransactionFilters, *, include_categorized: bool = False
+) -> tuple[Decimal, Decimal, Decimal]:
+    """(total_in, total_out, net_total) over the SAME filtered set
+    transaction_groups() buckets into merchant rows - see ledger_totals for
+    the field meaning. A separate query from transaction_groups' own (which
+    reshapes its SELECT list for bucketing) rather than reused, the same way
+    paginate()'s count is a separate query from the item fetch.
+    """
+
+    return ledger_totals(build_transaction_query(db, _grouped_filters(filters, include_categorized)))
+
+
 def transaction_groups(
     db: Session, filters: TransactionFilters, *, include_categorized: bool = False
 ) -> list[TransactionGroup]:
@@ -372,7 +446,7 @@ def transaction_groups(
     caller couldn't already see.
     """
 
-    grouped_filters = filters if include_categorized else replace(filters, uncategorized=True, category_id=None)
+    grouped_filters = _grouped_filters(filters, include_categorized)
 
     rows = (
         build_transaction_query(db, grouped_filters)

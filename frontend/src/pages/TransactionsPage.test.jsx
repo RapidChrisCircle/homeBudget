@@ -56,6 +56,9 @@ function envelope(transactions, overrides = {}) {
     page: 1,
     page_size: 50,
     total_pages: 1,
+    total_in: '0.00',
+    total_out: '0.00',
+    net_total: '0.00',
     ...overrides,
   }
 }
@@ -1375,5 +1378,168 @@ describe('TransactionsPage', () => {
     // transaction's detail row (and its Delete) is gone again, not merely
     // visually hidden.
     expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1)
+  })
+})
+
+describe('TransactionsPage manual transactions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders an "Add a Transaction" card that lists the page\'s own accounts and categories', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Add a Transaction')).toBeInTheDocument())
+    expect(screen.getByLabelText('New transaction account')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Joint Everyday' })).toBeInTheDocument()
+  })
+
+  it('adds a transaction and refreshes the ledger and lookups', async () => {
+    mockLoad()
+    api.post.mockResolvedValue({ data: { id: 99 } })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('New transaction account'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Narration'), { target: { value: 'Snacks' } })
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '5.00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add transaction' }))
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/transactions', expect.objectContaining({
+      account_id: 1,
+      narration: 'Snacks',
+      debit: '5.00',
+    })))
+    // withLookups: true - the same refresh an import or batch delete
+    // triggers, since a first manual entry can create a new "Manually
+    // added" batch the Import card's history table needs to pick up.
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/import-batches'))
+  })
+
+  it('shows a "manual" badge on a hand-entered row but not an imported one', async () => {
+    mockLoad({
+      transactions: [
+        { ...sampleTransaction, id: 1, narration: 'Coffee', is_manual: false },
+        { ...sampleTransaction, id: 2, narration: 'Corner store', is_manual: true },
+      ],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Corner store')).toBeInTheDocument())
+
+    const importedRow = screen.getByText('Coffee').closest('tr')
+    const manualRow = screen.getByText('Corner store').closest('tr')
+
+    expect(within(importedRow).queryByTitle('Entered by hand, not imported from a bank export')).not.toBeInTheDocument()
+    expect(within(manualRow).getByTitle('Entered by hand, not imported from a bank export')).toBeInTheDocument()
+  })
+
+  it('offers Edit only on a manual row\'s Details, never an imported one\'s', async () => {
+    mockLoad({
+      transactions: [
+        { ...sampleTransaction, id: 1, narration: 'Coffee', is_manual: false },
+        { ...sampleTransaction, id: 2, narration: 'Corner store', is_manual: true },
+      ],
+    })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Corner store')).toBeInTheDocument())
+
+    expandRow(screen.getByText('Coffee').closest('tr'))
+    expandRow(screen.getByText('Corner store').closest('tr'))
+
+    expect(screen.queryAllByRole('button', { name: 'Edit' })).toHaveLength(1)
+  })
+
+  it('opens the edit modal, prefilled, from a manual row\'s Details', async () => {
+    mockLoad({
+      transactions: [{ ...sampleTransaction, id: 2, narration: 'Corner store', debit: '-12.50', is_manual: true }],
+    })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Corner store')).toBeInTheDocument())
+
+    expandRow(screen.getByText('Corner store').closest('tr'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Edit transaction' })
+    expect(within(dialog).getByLabelText('Narration')).toHaveValue('Corner store')
+    expect(within(dialog).getByLabelText('Amount')).toHaveValue(12.5)
+  })
+
+  it('saving the edit modal refreshes the ledger', async () => {
+    mockLoad({
+      transactions: [{ ...sampleTransaction, id: 2, narration: 'Corner store', is_manual: true }],
+    })
+    api.put.mockResolvedValue({ data: {} })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Corner store')).toBeInTheDocument())
+
+    expandRow(screen.getByText('Corner store').closest('tr'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/transactions/2', expect.anything()))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit transaction' })).not.toBeInTheDocument())
+  })
+})
+
+describe('TransactionsPage ledger totals', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows money in, money out and net for the whole filtered set', async () => {
+    mockLoad({
+      listResponse: envelope([sampleTransaction], { total_in: '2000.00', total_out: '-450.00', net_total: '1550.00' }),
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(screen.getByText('Money in:')).toBeInTheDocument()
+    expect(screen.getByText('2000.00')).toBeInTheDocument()
+    expect(screen.getByText('Money out:')).toBeInTheDocument()
+    expect(screen.getByText('-450.00')).toBeInTheDocument()
+    expect(screen.getByText('Net:')).toBeInTheDocument()
+    expect(screen.getByText('1550.00')).toBeInTheDocument()
+  })
+
+  it('reflects the totals for a large filtered set even though only one page of rows is shown', async () => {
+    // The point of this feature: the backend's own totals cover every
+    // matching row, not just the page rendered - a mock returning a single
+    // item alongside a much larger total is exactly that shape.
+    mockLoad({
+      listResponse: envelope([sampleTransaction], {
+        total: 500, total_pages: 50, total_in: '100.00', total_out: '-12345.67', net_total: '-12245.67',
+      }),
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(screen.getByText('-12345.67')).toBeInTheDocument()
+  })
+
+  it('shows the same totals whether or not Group by merchant is on', async () => {
+    mockLoad({
+      listResponse: envelope([sampleTransaction], { total_in: '100.00', total_out: '-50.00', net_total: '50.00' }),
+    })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+    expect(screen.getByText('50.00')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Group by merchant'))
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/^\/transactions\/groups/)))
+    expect(screen.getByText('50.00')).toBeInTheDocument()
   })
 })

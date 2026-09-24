@@ -385,6 +385,55 @@ def test_list_transactions_sorts_by_amount_ascending_across_the_whole_result_set
     assert page_amounts == sorted(amounts)[:5]
 
 
+def test_list_transactions_totals_cover_the_whole_filtered_set_not_one_page(client):
+
+    amounts = [50, 10, 90, 30, 70, 20, 80, 40, 60, 5]
+    rows = "".join(
+        f',1111,24/07/2026,"Row {i}",,-{amount}.00,,100.00,WDL\n' for i, amount in enumerate(amounts)
+    )
+    upload(client, HEADER + rows)
+
+    response = client.get("/api/transactions?page=1&page_size=3")
+
+    body = response.json()
+    assert len(body["items"]) == 3
+    assert body["total_out"] == f"-{sum(amounts)}.00"
+    assert body["total_in"] == "0.00"
+    assert body["net_total"] == f"-{sum(amounts)}.00"
+
+
+def test_list_transactions_totals_respect_the_active_filters(client):
+
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"Salary",,,2000.00,2000.00,DEP\n'
+        ',1111,25/07/2026,"Rent",,-500.00,,1500.00,WDL\n'
+    )
+    upload(client, csv_content)
+
+    response = client.get("/api/transactions?transaction_type=WDL")
+
+    body = response.json()
+    assert body["total_in"] == "0.00"
+    assert body["total_out"] == "-500.00"
+    assert body["net_total"] == "-500.00"
+
+
+def test_list_transaction_groups_returns_totals_matching_the_plain_ledger(client):
+
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"Coles run",,-30.00,,100.00,WDL\n'
+        ',1111,25/07/2026,"Coles run",,-20.00,,100.00,WDL\n'
+    )
+    upload(client, csv_content)
+
+    plain = client.get("/api/transactions?uncategorized=true").json()
+    groups = client.get("/api/transactions/groups").json()
+
+    assert groups["total_in"] == plain["total_in"] == "0.00"
+    assert groups["total_out"] == plain["total_out"] == "-50.00"
+    assert groups["net_total"] == plain["net_total"] == "-50.00"
+
+
 def test_list_transactions_rejects_inverted_date_range(client):
 
     response = client.get("/api/transactions?date_from=2026-07-31&date_to=2026-07-01")

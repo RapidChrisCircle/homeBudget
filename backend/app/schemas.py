@@ -346,6 +346,52 @@ class TransactionNoteUpdate(BaseModel):
     note: Optional[str] = None
 
 
+class TransactionCreate(BaseModel):
+    """A hand-entered transaction - see api/transactions.create_transaction
+    for the full reasoning (why it must be dated on or after the account's
+    current latest transaction, and how its balance is computed rather than
+    taken from a bank record).
+
+    Exactly one of debit/credit must be populated, both as POSITIVE dollar
+    values - the caller says which direction the money moved (a "money out"
+    vs "money in" field in the UI), the endpoint applies the actual sign
+    convention (debit negative, credit positive) the same way every other
+    money value in this app already works. This mirrors CsvColumnMappingInput's
+    own amount-layout split rather than asking the caller to already know
+    the internal sign convention.
+    """
+
+    account_id: int
+    transaction_date: date
+    narration: str
+    debit: Optional[Decimal] = None
+    credit: Optional[Decimal] = None
+    category_id: Optional[int] = None
+    note: Optional[str] = None
+    # Free text, exactly like an imported row's own transaction_type - see
+    # Transaction.transaction_type's column. Defaulted server-side (WDL/DEP,
+    # the built-in format's own convention) when left blank, so a manual
+    # entry never has to invent a value it has no opinion about.
+    transaction_type: Optional[str] = None
+
+
+class TransactionUpdate(BaseModel):
+    """Edits a MANUAL transaction's own fields - see
+    api/transactions.update_transaction. Every field is required (not a
+    partial patch) because the balance has to be recomputed from the whole
+    new picture, the same reasoning TransactionSplitsUpdate replaces the
+    whole splits list rather than patching one.
+    """
+
+    transaction_date: date
+    narration: str
+    debit: Optional[Decimal] = None
+    credit: Optional[Decimal] = None
+    category_id: Optional[int] = None
+    note: Optional[str] = None
+    transaction_type: Optional[str] = None
+
+
 class TransactionResponse(BaseModel):
 
     id: int
@@ -365,6 +411,7 @@ class TransactionResponse(BaseModel):
     balance: Decimal
     transaction_type: str
     note: Optional[str]
+    is_manual: bool
     is_split: bool
     splits: list[TransactionSplitResponse]
 
@@ -389,6 +436,13 @@ class TransactionListResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+    # Over the WHOLE filtered set, not just this page - see
+    # services/ledger.ledger_totals for the exact meaning (mirrors
+    # UncategorizedSummaryResponse's own total_in/total_out/net_total sign
+    # convention: total_out is negative, debits are stored that way).
+    total_in: Decimal
+    total_out: Decimal
+    net_total: Decimal
 
 
 class TransactionGroupResponse(BaseModel):
@@ -413,6 +467,9 @@ class TransactionGroupResponse(BaseModel):
 class TransactionGroupListResponse(BaseModel):
 
     groups: list[TransactionGroupResponse]
+    total_in: Decimal
+    total_out: Decimal
+    net_total: Decimal
 
 
 class ImportBatchResponse(BaseModel):

@@ -1,11 +1,13 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import AddTransactionForm from '../components/AddTransactionForm.jsx'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
 import CategoryQuickAdd from '../components/CategoryQuickAdd.jsx'
 import CategorySelect from '../components/CategorySelect.jsx'
 import CsvFormatMapper from '../components/CsvFormatMapper.jsx'
+import EditManualTransactionForm from '../components/EditManualTransactionForm.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import HeaderFilter from '../components/HeaderFilter.jsx'
@@ -55,7 +57,9 @@ export default function TransactionsPage() {
   const [accounts, setAccounts] = useState([])
   const [accountGroups, setAccountGroups] = useState([])
   const [transactionTypes, setTransactionTypes] = useState([])
-  const [pageInfo, setPageInfo] = useState({ total: 0, page: 1, page_size: DEFAULT_PAGE_SIZE, total_pages: 1 })
+  const [pageInfo, setPageInfo] = useState({
+    total: 0, page: 1, page_size: DEFAULT_PAGE_SIZE, total_pages: 1, total_in: '0', total_out: '0', net_total: '0',
+  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -69,6 +73,7 @@ export default function TransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [splitEditorTransaction, setSplitEditorTransaction] = useState(null)
   const [ruleEditorTransaction, setRuleEditorTransaction] = useState(null)
+  const [editingManualTransaction, setEditingManualTransaction] = useState(null)
   const [mappingPanel, setMappingPanel] = useState(null)
   // Per-row disclosure state for the low-frequency actions (filename, note,
   // Split/Make rule/Delete) - a Set of transaction ids rather than a single
@@ -360,6 +365,9 @@ export default function TransactionsPage() {
         page: response.data.page,
         page_size: response.data.page_size,
         total_pages: response.data.total_pages,
+        total_in: response.data.total_in,
+        total_out: response.data.total_out,
+        net_total: response.data.net_total,
       })
     }
   }
@@ -894,6 +902,20 @@ export default function TransactionsPage() {
         </table>
       </Card>
 
+      <Card id="transactions-add" title="Add a Transaction">
+        <p>
+          Cash spending, a reimbursement, or anything else that hasn&apos;t (or won&apos;t) come
+          from a bank export. A manual entry must be dated on or after the chosen account&apos;s
+          latest transaction &mdash; its balance is worked out from that account&apos;s own running
+          total, not read from a bank record, so it can only extend the ledger forward.
+        </p>
+        <AddTransactionForm
+          accounts={accounts}
+          categories={categories}
+          onCreated={() => refresh({ withLookups: true })}
+        />
+      </Card>
+
       <Card id="transactions-ledger" title="Ledger">
         {loading && <LoadingState message="Loading transactions..." rows={8} />}
         {!loading && error && <ErrorState label="Failed to load transactions:" message={error} />}
@@ -965,6 +987,21 @@ export default function TransactionsPage() {
               </button>
               {applyMessage && <span>{applyMessage}</span>}
               {groupByMerchant && groupAssignMessage && <span>{groupAssignMessage}</span>}
+            </div>
+
+            {/* Over the WHOLE filtered set (services/ledger.ledger_totals),
+                not just the rows on this page - the same scope sorting and
+                the total COUNT already use. Identical in both views: the
+                plain fetch's own totals are already correct for whatever
+                is filtered, grouping or not (services/ledger.py's
+                transaction_group_totals is defined to always agree with it
+                for the same filters), so this reads pageInfo regardless of
+                groupByMerchant rather than needing a second copy from the
+                groups response. */}
+            <div className="ledger-totals" aria-live="polite">
+              <span>Money in: <Amount value={pageInfo.total_in} /></span>
+              <span>Money out: <Amount value={pageInfo.total_out} /></span>
+              <span>Net: <Amount value={pageInfo.net_total} /></span>
             </div>
 
             {groupByMerchant && groupActionError && (
@@ -1174,7 +1211,12 @@ export default function TransactionsPage() {
                           </td>
                           <td>{formatDate(transaction.transaction_date)}</td>
                           <td>{transaction.account_name || formatAccount(transaction)}</td>
-                          <td className="ledger-narration">{transaction.narration}</td>
+                          <td className="ledger-narration">
+                            {transaction.narration}
+                            {transaction.is_manual && (
+                              <Badge tone="neutral" title="Entered by hand, not imported from a bank export"> manual</Badge>
+                            )}
+                          </td>
                           <td><Amount value={transactionAmount(transaction)} /></td>
                           <td>
                             {transaction.is_split ? (
@@ -1244,6 +1286,15 @@ export default function TransactionsPage() {
                                   onBlur={(e) => handleNoteChange(transaction, e.target.value)}
                                   aria-label={`Note for ${transaction.narration}`}
                                 />
+                                {transaction.is_manual && (
+                                  <button
+                                    type="button"
+                                    className="button-ghost"
+                                    onClick={() => setEditingManualTransaction(transaction)}
+                                  >
+                                    Edit
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   className="button-ghost"
@@ -1311,6 +1362,18 @@ export default function TransactionsPage() {
           onClose={() => setRuleEditorTransaction(null)}
           onSaved={() => {
             setRuleEditorTransaction(null)
+            refresh()
+          }}
+        />
+      )}
+
+      {editingManualTransaction && (
+        <EditManualTransactionForm
+          transaction={editingManualTransaction}
+          categories={categories}
+          onClose={() => setEditingManualTransaction(null)}
+          onSaved={() => {
+            setEditingManualTransaction(null)
             refresh()
           }}
         />

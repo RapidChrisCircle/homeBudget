@@ -400,6 +400,31 @@ input[type='checkbox'] {
   color: var(--text-muted);
 }
 
+/* AddTransactionForm's Money out/Money in choice - a plain radio pair, not
+   the generic column-stacking `form label` rule (that's built for a single
+   label+input, not a legend plus two side-by-side options). */
+.transaction-direction-field {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.transaction-direction-legend {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.transaction-direction-field label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
 /* Ledger toolbar (TransactionsPage) - the DATA actions: bulk-assign
    CategoryQuickAdd, Set category, Apply rules now. Everything here changes
    the ledger's data, which is what separates it from .ledger-filter-bar
@@ -466,6 +491,24 @@ input[type='checkbox'] {
   align-items: center;
   gap: var(--space-2);
   white-space: nowrap;
+}
+
+/* Ledger totals strip (TransactionsPage) - money in/out/net over the WHOLE
+   filtered set, identical above both the plain and the grouped-by-merchant
+   table (services/ledger.ledger_totals). Its own row, between the toolbar
+   and the table, so it reads as "here is what the view above adds up to"
+   rather than crowding either the filter chips or the data-action buttons. */
+.ledger-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  padding: var(--space-3) 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.ledger-totals .amount {
+  font-weight: 600;
 }
 
 /* Grouped-by-merchant Set-category cell (TransactionsPage) - a plain select
