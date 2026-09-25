@@ -520,3 +520,21 @@ describe('AccountsPage', () => {
     expect(within(rows[0]).getByText('Apple Group')).toBeInTheDocument()
   })
 })
+
+describe('AccountsPage backup', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('links to the whole-database export - a real download, not an API call', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Backup')).toBeInTheDocument())
+
+    const link = screen.getByRole('link', { name: 'Download backup (JSON)' })
+    expect(link).toHaveAttribute('href', '/api/export/database')
+    expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/export'))
+  })
+})

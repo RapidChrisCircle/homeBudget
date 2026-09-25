@@ -1543,3 +1543,40 @@ describe('TransactionsPage ledger totals', () => {
     expect(screen.getByText('50.00')).toBeInTheDocument()
   })
 })
+
+describe('TransactionsPage CSV export', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('links to the export endpoint with the currently committed filters, not an API call', async () => {
+    mockLoad()
+
+    renderPage('/transactions?category_id=1&date_from=2026-07-01')
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const link = screen.getByRole('link', { name: 'Export CSV' })
+    expect(link).toHaveAttribute('href', '/api/transactions/export?category_id=1&date_from=2026-07-01')
+    // A real download link, not something wired through the api client -
+    // the browser handles the file save itself from the response headers.
+    expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/export'))
+  })
+
+  it('reflects a newly applied filter without a page reload', async () => {
+    mockLoad()
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    applyHeaderFilter('Narration', () => {
+      fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Export CSV' })).toHaveAttribute(
+        'href', '/api/transactions/export?search=coffee'
+      )
+    })
+  })
+})

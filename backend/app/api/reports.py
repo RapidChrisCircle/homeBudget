@@ -113,6 +113,8 @@ def get_dashboard_kpis(
         transaction_count=kpis["transaction_count"],
         avg_per_month=kpis["avg_per_month"],
         avg_per_transaction=kpis["avg_per_transaction"],
+        savings_rate=kpis["savings_rate"],
+        runway_months=kpis["runway_months"],
     )
 
 

@@ -40,4 +40,12 @@ describe('StatTile', () => {
 
     expect(onClick).toHaveBeenCalledTimes(1)
   })
+
+
+  it('uses a custom formatValue when given, instead of the dollar-figure default', () => {
+    render(<StatTile label="Savings Rate" value="0.36" formatValue={(v) => `${(Number(v) * 100).toFixed(1)}%`} />)
+
+    expect(screen.getByText('36.0%')).toBeInTheDocument()
+    expect(screen.queryByText('0.36')).not.toBeInTheDocument()
+  })
 })

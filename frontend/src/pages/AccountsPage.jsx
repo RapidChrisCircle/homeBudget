@@ -482,6 +482,16 @@ export default function AccountsPage() {
         </p>
       )}
 
+      <Card id="accounts-backup" title="Backup">
+        <p>
+          A complete, unfiltered snapshot of every table in the database &mdash; accounts,
+          categories, rules, budgets, transactions and more &mdash; as one JSON file. There is no
+          restore-from-backup action: recreating records from it is a manual process, and true
+          point-in-time recovery means restoring the underlying database directly.
+        </p>
+        <a href="/api/export/database" className="button-primary">Download backup (JSON)</a>
+      </Card>
+
       <Card id="accounts-form" title="Add Account">
         {editingId ? (
           <p>Finish editing the account below to add another.</p>

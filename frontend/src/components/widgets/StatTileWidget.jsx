@@ -1,4 +1,5 @@
 import StatTile from './StatTile.jsx'
+import { formatMonths, formatPercent } from '../../utils/format.js'
 import { monthBounds } from '../../utils/trendsSeries.js'
 
 // Maps a stat_tile widget's own config.metric to which GET /api/reports/kpis
@@ -16,6 +17,15 @@ const METRIC_META = {
   },
   net_saved: { label: 'Net Saved', tone: 'income', kind: null, getValue: (k) => k.net_saved },
   transaction_count: { label: 'Transactions', tone: 'neutral', kind: null, getValue: (k) => k.transaction_count },
+  // Both ratios, not dollar figures - neither corresponds to a real
+  // transaction kind (kind: null), so neither is clickable: there is no
+  // "the transactions behind a percentage" to open the ledger to.
+  savings_rate: {
+    label: 'Savings Rate', tone: 'neutral', kind: null, getValue: (k) => k.savings_rate, formatValue: formatPercent,
+  },
+  runway_months: {
+    label: 'Runway', tone: 'neutral', kind: null, getValue: (k) => k.runway_months, formatValue: formatMonths,
+  },
 }
 
 export const STAT_TILE_METRICS = Object.keys(METRIC_META)
@@ -50,6 +60,7 @@ export default function StatTileWidget({ config, kpis, navigate }) {
       tone={metric.tone}
       onClick={handleClick}
       clickLabel={handleClick ? `View ${metric.label.toLowerCase()} transactions` : null}
+      formatValue={metric.formatValue}
     />
   )
 }

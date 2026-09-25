@@ -59,6 +59,8 @@ const sampleBalanceHistory = {
   balances: { '2026-05': null, '2026-06': '-4700.00', '2026-07': '-4838.18' },
 }
 
+const sampleCoverage = { account_id: 1, gaps: [] }
+
 function mockLoad({
   account = sampleAccount,
   transactions = [sampleTransaction],
@@ -66,6 +68,7 @@ function mockLoad({
   transactionTypes = ['WDL'],
   listResponse = envelope(transactions),
   balanceHistory = sampleBalanceHistory,
+  coverage = sampleCoverage,
 } = {}) {
   api.get.mockImplementation((path) => {
     if (path === `/accounts/${account.id}`) {
@@ -73,6 +76,9 @@ function mockLoad({
     }
     if (path === `/accounts/${account.id}/balance-history`) {
       return Promise.resolve({ data: balanceHistory })
+    }
+    if (path === `/accounts/${account.id}/coverage`) {
+      return Promise.resolve({ data: coverage })
     }
     if (path.startsWith('/transactions?')) {
       return Promise.resolve({ data: listResponse })
@@ -451,5 +457,74 @@ describe('AccountDetailPage', () => {
     await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
 
     expect(screen.queryByText('Balance History')).not.toBeInTheDocument()
+  })
+})
+
+describe('AccountDetailPage statement coverage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('reports no gaps for a clean account', async () => {
+    mockLoad({ coverage: { account_id: 1, gaps: [] } })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Statement Coverage')).toBeInTheDocument())
+    expect(screen.getByText(/No gaps detected/)).toBeInTheDocument()
+  })
+
+  it('lists a detected gap with its range and discrepancy', async () => {
+    mockLoad({
+      coverage: {
+        account_id: 1,
+        gaps: [{
+          before_date: '2026-06-30',
+          before_balance: '500.00',
+          after_date: '2026-08-01',
+          after_balance: '200.00',
+          after_amount: '-50.00',
+          expected_balance: '450.00',
+          discrepancy: '-250.00',
+        }],
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Statement Coverage')).toBeInTheDocument())
+    expect(screen.getByText('30/06/26')).toBeInTheDocument()
+    expect(screen.getByText('01/08/26')).toBeInTheDocument()
+    expect(screen.getByText('-250.00')).toBeInTheDocument()
+  })
+
+  it('does not render the card while the coverage fetch is still pending or has failed', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/accounts/1') {
+        return Promise.resolve({ data: sampleAccount })
+      }
+      if (path === '/accounts/1/balance-history') {
+        return Promise.resolve({ data: sampleBalanceHistory })
+      }
+      if (path === '/accounts/1/coverage') {
+        return Promise.reject(new Error('network error'))
+      }
+      if (path.startsWith('/transactions?')) {
+        return Promise.resolve({ data: envelope([sampleTransaction]) })
+      }
+      if (path === '/categories') {
+        return Promise.resolve({ data: [] })
+      }
+      if (path === '/transactions/types') {
+        return Promise.resolve({ data: ['WDL'] })
+      }
+      return Promise.reject(new Error(`unexpected path ${path}`))
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(screen.queryByText('Statement Coverage')).not.toBeInTheDocument()
   })
 })

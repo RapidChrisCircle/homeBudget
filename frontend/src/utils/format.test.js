@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate, transactionAmount } from './format.js'
+import { formatDate, formatMonths, formatPercent, transactionAmount } from './format.js'
 
 describe('formatDate', () => {
   it('reorders YYYY-MM-DD to DD/MM/YY', () => {
@@ -32,5 +32,44 @@ describe('transactionAmount', () => {
 
   it('returns null when both are null - the defensive case import itself never actually produces', () => {
     expect(transactionAmount({ debit: null, credit: null })).toBe(null)
+  })
+})
+
+describe('formatPercent', () => {
+  it('renders a ratio as a percentage to one decimal place', () => {
+    expect(formatPercent(0.234)).toBe('23.4%')
+    expect(formatPercent(0.8)).toBe('80.0%')
+  })
+
+  it('renders a negative ratio with its sign, for a spending-exceeds-income month', () => {
+    expect(formatPercent(-0.5)).toBe('-50.0%')
+  })
+
+  it('renders exactly zero as 0.0%, not an empty string', () => {
+    expect(formatPercent(0)).toBe('0.0%')
+  })
+
+  it('returns an empty string for a missing ratio', () => {
+    expect(formatPercent(null)).toBe('')
+    expect(formatPercent(undefined)).toBe('')
+  })
+})
+
+describe('formatMonths', () => {
+  it('renders a fractional count with the plural unit', () => {
+    expect(formatMonths(4.2)).toBe('4.2 months')
+  })
+
+  it('uses the singular only for exactly one whole month', () => {
+    expect(formatMonths(1)).toBe('1.0 month')
+  })
+
+  it('uses the plural for zero months', () => {
+    expect(formatMonths(0)).toBe('0.0 months')
+  })
+
+  it('returns an empty string for a missing value', () => {
+    expect(formatMonths(null)).toBe('')
+    expect(formatMonths(undefined)).toBe('')
   })
 })

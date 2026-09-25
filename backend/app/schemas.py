@@ -659,8 +659,9 @@ class MonthlyReportResponse(BaseModel):
 
 class DashboardKpiResponse(BaseModel):
     """See services/dashboard_metrics.dashboard_kpis for what each figure
-    means. avg_per_transaction is null (not zero) when the window has no
-    expense transactions at all - see that function's own docstring.
+    means. avg_per_transaction, savings_rate and runway_months are each
+    null (not zero) on their own particular zero-denominator case - see
+    that function's own docstring for exactly which.
     """
 
     periods: list[CategoryGridPeriodResponse]
@@ -670,6 +671,11 @@ class DashboardKpiResponse(BaseModel):
     transaction_count: int
     avg_per_month: Decimal
     avg_per_transaction: Optional[Decimal]
+    # A ratio (e.g. 0.234 for 23.4%), not a pre-multiplied percentage - the
+    # frontend decides display formatting the same way it already does for
+    # every other figure.
+    savings_rate: Optional[Decimal]
+    runway_months: Optional[Decimal]
 
 
 class DailyActivityResponse(BaseModel):
@@ -791,6 +797,29 @@ class BalanceHistoryResponse(BaseModel):
     # lockstep. None (not 0.00) means no data yet for that month - the same
     # "no transactions" distinction AccountResponse.balance already makes.
     balances: dict[str, Optional[Decimal]]
+
+
+class CoverageGapResponse(BaseModel):
+    """One proven break in an account's own balance sequence - see
+    services/coverage.py's module docstring for the arithmetic and its two
+    deliberate blind spots (same-day ordering, account-group handovers).
+    """
+
+    before_date: date
+    before_balance: Decimal
+    after_date: date
+    after_balance: Decimal
+    after_amount: Decimal
+    expected_balance: Decimal
+    discrepancy: Decimal
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AccountCoverageResponse(BaseModel):
+
+    account_id: int
+    gaps: list[CoverageGapResponse]
 
 
 class NetWorthResponse(BaseModel):

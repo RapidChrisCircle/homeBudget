@@ -9,6 +9,27 @@ export function formatAmount(value) {
   return Number(value).toFixed(2)
 }
 
+// A ratio (0.234) as a percentage string ("23.4%") - the Savings Rate stat
+// tile's own figure, the one place in the app a value is a proportion
+// rather than a dollar amount or a plain count.
+export function formatPercent(value) {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  return `${(Number(value) * 100).toFixed(1)}%`
+}
+
+// A number of months ("4.2 months") - the Runway stat tile's own figure.
+// Singular only for exactly one whole month, matching how a household
+// reads "1 month" vs "4.2 months" out loud.
+export function formatMonths(value) {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  const rounded = Number(value).toFixed(1)
+  return `${rounded} month${rounded === '1.0' ? '' : 's'}`
+}
+
 // Shortens a transaction_date/first_date/last_date ('YYYY-MM-DD') to
 // DD/MM/YY for narrow table columns - the ledger's own built-in CSV format
 // already uses DD/MM/YYYY, so this keeps the same day-first convention

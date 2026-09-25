@@ -243,6 +243,30 @@ button + button {
   margin-left: var(--space-2);
 }
 
+/* Anchor-based download links (Backup, the ledger's CSV export) need the
+   same button SHAPE a native <button> gets for free from the bare
+   `button` selector above - .button-primary itself already applies to an
+   <a> as-is (a plain class selector), including its own :hover rule
+   (:not(:disabled) simply never disqualifies an anchor, which has no
+   disabled state to exclude), but the base padding/border/radius/no-
+   underline does not, since that lives on the element selector, not a
+   shared class. Scoped to just .button-primary, the only anchor-as-button
+   case that exists today - .button-ghost has its OWN smaller padding/
+   font-size declared below, and folding it into this same compound
+   selector would out-specificity that override for an anchor specifically. */
+a.button-primary {
+  display: inline-block;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  padding: var(--space-2) var(--space-4);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+
 .button-primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -1099,6 +1123,93 @@ th .amount {
   display: flex;
   gap: var(--space-2);
   margin-top: var(--space-4);
+}
+
+/* Command palette (CommandPalette.jsx) - Ctrl+K/Cmd+K from anywhere. Its
+   own overlay rather than reusing .modal-overlay: a command palette is
+   conventionally anchored near the TOP of the viewport (align-items:
+   flex-start, with padding standing in for a fixed offset), not vertically
+   centered like a confirmation dialog - the difference is what makes it
+   read as "a search bar dropped in front of the page" rather than another
+   modal dialog. z-index above .modal-overlay's 100, since the palette must
+   still be reachable (and closeable) even while a modal is already open. */
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 13, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  z-index: 200;
+  animation: fade-in 0.15s ease;
+}
+
+.command-palette {
+  width: 100%;
+  max-width: 560px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  animation: modal-in 0.15s ease;
+}
+
+.command-palette-input {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: var(--space-4);
+  font-size: 1.05rem;
+}
+
+.command-palette-input:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
+.command-palette-empty {
+  padding: var(--space-4);
+  color: var(--text-muted);
+}
+
+.command-palette-results {
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+}
+
+.command-palette-group + .command-palette-group {
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.command-palette-group-label {
+  margin: 0;
+  padding: var(--space-1) var(--space-4);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.command-palette-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: var(--space-2) var(--space-4);
+}
+
+.command-palette-item.active,
+.command-palette-item:hover {
+  background: var(--surface-2);
 }
 
 /* Split summary (TransactionsPage's ledger, in place of the plain category

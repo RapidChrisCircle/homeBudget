@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from app.models import Category, ImportBatch, Transaction, TransactionSplit
+from app.models import Account, Category, ImportBatch, Transaction, TransactionSplit
 from app.services.dashboard_metrics import dashboard_kpis, daily_activity
 
 
@@ -36,6 +36,14 @@ def make_transaction(db_session, transaction_date=date(2026, 7, 10), narration="
     db_session.add(transaction)
     db_session.flush()
     return transaction
+
+
+def make_account(db_session, name="Everyday", account_type="everyday", account_number="1111"):
+
+    account = Account(name=name, account_type=account_type, account_number=account_number)
+    db_session.add(account)
+    db_session.flush()
+    return account
 
 
 # --- dashboard_kpis (service) -----------------------------------------------
@@ -118,6 +126,104 @@ def test_kpis_excludes_transfers(db_session):
 
     assert kpis["total_expenses"] == Decimal("0")
     assert kpis["transaction_count"] == 0
+
+
+# --- savings_rate ------------------------------------------------------------------
+
+
+def test_kpis_savings_rate_is_net_saved_over_total_income(db_session):
+
+    salary = make_category(db_session, "Salary", "income")
+    groceries = make_category(db_session, "Groceries", "expense")
+    make_transaction(db_session, date(2026, 7, 1), credit=Decimal("5000.00"), category_id=salary.id)
+    make_transaction(db_session, date(2026, 7, 10), debit=Decimal("-1000.00"), category_id=groceries.id)
+    db_session.commit()
+
+    kpis = dashboard_kpis(db_session, 2026, 7, months=1)
+
+    # (5000 - 1000) / 5000
+    assert kpis["savings_rate"] == Decimal("0.8")
+
+
+def test_kpis_savings_rate_is_none_not_zero_with_no_income(db_session):
+    """You cannot save a percentage of income you didn't have - a household
+    living entirely off savings that month has no rate to report, not a
+    rate of negative infinity."""
+
+    groceries = make_category(db_session, "Groceries", "expense")
+    make_transaction(db_session, date(2026, 7, 10), debit=Decimal("-100.00"), category_id=groceries.id)
+    db_session.commit()
+
+    kpis = dashboard_kpis(db_session, 2026, 7, months=1)
+
+    assert kpis["savings_rate"] is None
+
+
+def test_kpis_savings_rate_can_be_negative_when_spending_exceeds_income(db_session):
+
+    salary = make_category(db_session, "Salary", "income")
+    groceries = make_category(db_session, "Groceries", "expense")
+    make_transaction(db_session, date(2026, 7, 1), credit=Decimal("1000.00"), category_id=salary.id)
+    make_transaction(db_session, date(2026, 7, 10), debit=Decimal("-1500.00"), category_id=groceries.id)
+    db_session.commit()
+
+    kpis = dashboard_kpis(db_session, 2026, 7, months=1)
+
+    assert kpis["savings_rate"] == Decimal("-0.5")
+
+
+def test_kpis_savings_rate_on_a_completely_empty_ledger_is_none(db_session):
+
+    kpis = dashboard_kpis(db_session, 2026, 7, months=1)
+
+    assert kpis["savings_rate"] is None
+
+
+# --- runway_months -------------------------------------------------------------------
+
+
+def test_kpis_runway_months_divides_liquid_assets_by_avg_per_month(db_session):
+
+    account = make_account(db_session)
+    groceries = make_category(db_session, "Groceries", "expense")
+    transaction = make_transaction(db_session, date(2026, 7, 10), debit=Decimal("-1000.00"), category_id=groceries.id)
+    transaction.account_id = account.id
+    transaction.balance = Decimal("4000.00")
+    db_session.commit()
+
+    kpis = dashboard_kpis(db_session, 2026, 7, months=1)
+
+    # avg_per_month here is 1000.00 (one month window); 4000 liquid / 1000 = 4
+    assert kpis["avg_per_month"] == Decimal("1000.00")
+    assert kpis["runway_months"] == Decimal("4")
+
+
+def test_kpis_runway_months_is_none_not_zero_with_no_expenses(db_session):
+    """Dividing by a zero average monthly spend has no sensible answer -
+    None, not "infinite runway" and not zero."""
+
+    account = make_account(db_session)
+    salary = make_category(db_session, "Salary", "income")
+    transaction = make_transaction(db_session, date(2026, 7, 1), credit=Decimal("5000.00"), category_id=salary.id)
+    transaction.account_id = account.id
+    transaction.balance = Decimal("5000.00")
+    db_session.commit()
+
+    kpis = dashboard_kpis(db_session, 2026, 7, months=1)
+
+    assert kpis["avg_per_month"] == Decimal("0")
+    assert kpis["runway_months"] is None
+
+
+def test_kpis_runway_months_is_zero_with_expenses_but_no_liquid_assets(db_session):
+
+    groceries = make_category(db_session, "Groceries", "expense")
+    make_transaction(db_session, date(2026, 7, 10), debit=Decimal("-500.00"), category_id=groceries.id)
+    db_session.commit()
+
+    kpis = dashboard_kpis(db_session, 2026, 7, months=1)
+
+    assert kpis["runway_months"] == Decimal("0")
 
 
 def test_kpis_agrees_with_trends_own_totals_for_the_same_window(db_session):
@@ -243,6 +349,32 @@ def test_kpis_endpoint_shape(client, db_session):
     assert body["transaction_count"] == 1
     assert len(body["periods"]) == 1
     assert body["periods"][0]["label"] == "2026-07"
+    # No income in this fixture - savings_rate has no denominator, so it's
+    # None. There IS an expense, so runway_months has a real (zero) answer:
+    # zero liquid assets over a real average monthly spend.
+    assert body["savings_rate"] is None
+    assert body["runway_months"] == "0E+2"
+
+
+def test_kpis_endpoint_surfaces_savings_rate_and_runway_months(client, db_session):
+
+    account = Account(name="Everyday", account_type="everyday", account_number="1111")
+    db_session.add(account)
+    db_session.flush()
+
+    salary = make_category(db_session, "Salary", "income")
+    groceries = make_category(db_session, "Groceries", "expense")
+    make_transaction(db_session, date(2026, 7, 1), credit=Decimal("2000.00"), category_id=salary.id)
+    expense = make_transaction(db_session, date(2026, 7, 10), debit=Decimal("-500.00"), category_id=groceries.id)
+    expense.account_id = account.id
+    expense.balance = Decimal("2000.00")
+    db_session.commit()
+
+    response = client.get("/api/reports/kpis", params={"year": 2026, "month": 7, "months": 1})
+
+    body = response.json()
+    assert body["savings_rate"] == "0.75"
+    assert body["runway_months"] == "4"
 
 
 def test_kpis_endpoint_defaults_to_the_backend_default_period(client, db_session):

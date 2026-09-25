@@ -951,6 +951,18 @@ export default function TransactionsPage() {
                 <button type="button" onClick={clearAllFilters} disabled={activeFilters === 0}>
                   Clear all filters{activeFilters > 0 ? ` (${activeFilters})` : ''}
                 </button>
+                {/* A plain download link, not an api.get() call - the
+                    browser handles the file save itself from the
+                    response's Content-Disposition header, and reusing
+                    searchParams verbatim is what keeps this exactly the
+                    rows currently filtered/sorted, with no second
+                    translation of the same filter state to maintain.
+                    Extra params GET /transactions/export doesn't declare
+                    (page, page_size) are harmless - FastAPI ignores
+                    query params a route doesn't ask for. */}
+                <a href={`/api/transactions/export?${searchParams.toString()}`} className="button-primary">
+                  Export CSV
+                </a>
               </div>
             </div>
 

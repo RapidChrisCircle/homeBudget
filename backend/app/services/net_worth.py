@@ -169,6 +169,49 @@ def signed_balance(account: Account, balance: Decimal | None) -> Decimal | None:
     return balance if account.balance_sign == "natural" else -balance
 
 
+# Everyday + Savings only - "cash on hand", not everything sitting on the
+# asset side of net worth. Investment is deliberately excluded: it isn't
+# spendable without selling something, which is a different (and slower,
+# and lossier) action than drawing down a bank balance. Every liability
+# type is excluded by construction - liquid_assets() only ever sums asset-
+# class accounts.
+LIQUID_ACCOUNT_TYPES = ("everyday", "savings")
+
+
+def liquid_assets(db: Session) -> Decimal:
+    """Sum of every Everyday/Savings account's current balance - the
+    numerator a runway figure (liquid assets / average monthly expenses)
+    divides. Sign-aware and group-contributor-aware exactly like
+    net_worth_now() (a superseded group member contributes nothing, an
+    inverted balance sign is still respected), so this can never disagree
+    with net worth's own idea of what one of these accounts is worth.
+
+    An account with no transactions yet contributes NOTHING to the total,
+    not zero - the same "no data is not zero" distinction net_worth_now()
+    itself makes by routing through signed_balance(), which returns None
+    for exactly this case.
+    """
+
+    accounts = db.query(Account).filter(Account.account_type.in_(LIQUID_ACCOUNT_TYPES)).all()
+    balances = account_balances(db)
+    contributors = group_contributors_now(db)
+
+    total = Decimal("0")
+
+    for account in accounts:
+
+        if account.group_id is not None and contributors.get(account.group_id) != account.id:
+            continue
+
+        balance, _as_of = balances.get(account.id, (None, None))
+        contribution = signed_balance(account, balance)
+
+        if contribution is not None:
+            total += contribution
+
+    return total
+
+
 def net_worth_now(db: Session) -> dict:
     """{assets, liabilities, net, unclassified_count} across every
     account's CURRENT balance (services.ledger.account_balances() - not

@@ -4,6 +4,40 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
+## [0.23.5] - 2026-09-25
+
+Roadmap item T1.6 (`ROADMAP.md`), and the last of the Tier 1 roadmap items - Finding 11: nine destinations and thousands of transactions, with navigation by scanning a flat link row.
+
+### Added
+
+- **Command palette** (`Ctrl+K`/`Cmd+K`, `frontend/src/components/CommandPalette.jsx`) - the one UI element in the app that exists purely for keyboard users, since it has no pointer-only path to reach it at all. Searches pages (`pageRegistry.jsx`), categories, accounts and merchants, grouped by kind; arrow keys move the selection, Enter activates it, Escape or clicking outside closes it. Mounted once in `App.jsx`, outside the routed `<Routes>` tree, so it survives navigation instead of remounting (and losing its lazily-fetched categories/accounts) on every route change. Categories and accounts are fetched once, lazily, the first time the palette opens - not eagerly on every page load, which would add two requests to every single page view for a feature most sessions never open. Merchants are searched live, debounced 200ms, through the same `GET /transactions/groups?search=` the ledger's own Group by merchant view already uses, since there is no "list every merchant" endpoint to fetch upfront.
+
+## [0.23.4] - 2026-09-25
+
+Roadmap item T1.5 (`ROADMAP.md`) - Finding 7: the two headline numbers households actually track, and every input already existed.
+
+### Added
+
+- **Savings Rate and Runway stat tiles** on the Dashboard. Savings Rate (`net_saved / total_income`) and Runway (current Everyday + Savings balances - `services/net_worth.liquid_assets`, a new function - against the window's own average monthly spend) join the existing stat tile metrics, reading through the same `GET /api/reports/kpis` fetch every tile already shares - no new per-widget request. Both are ratios, rendered as a percentage or a count of months (`utils/format.js`'s new `formatPercent`/`formatMonths`) rather than a dollar figure; `StatTile` gained a `formatValue` prop for exactly this, defaulting to the existing currency formatting so every other metric is unaffected. Both are **undefined, not zero**, on the one denominator that makes them meaningless - no income to rate, or no expenses to divide runway's assets by - the same "no data is not zero" convention an account's null balance already follows elsewhere in the app. Neither is clickable, since a ratio has no transactions of its own to open the ledger to.
+
+## [0.23.3] - 2026-09-25
+
+Roadmap item T1.4 (`ROADMAP.md`) - Finding 8: years of financial history with no way out, behind a Watchtower auto-updater that runs Alembic migrations unattended (0.21.5's own README warning).
+
+### Added
+
+- **Export CSV** on the ledger's filter bar (`GET /api/transactions/export`) - the filtered ledger, unpaginated, sharing its filter validation with `GET /transactions` itself (`api/transactions._validated_ledger_query`, factored out so the two can never accept a filter combination differently). Categories resolve to names, and a split transaction's several allocations flatten into one cell rather than either an arbitrary pick or a second CSV row per allocation. Deliberately NOT designed to round-trip through import - its header and extra columns (Category, Note) don't match any bank layout, which `services/csv_formats.py` matches by exact string; a categorized, split-aware export is the whole point, at the cost of not being the bank's own shape.
+- **Download backup (JSON)** on `/accounts` (`GET /api/export/database`) - every table, unfiltered, built from the same response schemas the API's own list endpoints already return (`services/export.py`), so a record in the snapshot can never describe itself differently than the app would. No restore-from-snapshot endpoint exists on purpose - true point-in-time recovery is a Postgres-level restore.
+- Both are plain `<a href>` download links, not calls through the frontend's own `api` client - the browser saves the file from the response's `Content-Disposition` header.
+
+## [0.23.2] - 2026-09-25
+
+Roadmap item T1.3 (`ROADMAP.md`) - Finding 4: import is the only way a transaction enters the ledger, so a forgotten statement period silently understates every total with no signal anything is missing.
+
+### Added
+
+- **Statement coverage checking.** A new **Statement Coverage** card on `/accounts/:id` (`GET /api/accounts/{id}/coverage`, `services/coverage.py`) proves an account's imported history is arithmetically continuous, using the bank's own running Balance every transaction already carries: a later transaction's balance must equal the earlier one's plus its own signed amount, an identity rather than a heuristic. A break is reported with the date range on either side and the size of the discrepancy - almost always a missing statement, though a duplicate or corrupted row produces the identical signature. The check deliberately never compares two transactions on the *same day* (file order for one date doesn't reliably become import id order) and never crosses *accounts* (a grouped account's members are genuinely different bank accounts in succession - see [Account groups](README.md#account-groups) - so each is checked purely on its own transactions).
+
 ## [0.23.1] - 2026-09-25
 
 Roadmap item T1.2 (`ROADMAP.md`) - Finding 10: the ledger showed a row count for a filtered view but never what it added up to, the one number a household actually wants after narrowing to "Groceries, July".

@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,7 @@ from ..schemas import (
 )
 from ..services.categorization import apply_rules_to_transaction, load_rules
 from ..services.csv_formats import ColumnMapping, validate_mapping_input
+from ..services.export import ledger_csv
 from ..services.csv_import import (
     CsvValidationError,
     UnrecognizedFormatError,
@@ -254,27 +255,28 @@ def preview_transaction_import(
     )
 
 
-@router.get("/transactions", response_model=TransactionListResponse)
-def list_transactions(
-    account_id: int | None = None,
-    account_group_id: int | None = None,
-    category_id: int | None = None,
-    uncategorized: bool = False,
-    kind: str | None = None,
-    date_from: date | None = None,
-    date_to: date | None = None,
-    search: str | None = None,
-    transaction_type: str | None = None,
-    # Amounts are POSITIVE dollars compared against an absolute value (see
-    # services/ledger.py) - a negative bound is a client bug, not a query.
-    min_amount: Decimal | None = Query(None, ge=0),
-    max_amount: Decimal | None = Query(None, ge=0),
-    sort: str | None = None,
-    direction: str = "asc",
-    page: int = Query(1, ge=1),
-    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
-    db: Session = Depends(get_db)
+def _validated_ledger_query(
+    db: Session,
+    *,
+    account_id: int | None,
+    account_group_id: int | None,
+    category_id: int | None,
+    uncategorized: bool,
+    kind: str | None,
+    date_from: date | None,
+    date_to: date | None,
+    search: str | None,
+    transaction_type: str | None,
+    min_amount: Decimal | None,
+    max_amount: Decimal | None,
+    sort: str | None,
+    direction: str,
 ):
+    """The validation and query-building GET /transactions and
+    GET /transactions/export share - factored out so an export can never
+    silently accept a filter combination the ledger view itself would have
+    rejected, or vice versa. Returns the built, unpaginated query.
+    """
 
     # Contradictory combinations are rejected rather than silently returning
     # nothing - an empty ledger looks like "no matching transactions", which
@@ -343,7 +345,38 @@ def list_transactions(
         max_amount=max_amount,
     )
 
-    query = build_transaction_query(db, filters, sort=sort, direction=direction)
+    return build_transaction_query(db, filters, sort=sort, direction=direction)
+
+
+@router.get("/transactions", response_model=TransactionListResponse)
+def list_transactions(
+    account_id: int | None = None,
+    account_group_id: int | None = None,
+    category_id: int | None = None,
+    uncategorized: bool = False,
+    kind: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    search: str | None = None,
+    transaction_type: str | None = None,
+    # Amounts are POSITIVE dollars compared against an absolute value (see
+    # services/ledger.py) - a negative bound is a client bug, not a query.
+    min_amount: Decimal | None = Query(None, ge=0),
+    max_amount: Decimal | None = Query(None, ge=0),
+    sort: str | None = None,
+    direction: str = "asc",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    db: Session = Depends(get_db)
+):
+
+    query = _validated_ledger_query(
+        db,
+        account_id=account_id, account_group_id=account_group_id, category_id=category_id,
+        uncategorized=uncategorized, kind=kind, date_from=date_from, date_to=date_to,
+        search=search, transaction_type=transaction_type, min_amount=min_amount, max_amount=max_amount,
+        sort=sort, direction=direction,
+    )
     items, total = paginate(query, page=page, page_size=page_size, options=LIST_LOADERS)
     total_in, total_out, net_total = ledger_totals(query)
 
@@ -356,6 +389,57 @@ def list_transactions(
         total_in=total_in,
         total_out=total_out,
         net_total=net_total,
+    )
+
+
+# Static path, declared before /transactions/{transaction_id} for the same
+# ordering reason as /transactions/types and /transactions/groups below -
+# though GET has no {transaction_id} route to collide with today, this
+# keeps the file's own convention rather than being the one exception to it.
+@router.get("/transactions/export")
+def export_transactions(
+    account_id: int | None = None,
+    account_group_id: int | None = None,
+    category_id: int | None = None,
+    uncategorized: bool = False,
+    kind: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    search: str | None = None,
+    transaction_type: str | None = None,
+    min_amount: Decimal | None = Query(None, ge=0),
+    max_amount: Decimal | None = Query(None, ge=0),
+    sort: str | None = None,
+    direction: str = "asc",
+    db: Session = Depends(get_db)
+):
+    """The filtered ledger as a CSV download - exactly the rows GET
+    /transactions would return for the SAME query params (this validates
+    and builds its query through the identical _validated_ledger_query the
+    list endpoint uses), with no pagination: an export is precisely the
+    case where "everything I filtered to" must not be cut down to one page.
+
+    NOT designed to round-trip back through import - see services/export.py's
+    module docstring for why (a different header than any bank layout, plus
+    Category/Note/split detail no bank format has a column for). This is
+    the "send it to the accountant" export; services/export.database_snapshot
+    (GET /export/database) is the backup case.
+    """
+
+    query = _validated_ledger_query(
+        db,
+        account_id=account_id, account_group_id=account_group_id, category_id=category_id,
+        uncategorized=uncategorized, kind=kind, date_from=date_from, date_to=date_to,
+        search=search, transaction_type=transaction_type, min_amount=min_amount, max_amount=max_amount,
+        sort=sort, direction=direction,
+    )
+
+    csv_text = ledger_csv(query)
+
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="transactions.csv"'},
     )
 
 

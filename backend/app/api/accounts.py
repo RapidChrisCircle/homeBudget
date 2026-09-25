@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from ..deps import get_db
 from ..models import ACCOUNT_TYPES, BALANCE_SIGNS, Account, AccountGroup, SavingsGoal, Transaction
 from ..schemas import (
+    AccountCoverageResponse,
     AccountCreate,
     AccountResponse,
     AccountUpdate,
@@ -12,6 +13,7 @@ from ..schemas import (
     BalanceSignInferenceResponse,
     CategoryGridPeriodResponse,
 )
+from ..services.coverage import account_coverage_gaps
 from ..services.ledger import account_balance, account_balances
 from ..services.net_worth import group_contributors_by_period, infer_balance_sign
 from ..services.reporting import DEFAULT_GRID_MONTHS, MAX_GRID_MONTHS, contiguous_periods, default_period
@@ -126,6 +128,25 @@ def infer_account_balance_sign(
 
     inferred_sign, sample_size = infer_balance_sign(db, account_id)
     return BalanceSignInferenceResponse(inferred_sign=inferred_sign, sample_size=sample_size)
+
+
+@router.get("/accounts/{account_id}/coverage", response_model=AccountCoverageResponse)
+def get_account_coverage(
+    account_id: int,
+    db: Session = Depends(get_db)
+):
+    """Whether this account's own imported history is provably continuous -
+    see services/coverage.py's module docstring for the arithmetic. Never
+    crosses into a grouped account's other members (each is checked purely
+    on its own transactions), so a group's own succession of accounts never
+    reads as a false gap.
+    """
+
+    if db.get(Account, account_id) is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    gaps = account_coverage_gaps(db, account_id)
+    return AccountCoverageResponse(account_id=account_id, gaps=gaps)
 
 
 @router.put("/accounts/{account_id}", response_model=AccountResponse)

@@ -44,6 +44,7 @@ export default function AccountDetailPage() {
   const [actionError, setActionError] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
   const [balanceHistory, setBalanceHistory] = useState(null)
+  const [coverage, setCoverage] = useState(null)
 
   // Read straight from the URL, like the page number already is - see
   // ledgerFilterParams.pageSizeFromSearchParams.
@@ -74,6 +75,27 @@ export default function AccountDetailPage() {
       .catch(() => {
         // The chart is supplementary - a failed fetch just means it doesn't
         // render, it shouldn't take down the rest of the page.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [accountId])
+
+  // Also independent, same reasoning - and scoped to THIS account only,
+  // never its group-mates (services/coverage.py never crosses accounts).
+  useEffect(() => {
+    let cancelled = false
+
+    api.get(`/accounts/${accountId}/coverage`)
+      .then((response) => {
+        if (!cancelled) {
+          setCoverage(response.data)
+        }
+      })
+      .catch(() => {
+        // Supplementary, same as balance history above - a failed fetch
+        // just means the card doesn't render.
       })
 
     return () => {
@@ -245,6 +267,48 @@ export default function AccountDetailPage() {
               navigate(`/transactions?account_id=${accountId}&date_from=${from}&date_to=${to}`)
             }}
           />
+        </Card>
+      )}
+
+      {coverage && (
+        <Card id="account-detail-coverage" title="Statement Coverage">
+          {coverage.gaps.length === 0 ? (
+            <p>
+              No gaps detected - this account&apos;s imported history is arithmetically continuous,
+              each transaction&apos;s balance following exactly from the one before it.
+            </p>
+          ) : (
+            <>
+              <p>
+                The balance jumps unexpectedly between these transactions - almost always a missing
+                statement period, though a duplicate or corrupted row produces the same signature.
+                Import whatever covers the gap below to resolve it.
+              </p>
+              <table>
+                <caption className="visually-hidden">Detected coverage gaps</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">From</th>
+                    <th scope="col">To</th>
+                    <th scope="col" className="numeric">Expected</th>
+                    <th scope="col" className="numeric">Actual</th>
+                    <th scope="col" className="numeric">Discrepancy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coverage.gaps.map((gap, index) => (
+                    <tr key={index}>
+                      <td>{formatDate(gap.before_date)}</td>
+                      <td>{formatDate(gap.after_date)}</td>
+                      <td><Amount value={gap.expected_balance} neutral /></td>
+                      <td><Amount value={gap.after_balance} neutral /></td>
+                      <td><Amount value={gap.discrepancy} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </Card>
       )}
 

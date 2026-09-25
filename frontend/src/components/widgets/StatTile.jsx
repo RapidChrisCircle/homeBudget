@@ -18,7 +18,15 @@ import { formatAmount } from '../../utils/format.js'
 // tabular-nums, which is for columns of numbers that must align vertically
 // (a table, an axis) - a large standalone figure reads better in the
 // font's normal proportional numerals (dataviz skill's stat-tile spec).
-export default function StatTile({ label, value, period, tone = 'neutral', onClick = null, clickLabel = null }) {
+//
+// `formatValue` defaults to formatAmount (a dollar figure, the common
+// case) but a caller whose metric isn't money at all - Savings Rate is a
+// percentage, Runway is a count of months - passes its own formatter
+// (utils/format.js's formatPercent/formatMonths) rather than this
+// component guessing a metric's shape from its name.
+export default function StatTile({
+  label, value, period, tone = 'neutral', onClick = null, clickLabel = null, formatValue = formatAmount,
+}) {
   const toneClass = tone === 'income' ? 'stat-tile-income' : tone === 'expense' ? 'stat-tile-expense' : ''
 
   const body = (
@@ -26,7 +34,7 @@ export default function StatTile({ label, value, period, tone = 'neutral', onCli
       <p className="stat-tile-label">{label}</p>
       {period && <p className="stat-tile-period">{period}</p>}
       <p className={['stat-tile-value', toneClass].filter(Boolean).join(' ')}>
-        {value === null || value === undefined ? '—' : formatAmount(value)}
+        {value === null || value === undefined ? '—' : formatValue(value)}
       </p>
     </>
   )

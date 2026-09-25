@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import './App.css'
+import CommandPalette from './components/CommandPalette.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import { pages } from './pageRegistry.jsx'
@@ -91,6 +92,7 @@ function App() {
 
   return (
     <main className="app-shell">
+      <CommandPalette />
       <header className="header">
         <div className="header-brand">
           <h1>homeBudget</h1>

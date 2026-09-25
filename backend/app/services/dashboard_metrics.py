@@ -19,6 +19,22 @@ Two genuinely different shapes, for two different questions:
   questions, not a mix of spend and income averaged together, which would
   answer neither.
 
+  savings_rate and runway_months are both ratios and both deliberately
+  None (not 0) on a zero denominator - "you saved infinity percent of zero
+  income" and "zero months of runway" are both worse answers than "this
+  question has no answer yet", the same "no data is not zero" convention
+  an account's null balance already follows elsewhere in this app.
+  savings_rate = net_saved / total_income, undefined when there was no
+  income in the window at all (a household living entirely off savings
+  that month has no "rate" to report, not a rate of -infinity%).
+  runway_months = liquid_assets() / avg_per_month - CURRENT liquid assets
+  (Everyday + Savings balances, services.net_worth.liquid_assets) against
+  this WINDOW's own average monthly spend, undefined when the window had
+  no expenses to divide by. Answers "at this spend rate, how long would
+  today's cash last", not a projection - services/forecast.py already
+  owns actual month-by-month projection and this doesn't attempt to
+  duplicate it.
+
 - daily_activity() answers "what happened on which days" - a new query at
   a granularity no existing service provides (everything else in
   reporting/trends stops at month). Built the same way category_grid()
@@ -52,18 +68,19 @@ from sqlalchemy.orm import Session
 
 from ..models import Category
 from .allocations import allocation_subquery
+from .net_worth import liquid_assets
 from .reporting import category_grid, month_bounds
 from .trends import monthly_summaries
 
 
 def dashboard_kpis(db: Session, year: int, month: int, months: int) -> dict:
     """{periods, total_income, total_expenses, net_saved, transaction_count,
-    avg_per_month, avg_per_transaction} for the `months` months ending at
-    (year, month) inclusive - see module docstring for what each figure
-    means and why. avg_per_transaction is None (not zero) when the window
-    has no expense transactions at all - there is no "typical size" of a
-    thing that never happened, the same "no data is not zero" distinction
-    an account's null balance already makes elsewhere in this app.
+    avg_per_month, avg_per_transaction, savings_rate, runway_months} for
+    the `months` months ending at (year, month) inclusive - see module
+    docstring for what each figure means and why avg_per_transaction,
+    savings_rate and runway_months are each None (not zero) on the
+    particular zero denominator that makes them undefined rather than
+    computing a nonsensical answer.
     """
 
     periods, grid_rows = category_grid(db, year, month, months=months)
@@ -88,14 +105,19 @@ def dashboard_kpis(db: Session, year: int, month: int, months: int) -> dict:
         .scalar()
     ) or 0
 
+    net_saved = total_income - total_expenses
+    avg_per_month = total_expenses / len(periods)
+
     return {
         "periods": periods,
         "total_income": total_income,
         "total_expenses": total_expenses,
-        "net_saved": total_income - total_expenses,
+        "net_saved": net_saved,
         "transaction_count": transaction_count,
-        "avg_per_month": total_expenses / len(periods),
+        "avg_per_month": avg_per_month,
         "avg_per_transaction": (total_expenses / transaction_count) if transaction_count else None,
+        "savings_rate": (net_saved / total_income) if total_income else None,
+        "runway_months": (liquid_assets(db) / avg_per_month) if avg_per_month else None,
     }
 
 

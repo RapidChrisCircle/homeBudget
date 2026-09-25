@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.models import Account, ImportBatch, Transaction
-from app.services.net_worth import net_worth_history, net_worth_now, signed_balance
+from app.services.net_worth import liquid_assets, net_worth_history, net_worth_now, signed_balance
 from app.services.reporting import contiguous_periods
 
 
@@ -277,3 +277,76 @@ def test_get_net_worth_endpoint_on_an_empty_ledger(client):
         "net": "0",
         "unclassified_count": 0,
     }
+
+# --- liquid_assets -----------------------------------------------------------------
+
+
+def test_liquid_assets_sums_everyday_and_savings_only(db_session):
+
+    everyday = make_account(db_session, account_type="everyday", account_number="A")
+    savings = make_account(db_session, name="Savings", account_type="savings", account_number="B")
+    investment = make_account(db_session, name="Shares", account_type="investment", account_number="C")
+
+    make_transaction(db_session, everyday.id, date(2026, 7, 1), balance="1000.00", credit="1000.00")
+    make_transaction(db_session, savings.id, date(2026, 7, 1), balance="5000.00", credit="5000.00")
+    make_transaction(db_session, investment.id, date(2026, 7, 1), balance="20000.00", credit="20000.00")
+    db_session.commit()
+
+    assert liquid_assets(db_session) == Decimal("6000.00")
+
+
+def test_liquid_assets_excludes_liabilities(db_session):
+
+    card = make_account(db_session, name="Credit Card", account_type="credit_card", account_number="CC")
+    make_transaction(db_session, card.id, date(2026, 7, 1), balance="-500.00", debit="-500.00")
+    db_session.commit()
+
+    assert liquid_assets(db_session) == Decimal("0")
+
+
+def test_liquid_assets_is_zero_with_no_liquid_accounts_at_all(db_session):
+
+    assert liquid_assets(db_session) == Decimal("0")
+
+
+def test_liquid_assets_excludes_an_account_with_no_transactions_yet(db_session):
+    """No data is not zero - an unopened account contributes nothing, the
+    same convention net_worth_now() already follows."""
+
+    make_account(db_session, account_type="everyday")
+
+    assert liquid_assets(db_session) == Decimal("0")
+
+
+def test_liquid_assets_respects_an_inverted_balance_sign(db_session):
+
+    account = make_account(db_session, account_type="savings", balance_sign="inverted")
+    make_transaction(db_session, account.id, date(2026, 7, 1), balance="100.00", debit="-100.00")
+    db_session.commit()
+
+    assert liquid_assets(db_session) == Decimal("-100.00")
+
+
+def test_liquid_assets_counts_only_the_current_group_contributor(db_session):
+
+    from app.models import AccountGroup
+
+    group = AccountGroup(name="Card succession")
+    db_session.add(group)
+    db_session.flush()
+
+    old_account = make_account(db_session, name="Old", account_type="everyday", account_number="OLD", )
+    old_account.group_id = group.id
+    new_account = make_account(db_session, name="New", account_type="everyday", account_number="NEW")
+    new_account.group_id = group.id
+    db_session.flush()
+
+    make_transaction(db_session, old_account.id, date(2026, 1, 1), balance="500.00", credit="500.00",
+                     account_number="OLD")
+    make_transaction(db_session, new_account.id, date(2026, 7, 1), balance="800.00", credit="800.00",
+                     account_number="NEW")
+    db_session.commit()
+
+    # Only the current contributor (New, the later account) counts - not
+    # both, which would double-count one logical account's balance.
+    assert liquid_assets(db_session) == Decimal("800.00")
