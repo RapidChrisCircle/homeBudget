@@ -14,6 +14,40 @@ describe('BarChart', () => {
     expect(screen.getByText('Income — 2026-02: 5200')).toBeInTheDocument()
   })
 
+  it('shows a shared tooltip on hover and hides it on mouseleave', () => {
+    const { container } = render(
+      <BarChart periods={periods} series={[{ label: 'Income', values: [5000, 5200, 4800] }]} />
+    )
+
+    const bar = container.querySelectorAll('rect')[1]
+    fireEvent.mouseEnter(bar)
+
+    expect(container.querySelector('.chart-tooltip')).toHaveTextContent('Income — 2026-02: 5200')
+
+    fireEvent.mouseLeave(bar)
+
+    expect(container.querySelector('.chart-tooltip')).not.toBeInTheDocument()
+  })
+
+  it('shows the tooltip on keyboard focus for a clickable bar, not just hover', () => {
+    const { container } = render(
+      <BarChart
+        periods={periods}
+        series={[{ label: 'Income', values: [5000, 5200, 4800] }]}
+        onSelectBar={vi.fn()}
+      />
+    )
+
+    const bar = container.querySelectorAll('rect')[0]
+    fireEvent.focus(bar)
+
+    expect(container.querySelector('.chart-tooltip')).toHaveTextContent('Income — 2026-01: 5000')
+
+    fireEvent.blur(bar)
+
+    expect(container.querySelector('.chart-tooltip')).not.toBeInTheDocument()
+  })
+
   it('renders multiple series side by side with a legend', () => {
     const { container } = render(
       <BarChart

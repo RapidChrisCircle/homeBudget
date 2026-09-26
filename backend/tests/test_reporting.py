@@ -15,9 +15,13 @@ from app.services.reporting import (
 )
 
 
-def make_category(db_session, name="Groceries", kind="expense", budget_amount=None):
+def make_category(db_session, name="Groceries", kind="expense", budget_amount=None,
+                   rolls_over=False, rollover_start_year=None, rollover_start_month=None):
 
-    category = Category(name=name, kind=kind, budget_amount=budget_amount)
+    category = Category(
+        name=name, kind=kind, budget_amount=budget_amount, rolls_over=rolls_over,
+        rollover_start_year=rollover_start_year, rollover_start_month=rollover_start_month,
+    )
     db_session.add(category)
     db_session.flush()
     return category
@@ -210,6 +214,42 @@ def test_over_budget_difference_is_negative(db_session):
     groceries = next(t for t in totals if t.category_id == category.id)
 
     assert groceries.difference == Decimal("-50.00")
+
+
+def test_non_rollover_category_has_no_available_amount(db_session):
+
+    category = make_category(db_session, kind="expense", budget_amount="100.00")
+    make_transaction(db_session, debit="-150.00", category_id=category.id)
+    db_session.commit()
+
+    start, end = month_bounds(2026, 7)
+    totals = category_totals_for_period(db_session, start, end)
+    groceries = next(t for t in totals if t.category_id == category.id)
+
+    assert groceries.available_amount is None
+    # Unchanged from before this field existed - falls back to budget_amount.
+    assert groceries.difference == Decimal("-50.00")
+
+
+def test_rollover_category_absorbs_a_spike_via_available_amount_in_the_difference(db_session):
+
+    category = make_category(
+        db_session, kind="expense", budget_amount="100.00",
+        rolls_over=True, rollover_start_year=2026, rollover_start_month=1,
+    )
+    # January-June: budgeted 100, spent nothing -> 600 accumulates.
+    make_transaction(db_session, transaction_date=date(2026, 7, 15), debit="-600.00", category_id=category.id)
+    db_session.commit()
+
+    start, end = month_bounds(2026, 7)
+    totals = category_totals_for_period(db_session, start, end)
+    rego = next(t for t in totals if t.category_id == category.id)
+
+    # 6 quiet months x 100 = 600 carried in, plus July's own 100 = 700
+    # available against a 600 spend - reads as UNDER budget, not over.
+    assert rego.available_amount == Decimal("700.00")
+    assert rego.difference == Decimal("100.00")
+    assert rego.budget_amount == Decimal("100.00")  # nominal figure unchanged
 
 
 def test_budgeted_expense_category_with_no_activity_still_appears(db_session):

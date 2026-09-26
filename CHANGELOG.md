@@ -4,7 +4,95 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
-## [0.23.5] - 2026-09-25
+## [0.32.0] - 2026-09-26
+
+Roadmap item T3.4 (`ROADMAP.md`), the last of Tier 3 - Finding 15: every action reported through inline text a user may already have scrolled past.
+
+### Added
+
+- **Toast notifications** (`services/toast.ts`, `components/ToastContainer.jsx`) - a transient, bottom-right confirmation for an action that just succeeded ("Imported N transaction(s)", "Budget saved", a preset/rule-apply summary). State lives in a module-level pub-sub store outside React, the same pattern `services/api.ts`'s own build-mismatch detection already uses, so any call site can fire one via `showToast()`. Scoped to success confirmations only - `<ErrorState>` remains the one place any error appears. Respects `prefers-reduced-motion`.
+- Wired into a representative set of call sites (ledger import, a budget save, the Queensland preset, Apply rules now) alongside their existing inline messages, not instead of them - this is additive polish, not a replacement for anything a user needs to actually read and act on.
+
+## [0.31.0] - 2026-09-26
+
+Roadmap item T3.3 (`ROADMAP.md`) - Finding 16: a fresh install was a wall of empty cards on every page, with no sequencing to say what to do first.
+
+### Added
+
+- **Getting Started checklist** on `/` (`components/OnboardingChecklist.jsx`) - four steps (import a statement, classify accounts, set up categories, set a budget), each linking straight to the page that does it. Every step is an existing feature; this is sequencing and copy, not new machinery. Self-fetches just enough to know what's already done, and renders nothing once every step is complete.
+
+## [0.30.0] - 2026-09-26
+
+Roadmap item T3.2 (`ROADMAP.md`) - a rule's narration pattern was a single case-insensitive substring with no OR, which is exactly why rule review's "merge" could only ever mean "delete the rule that can never fire".
+
+### Added
+
+- **Rules v2** - a rule can now OR in extra narration patterns (**Also match**) and/or treat every pattern as a case-insensitive regular expression (**Treat patterns as regular expressions**), both opt-in and fully additive - a rule using neither behaves exactly as it always has. `services/categorization.py`'s single matcher (`rule_patterns`/`narration_matches`) still serves import, preview and apply alike, unchanged in that respect.
+- Rule review's subsumption analysis was generalized (not rewritten) to the same containment rule applied to two OR'd pattern sets instead of two bare strings; a regex rule (either side) is deliberately excluded from the analysis entirely, since containment between two arbitrary regexes isn't decidable in general.
+- An invalid regex is rejected with a 422 at save time and by Check matches, naming the specific pattern that failed - never saved silently as a rule that matches nothing.
+
+## [0.29.0] - 2026-09-26
+
+Roadmap item T3.1 (`ROADMAP.md`), the first Tier 3 item - the forecast projection already existed; the unanswered question was "what if this subscription stops, or this category drops 20%".
+
+### Added
+
+- **Forecast scenarios** - a non-destructive "what if" overlay on `/forecast`'s existing projection (`services/forecast.py`), never a stored adjustment to real data. Stop a recurring commitment for this projection only (deliberately not the same as dismissing it - a scenario-stopped series still counts toward the everyday run-rate exclusion, since it genuinely did happen), and/or adjust a category's everyday spending by a percentage, decomposed from the exact same run-rate window `daily_run_rates()` already computes (`category_daily_rates()`) so it can never silently disagree with the baseline figure.
+- `POST /api/forecast/scenario` - same response shape as `GET /forecast`, so the frontend can diff the two directly. Nothing is ever written to the database; the identical scenario always returns the identical answer.
+- The Forecast page's chart swaps to a direct baseline-vs-scenario comparison (baseline muted) while a scenario is active, plus a one-line summary of the projected difference.
+
+## [0.28.0] - 2026-09-26
+
+Roadmap item T2.5 (`ROADMAP.md`), the last of Tier 2 - Findings 9, 13/17, 14: a flat nine-link nav, a ledger that only ever horizontally-scrolled on a phone, and charts whose only hover feedback was a native, unstyled, mouse-only `<title>` tooltip.
+
+### Added
+
+- **Grouped navigation** - `pageRegistry.jsx` pages now declare a `group` (*Money*, *Plan*, *Insight*, *Setup*); the nav clusters them accordingly, with Home and the new Alerts link (both cross-cutting, not content areas) staying standalone. Stacks into full-width rows below 900px.
+- **Responsive ledger tables** - the ledger's plain and grouped-by-merchant tables both become one card per row below 700px instead of forcing horizontal scroll, via a visually-hidden `<thead>` (still real column headers for a screen reader) and per-`<td>` `data-label`s restored as `::before` content.
+- **Shared chart tooltip** (`components/charts/ChartTooltip.jsx`) for `LineChart`/`BarChart` - a themed HTML tooltip layered over the existing native `<title>` (left untouched), positioned from the hovered element's real screen rect. Fires on hover for every point/bar, and additionally on keyboard focus for whichever are already focusable (the drill-down-enabled ones) - a keyboard user gets the same tooltip a mouse user does, without adding a new Tab stop to every chart.
+
+## [0.27.0] - 2026-09-26
+
+Roadmap item T2.4 (`ROADMAP.md`) - Finding 6: over-budget categories, a subscription's price rise, a missed bill, a coverage gap, an unmatched transfer are all already computed somewhere in the app, but none of them is surfaced unless you happen to visit the right page.
+
+### Added
+
+- **Alerts feed** (`/alerts`, plus an "Alerts (N)" badge on the nav link) - `services/alerts.py` assembles four EXISTING computations (over-budget categories, `recurring.detect_series`'s missed/stopped and price-change signals, `coverage.account_coverage_gaps`, `transfer_matching.unmatched_transfer_legs`) into one feed. No new detection anywhere - this module only queries and wraps.
+- **Dismissible, and stays dismissed.** A recurring-sourced alert reuses the *existing* `POST /recurring/dismissals` mechanism verbatim, rather than a second, parallel dismissal system for something `/recurring` already has one of. The other three kinds share one new, generic `AlertDismissal` table, keyed on a deterministic string built from the alert's own identity (e.g. `over_budget:{category_id}:{year}:{month}`) - a different occurrence of the same *kind* of problem is never silently suppressed by an old dismissal of a different one.
+- `GET /api/alerts`, `POST`/`DELETE /api/alerts/dismissals` (the generic path); the recurring path is the pre-existing `/api/recurring/dismissals`.
+
+## [0.26.0] - 2026-09-26
+
+Roadmap item T2.3 (`ROADMAP.md`) - Finding 5: each leg of a transfer is categorized independently and nothing pairs them, so a single mis-categorized leg silently inflates both spending and income.
+
+### Added
+
+- **Transfer Matching** card on `/transactions` (`GET /api/transfers`) - surfaces candidate transfer pairs whose categorization doesn't (yet) agree they're a transfer, and any transfer-categorized transaction with no matching counterpart. Never recategorizes anything automatically - the same "surface it, don't guess" posture as balance-sign inference.
+- `services/transfer_matching.py` - matches two transactions across two *different* accounts with exactly opposite amounts within a few days of each other, by amount and date proximity alone (deliberately not narration - each side of a real transfer is usually worded differently by its own bank). A same-account equal-and-opposite pair (a purchase and its refund) is never matched, and each transaction is used in at most one pair.
+- `GET /api/transfers` returns both signals in one response: `matches` (candidate pairs, flagged `both_categorized_as_transfer`) and `unmatched` (transfer-categorized legs with no counterpart).
+
+## [0.25.0] - 2026-09-26
+
+Roadmap item T2.2 (`ROADMAP.md`) - Finding 3: the preset household is paid fortnightly, and three months a year hold three pay cycles, which a strictly calendar-monthly budget mis-states in both directions.
+
+### Added
+
+- **Pay Period Budgeting** card (`/categories`, below Monthly Budgets) - a fortnightly VIEW over the existing monthly budgets, not a second, independently-edited budget period (per the roadmap's own recommendation, since making the budget period itself configurable would touch reporting/trends/dashboard's month-bounds assumptions throughout). Set one household-wide payday (`PaySchedule.anchor_date`, a new single-row table) and every expense category's standing monthly budget is rescaled to a fortnightly pace (`amount * 12 / 26`, the real pay-calendar convention) and compared against that fortnight's actual spending, with Previous/Next navigation between periods.
+- `services/pay_periods.py` - `pay_period_bounds()` counts whole 14-day steps forward/backward from the anchor, correct across a three-pay month and a calendar-year boundary alike (both are exactly what the roadmap's own acceptance criteria asked for). Pacing deliberately reads only a category's STANDING budget, never a monthly override - a fortnight can straddle two different months, each with its own override, and there's no principled way to pick one; documented as a limitation, not an oversight.
+- `GET`/`PUT /api/pay-schedule` and `GET /api/pay-periods` (optional `reference_date`) - the latter always answers `{"configured": false}` rather than 404ing when no payday has been set, so the frontend never needs special-case error handling for "not set up yet". The pay schedule is included in the JSON database backup ([T1.4](README.md#exporting)).
+
+## [0.24.0] - 2026-09-25
+
+Roadmap item T2.1 (`ROADMAP.md`) - Finding 2, the biggest conceptual gap between a spending reporter and a budgeting tool: $100/month toward $1,200 of annual car registration used to read as eleven quiet months and one catastrophic one, because nothing accumulated.
+
+### Added
+
+- **Budget rollover (sinking funds)** - a per-category opt-in ("Roll unspent budget into next month" on `/categories`). Unspent budget accumulates into next month's available amount; overspend carries forward as a deficit. `Category.rolls_over` plus `rollover_start_year`/`rollover_start_month` (stamped automatically the moment it's switched on, cleared when switched off - not the category's creation date, which could predate opting in by years and would make the very first accumulation walk arbitrarily expensive and arbitrarily large).
+- `services/budgets.rollover_available()` / `rollover_history()` - a new, deliberately separate resolver from `effective_budget()`: "what's available including everything carried forward" is a different question from "what's this month's own nominal budget," and every existing caller of `effective_budget()` is completely unaffected by rollover's existence. `CategoryPeriodTotal.available_amount` (new, `None` for every non-rollover category) and `difference` (now computed against `available_amount` when present) carry this into `/reports` and `/budgets` - a rollover category's over/under-budget reading reflects its accumulated carry-in, which is the entire point of the feature.
+- Monthly Budgets (`/categories`) gained an **Available** column and a "rolls over" badge, shown alongside - never instead of - the month's own standing/effective figures, so the two numbers can't be confused with each other. `/reports`' Budget vs Actual table gained the same badge with its accumulated figure inline, since its Difference column is silently computed against that number for a rollover category, not the bare Budget figure shown next to it.
+- **Known scope limit, recorded rather than solved**: `/trends`' multi-month grid (`category_grid`) still shows the nominal, non-accumulated budget line for a rollover category - it has no "difference"/over-under concept to begin with, unlike `/reports` and `/budgets`, so extending it wasn't part of what this task's acceptance criteria actually needed.
+
+
 
 Roadmap item T1.6 (`ROADMAP.md`), and the last of the Tier 1 roadmap items - Finding 11: nine destinations and thousands of transactions, with navigation by scanning a flat link row.
 

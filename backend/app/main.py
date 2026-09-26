@@ -6,7 +6,7 @@ from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import account_groups, accounts, budgets, categories, category_rules, csv_formats, dashboard, export, forecast, goals, net_worth, recurring, reports, transactions, trends, version
+from .api import account_groups, accounts, alerts, budgets, categories, category_rules, csv_formats, dashboard, export, forecast, goals, net_worth, pay_periods, recurring, reports, transactions, transfer_matching, trends, version
 from .database import settings
 from .version import get_commit, get_version
 
@@ -150,6 +150,21 @@ app.include_router(
 
 app.include_router(
     export.router,
+    prefix="/api"
+)
+
+app.include_router(
+    pay_periods.router,
+    prefix="/api"
+)
+
+app.include_router(
+    transfer_matching.router,
+    prefix="/api"
+)
+
+app.include_router(
+    alerts.router,
     prefix="/api"
 )
 

@@ -1,3 +1,4 @@
+import ChartTooltip, { useChartTooltip } from './ChartTooltip.jsx'
 import { CHART_HEIGHT, CHART_MARGIN, CHART_WIDTH, seriesColor } from './chartConstants.js'
 import { computeDomain, linearScale, niceTicks } from './chartScale.js'
 
@@ -34,6 +35,8 @@ export default function BarChart({
   onSelectBar = null,
 }) {
 
+  const { containerRef, tooltip, showTooltip, hideTooltip } = useChartTooltip()
+
   const allValues = series.flatMap((s) => s.values)
   const domain = computeDomain(allValues, { includeZero: true })
 
@@ -51,7 +54,8 @@ export default function BarChart({
   const barWidth = barsAreaWidth / series.length
 
   return (
-    <div>
+    <div className="chart-container" ref={containerRef}>
+      <ChartTooltip tooltip={tooltip} />
       <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} role="img" aria-label={title}>
         <g transform={`translate(${CHART_MARGIN.left}, ${CHART_MARGIN.top})`}>
           {ticks.map((tick) => (
@@ -88,6 +92,8 @@ export default function BarChart({
                       width={Math.max(barWidth - 2, 1)}
                       height={barHeight}
                       fill={seriesColor(seriesIndex)}
+                      onMouseEnter={(event) => showTooltip(event, description)}
+                      onMouseLeave={hideTooltip}
                     >
                       <title>{description}</title>
                     </rect>
@@ -96,7 +102,9 @@ export default function BarChart({
 
                 return (
                   // A real, keyboard-reachable button - see LineChart's own
-                  // point circles for the identical reasoning.
+                  // point circles for the identical reasoning, including
+                  // onFocus/onBlur mirroring onMouseEnter/onMouseLeave so
+                  // the shared tooltip also appears for keyboard navigation.
                   <rect
                     key={s.label}
                     x={barX}
@@ -115,6 +123,10 @@ export default function BarChart({
                         onSelectBar({ series: s, seriesIndex, periodIndex, period, value })
                       }
                     }}
+                    onMouseEnter={(event) => showTooltip(event, description)}
+                    onMouseLeave={hideTooltip}
+                    onFocus={(event) => showTooltip(event, description)}
+                    onBlur={hideTooltip}
                   >
                     <title>{description}</title>
                   </rect>

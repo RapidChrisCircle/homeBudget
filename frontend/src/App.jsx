@@ -2,9 +2,10 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import './App.css'
 import CommandPalette from './components/CommandPalette.jsx'
+import ToastContainer from './components/ToastContainer.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
-import { pages } from './pageRegistry.jsx'
+import { PAGE_GROUP_ORDER, pages } from './pageRegistry.jsx'
 import { api, getMultipleBuildsDetected, subscribeToBuildIdentity } from './services/api'
 import { useTheme } from './useTheme.js'
 import { getAppVersion, getGitSha } from './version.js'
@@ -13,10 +14,11 @@ function navLinkClassName({ isActive }) {
   return isActive ? 'active' : undefined
 }
 
-function PageLink({ page }) {
+function PageLink({ page, badge }) {
   return (
     <NavLink to={page.path} className={navLinkClassName}>
       {page.label}
+      {Boolean(badge) && ` (${badge})`}
     </NavLink>
   )
 }
@@ -32,6 +34,16 @@ function App() {
   // they still get wired into the router below, but don't show up as a
   // literal ":id" link in the nav or the home page list.
   const visiblePages = pages.filter((page) => !page.hidden)
+
+  // Grouped nav (Finding 9: nine ungrouped peers forced a scan every time).
+  // A page with no `group` (just Alerts, currently) renders as its own
+  // standalone link instead, the same way Home does - both are cross-
+  // cutting rather than a content area, so grouping them WITH the content
+  // they might point at would be the wrong hierarchy, not a missing one.
+  const ungroupedPages = visiblePages.filter((page) => !page.group)
+  const navGroups = PAGE_GROUP_ORDER
+    .map((group) => ({ group, pages: visiblePages.filter((page) => page.group === group) }))
+    .filter((entry) => entry.pages.length > 0)
 
   const appVersion = getAppVersion()
   const gitSha = getGitSha()
@@ -54,6 +66,33 @@ function App() {
   // possibly-several API containers answered each individual request -
   // useSyncExternalStore is what makes a change there re-render here.
   const multipleBuildsDetected = useSyncExternalStore(subscribeToBuildIdentity, getMultipleBuildsDetected)
+
+  // Fetched once on mount, the same way apiVersion is - not re-fetched on
+  // navigation or after dismissing an alert on /alerts itself, so the count
+  // can go briefly stale right after a dismissal. A background poll or a
+  // shared store would fix that, but neither exists anywhere else in this
+  // app (every widget already reads its own data live rather than sharing
+  // state), so this doesn't introduce one just for a nav badge.
+  const [alertsCount, setAlertsCount] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    api.get('/alerts')
+      .then((response) => {
+        if (!cancelled) {
+          setAlertsCount(response.data.count)
+        }
+      })
+      .catch(() => {
+        // A failed count fetch just means no badge - the /alerts page
+        // itself still shows its own real error state.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -93,6 +132,7 @@ function App() {
   return (
     <main className="app-shell">
       <CommandPalette />
+      <ToastContainer />
       <header className="header">
         <div className="header-brand">
           <h1>homeBudget</h1>
@@ -112,8 +152,16 @@ function App() {
           <NavLink to="/" end className={navLinkClassName}>
             Home
           </NavLink>
-          {visiblePages.map((page) => (
-            <PageLink key={page.path} page={page} />
+          {ungroupedPages.map((page) => (
+            <PageLink key={page.path} page={page} badge={page.path === '/alerts' ? alertsCount : null} />
+          ))}
+          {navGroups.map(({ group, pages: groupPages }) => (
+            <div className="nav-group" key={group}>
+              <span className="nav-group-label">{group}</span>
+              {groupPages.map((page) => (
+                <PageLink key={page.path} page={page} />
+              ))}
+            </div>
           ))}
         </nav>
       </header>

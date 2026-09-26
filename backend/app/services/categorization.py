@@ -3,7 +3,13 @@
 Matching semantics, in one place so import, apply and preview cannot drift:
 
 - narration_pattern is a case-insensitive substring ("contains") match and is
-  always required.
+  always required. A rule can OR in extra patterns via additional_patterns
+  (Rules v2, T3.2) - the narration criterion is satisfied if it matches
+  narration_pattern OR any pattern in additional_patterns. A rule with no
+  additional_patterns behaves exactly as it always has - this is additive.
+- use_regex (also Rules v2) switches every pattern above from a substring
+  check to a case-insensitive regex search (re.search, unanchored) - still
+  ORed together the same way. Defaults to False.
 - transaction_type, min_amount and max_amount are optional. Every populated
   criterion must match - criteria are ANDed.
 - Amounts are compared against the ABSOLUTE value of whichever of debit/credit
@@ -36,12 +42,52 @@ callers avoids the "preview said 12, apply did 9" class of bug, and sidesteps
 LIKE wildcard escaping for user-supplied patterns.
 """
 
+import re
 from decimal import Decimal
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..models import CategoryRule, Transaction
+
+
+def rule_patterns(narration_pattern: str, additional_patterns: list[str] | None) -> list[str]:
+    """Every pattern a rule matches against, ORed together - narration_pattern
+    plus any additional_patterns (Rules v2), normalized (stripped, blanks
+    dropped). A rule created before Rules v2 (additional_patterns is None)
+    reduces to exactly [narration_pattern], the same single pattern it has
+    always had.
+    """
+
+    candidates = [narration_pattern, *(additional_patterns or [])]
+    return [p.strip() for p in candidates if p and p.strip()]
+
+
+def narration_matches(patterns: list[str], use_regex: bool, narration: str) -> bool:
+    """True if `narration` matches ANY of `patterns` - substring (case-
+    insensitive) by default, or case-insensitive regex search (unanchored)
+    when use_regex. An empty pattern list never matches.
+    """
+
+    if not patterns:
+        return False
+
+    text = narration or ""
+
+    if use_regex:
+        for pattern in patterns:
+            try:
+                if re.search(pattern, text, re.IGNORECASE):
+                    return True
+            except re.error:
+                # Validated at write time (api/category_rules.py) - an
+                # invalid regex reaching here matches nothing rather than
+                # raising, as a defensive fallback only.
+                continue
+        return False
+
+    lowered = text.lower()
+    return any(pattern.lower() in lowered for pattern in patterns)
 
 
 def _row_amount(debit: Decimal | None, credit: Decimal | None) -> Decimal | None:
@@ -75,6 +121,8 @@ def load_rules(db: Session) -> list[CategoryRule]:
 def criteria_match(
     *,
     narration_pattern: str,
+    additional_patterns: list[str] | None = None,
+    use_regex: bool = False,
     transaction_type: str | None,
     min_amount: Decimal | None,
     max_amount: Decimal | None,
@@ -89,12 +137,9 @@ def criteria_match(
     evaluate an unsaved rule without building a throwaway ORM object.
     """
 
-    pattern = (narration_pattern or "").strip().lower()
+    patterns = rule_patterns(narration_pattern, additional_patterns)
 
-    if not pattern:
-        return False
-
-    if pattern not in (narration or "").lower():
+    if not narration_matches(patterns, use_regex, narration):
         return False
 
     if transaction_type is not None and transaction_type.strip():
@@ -130,6 +175,8 @@ def rule_matches(
 
     return criteria_match(
         narration_pattern=rule.narration_pattern,
+        additional_patterns=rule.additional_patterns,
+        use_regex=rule.use_regex,
         transaction_type=rule.transaction_type,
         min_amount=rule.min_amount,
         max_amount=rule.max_amount,
@@ -268,6 +315,8 @@ def preview_rule(
     db: Session,
     *,
     narration_pattern: str,
+    additional_patterns: list[str] | None = None,
+    use_regex: bool = False,
     transaction_type: str | None = None,
     min_amount: Decimal | None = None,
     max_amount: Decimal | None = None,
@@ -291,6 +340,8 @@ def preview_rule(
 
         if not criteria_match(
             narration_pattern=narration_pattern,
+            additional_patterns=additional_patterns,
+            use_regex=use_regex,
             transaction_type=transaction_type,
             min_amount=min_amount,
             max_amount=max_amount,

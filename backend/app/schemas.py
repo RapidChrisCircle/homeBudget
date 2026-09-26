@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, computed_field, field_validator
 
 from .services.narration import merchant_label as _merchant_label
 
@@ -96,6 +96,9 @@ class CategoryResponse(BaseModel):
     parent_id: Optional[int]
     parent_name: Optional[str]
     archived: bool
+    rolls_over: bool
+    rollover_start_year: Optional[int]
+    rollover_start_month: Optional[int]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -106,6 +109,7 @@ class CategoryCreate(BaseModel):
     kind: str = "expense"
     budget_amount: Optional[Decimal] = None
     parent_id: Optional[int] = None
+    rolls_over: bool = False
 
 
 class CategoryUpdate(BaseModel):
@@ -114,6 +118,7 @@ class CategoryUpdate(BaseModel):
     kind: str = "expense"
     budget_amount: Optional[Decimal] = None
     parent_id: Optional[int] = None
+    rolls_over: bool = False
 
 
 class CategoryBulkDelete(BaseModel):
@@ -225,6 +230,11 @@ class CategoryRuleResponse(BaseModel):
 
     id: int
     narration_pattern: str
+    # Rules v2 (T3.2) - both default to "off"/"empty" for a pre-v2 rule, so
+    # nothing about an existing rule's response shape reads differently
+    # unless it has actually opted in.
+    additional_patterns: list[str] = []
+    use_regex: bool = False
     transaction_type: Optional[str]
     min_amount: Optional[Decimal]
     max_amount: Optional[Decimal]
@@ -236,10 +246,21 @@ class CategoryRuleResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator("additional_patterns", mode="before")
+    @classmethod
+    def _default_additional_patterns(cls, value):
+        # The column is nullable (models.py) - NULL means "no additional
+        # patterns", identical in meaning to an empty list, never a
+        # validation error. Every rule created before Rules v2 has NULL
+        # here.
+        return value if value is not None else []
+
 
 class CategoryRuleCreate(BaseModel):
 
     narration_pattern: str
+    additional_patterns: list[str] = []
+    use_regex: bool = False
     transaction_type: Optional[str] = None
     min_amount: Optional[Decimal] = None
     max_amount: Optional[Decimal] = None
@@ -249,6 +270,8 @@ class CategoryRuleCreate(BaseModel):
 class CategoryRuleUpdate(BaseModel):
 
     narration_pattern: str
+    additional_patterns: list[str] = []
+    use_regex: bool = False
     transaction_type: Optional[str] = None
     min_amount: Optional[Decimal] = None
     max_amount: Optional[Decimal] = None
@@ -263,6 +286,8 @@ class CategoryRuleMove(BaseModel):
 class CategoryRulePreviewRequest(BaseModel):
 
     narration_pattern: str
+    additional_patterns: list[str] = []
+    use_regex: bool = False
     transaction_type: Optional[str] = None
     min_amount: Optional[Decimal] = None
     max_amount: Optional[Decimal] = None
@@ -602,6 +627,11 @@ class BudgetLineResponse(BaseModel):
     parent_id: Optional[int]
     parent_name: Optional[str]
     budget_amount: Optional[Decimal]
+    # None unless this category has budget rollover switched on - see
+    # Category.rolls_over and services.budgets.rollover_available(). When
+    # present, `difference` above is computed against THIS, not
+    # budget_amount - see CategoryPeriodTotal.difference's own docstring.
+    available_amount: Optional[Decimal]
     actual: Decimal
     difference: Optional[Decimal]
     transaction_count: int
@@ -852,6 +882,10 @@ class BudgetPeriodCategoryResponse(BaseModel):
     override_amount: Optional[Decimal]
     effective_amount: Optional[Decimal]
     is_overridden: bool
+    rolls_over: bool
+    # None unless rolls_over is true - the accumulated carry-in plus this
+    # month's own effective_amount. See CategoryPeriodTotal.available_amount.
+    available_amount: Optional[Decimal]
     actual: Decimal
     difference: Optional[Decimal]
 
@@ -889,6 +923,113 @@ class BudgetCopyRequest(BaseModel):
 class BudgetCopyResponse(BaseModel):
 
     copied_count: int
+
+
+class PayScheduleResponse(BaseModel):
+
+    configured: bool
+    anchor_date: Optional[date]
+
+
+class PayScheduleUpdate(BaseModel):
+
+    anchor_date: date
+
+
+class PayPeriodCategoryResponse(BaseModel):
+
+    category_id: int
+    category_name: str
+    parent_id: Optional[int]
+    parent_name: Optional[str]
+    standing_budget: Optional[Decimal]
+    pace: Optional[Decimal]
+    actual: Decimal
+    difference: Optional[Decimal]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PayPeriodSummaryResponse(BaseModel):
+
+    total_income: Decimal
+    total_spending: Decimal
+    net_saved: Decimal
+
+
+class PayPeriodResponse(BaseModel):
+
+    configured: bool
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    label: Optional[str] = None
+    categories: list[PayPeriodCategoryResponse] = []
+    summary: Optional[PayPeriodSummaryResponse] = None
+
+
+class TransferMatchResponse(BaseModel):
+
+    leg_a_id: int
+    leg_a_account_id: int
+    leg_a_account_name: str
+    leg_a_date: date
+    leg_b_id: int
+    leg_b_account_id: int
+    leg_b_account_name: str
+    leg_b_date: date
+    amount: Decimal
+    both_categorized_as_transfer: bool
+
+
+class UnmatchedTransferLegResponse(BaseModel):
+
+    transaction_id: int
+    account_id: int
+    account_name: str
+    transaction_date: date
+    narration: str
+    # Signed, matching how the ledger itself displays this row.
+    amount: Decimal
+
+
+class TransferMatchingResponse(BaseModel):
+
+    matches: list[TransferMatchResponse]
+    unmatched: list[UnmatchedTransferLegResponse]
+
+
+class AlertResponse(BaseModel):
+
+    key: str
+    kind: str
+    title: str
+    detail: str
+    amount: Optional[Decimal]
+    link: Optional[str]
+    dismiss_kind: str
+    recurring_account_id: Optional[int] = None
+    recurring_narration_key: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AlertsResponse(BaseModel):
+
+    alerts: list[AlertResponse]
+    count: int
+
+
+class AlertDismissalCreate(BaseModel):
+
+    alert_key: str
+
+
+class AlertDismissalResponse(BaseModel):
+
+    id: int
+    alert_key: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ForecastPeriodResponse(BaseModel):
@@ -929,6 +1070,10 @@ class ForecastUpcomingResponse(BaseModel):
 
     due_date: date
     account_id: int
+    # Identifies which recurring series this occurrence belongs to
+    # ((account_id, narration_key), the same natural key RecurringDismissal
+    # uses) - what a forecast scenario's stopped_series entries target.
+    narration_key: str
     merchant: str
     amount: Decimal
     direction: str
@@ -943,6 +1088,26 @@ class ForecastResponse(BaseModel):
     accounts: list[ForecastAccountResponse]
     combined: Optional[ForecastCombinedResponse]
     upcoming: list[ForecastUpcomingResponse]
+
+
+class ForecastStoppedSeriesRequest(BaseModel):
+
+    account_id: int
+    narration_key: str
+
+
+class ForecastCategoryAdjustmentRequest(BaseModel):
+
+    category_id: int
+    # -20 means "this category's spending drops 20%"; +15 means "rises 15%".
+    percent: Decimal
+
+
+class ForecastScenarioRequest(BaseModel):
+
+    months: int = 3
+    stopped_series: list[ForecastStoppedSeriesRequest] = []
+    category_adjustments: list[ForecastCategoryAdjustmentRequest] = []
 
 
 class VersionResponse(BaseModel):

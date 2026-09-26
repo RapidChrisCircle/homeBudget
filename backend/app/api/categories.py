@@ -21,6 +21,8 @@ docstring covers the semantics; the endpoints here only translate its
 RestructureError into a status code.
 """
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -100,6 +102,26 @@ def _validate_category_payload(db: Session, payload, category: Category | None =
     # kind - it groups its children, it doesn't carry a budget of its own.
     if payload.kind != "expense" or has_children:
         payload.budget_amount = None
+        payload.rolls_over = False
+
+
+def _apply_rollover_transition(category: Category, was_rolling_over: bool) -> None:
+    """Stamps rollover_start_year/month the moment rolls_over flips
+    False->True, and clears them back to None on True->False - see
+    Category.rolls_over's own docstring in models.py for why the moment of
+    the flip, not category creation or a user-supplied date, is the epoch
+    accumulation walks forward from. Called AFTER category.rolls_over has
+    already been set to its new value, with `was_rolling_over` captured
+    beforehand - so it only fires on an actual transition, not every save.
+    """
+
+    if category.rolls_over and not was_rolling_over:
+        today = date.today()
+        category.rollover_start_year = today.year
+        category.rollover_start_month = today.month
+    elif not category.rolls_over and was_rolling_over:
+        category.rollover_start_year = None
+        category.rollover_start_month = None
 
 
 @router.get("/categories", response_model=list[CategoryResponse])
@@ -129,6 +151,7 @@ def create_category(
     _validate_category_payload(db, payload)
 
     category = Category(**payload.model_dump())
+    _apply_rollover_transition(category, was_rolling_over=False)
     db.add(category)
 
     try:
@@ -317,8 +340,12 @@ def update_category(
 
     _validate_category_payload(db, payload, category=category)
 
+    was_rolling_over = category.rolls_over
+
     for field, value in payload.model_dump().items():
         setattr(category, field, value)
+
+    _apply_rollover_transition(category, was_rolling_over)
 
     try:
         db.commit()

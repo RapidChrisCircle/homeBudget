@@ -60,6 +60,32 @@ categorized reporting - do not "fix" it to match reporting.py.
 An account with no transactions at all is omitted from the forecast, not
 shown starting from a $0 balance - ledger.account_balances() already only
 returns accounts with at least one transaction, so this falls out for free.
+
+Scenarios (T3.1) are a NON-DESTRUCTIVE OVERLAY on top of the same
+computation above - never a stored adjustment to real data, and never a
+second, parallel projection algorithm. project() takes two optional,
+independently-usable parameters:
+
+- `stopped_series_keys` - (account_id, narration_key) pairs to treat as
+  ended for this one projection only, regardless of their real detected
+  status. This is a DIFFERENT question from RecurringDismissal ("this isn't
+  really recurring, fold its spend into the everyday run rate") - a stopped
+  scenario series is still exactly as recurring as ever, this projection
+  just hypothesises it stops. The two are never conflated: a stopped-in-
+  scenario series still counts toward the real run-rate exclusion set,
+  because its future occurrences not happening is the hypothesis, not a
+  retroactive claim that its past occurrences were never really recurring.
+- `category_adjustments` - {category_id: percent} where -20 means "this
+  category's spending drops 20%". Applied to `daily_run_rates`' OWN output
+  via `category_daily_rates()`'s per-category decomposition of the exact
+  same run-rate window and exclusion rule - never a second, independently
+  computed run rate that could silently disagree with the baseline one.
+  category_daily_rates() groups by Transaction.category_id directly (not
+  services.allocations' allocation-aware view), so a split transaction's
+  allocated categories are NOT reflected in a scenario's per-category
+  breakdown - a known, documented approximation, consistent with a
+  "what if" tool being inherently approximate rather than a second reporting
+  surface needing allocation-level precision.
 """
 
 from collections import defaultdict
@@ -131,6 +157,87 @@ def daily_run_rates(db: Session, as_of: date, series: list[RecurringSeries]) -> 
     return {account_id: total / window_days for account_id, total in totals.items()}
 
 
+def category_daily_rates(db: Session, as_of: date, series: list[RecurringSeries]) -> dict[int, dict[int, Decimal]]:
+    """{account_id: {category_id: signed daily rate}} - the SAME window and
+    exclusion rule as daily_run_rates(), just also grouped by category, so a
+    scenario's category_adjustments can be applied without a second,
+    independently-computed run rate. Only categorized rows count - an
+    uncategorized transaction (or a split's own allocations - see module
+    docstring) has no category_id here to attribute it to, and stays part of
+    the baseline daily_run_rates() figure untouched by any category
+    adjustment.
+    """
+
+    anchor = date(as_of.year, as_of.month, 1)
+    window_start_month = _add_months(anchor, -RUN_RATE_LOOKBACK_MONTHS)
+    window_start, _ = month_bounds(window_start_month.year, window_start_month.month)
+    window_end, _ = month_bounds(as_of.year, as_of.month)
+
+    excluded_keys = {(s.account_id, s.narration_key) for s in series}
+
+    rows = (
+        db.query(
+            Transaction.account_id, Transaction.category_id, Transaction.narration,
+            Transaction.debit, Transaction.credit,
+        )
+        .filter(
+            Transaction.account_id.isnot(None),
+            Transaction.category_id.isnot(None),
+            Transaction.transaction_date >= window_start,
+            Transaction.transaction_date < window_end,
+        )
+        .all()
+    )
+
+    totals: dict[int, dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+
+    for row in rows:
+        if (row.account_id, narration_key(row.narration)) in excluded_keys:
+            continue
+        totals[row.account_id][row.category_id] += Decimal(row.debit or 0) + Decimal(row.credit or 0)
+
+    window_days = (window_end - window_start).days
+
+    return {
+        account_id: {category_id: total / window_days for category_id, total in per_category.items()}
+        for account_id, per_category in totals.items()
+    }
+
+
+def apply_category_adjustments(
+    daily_rates: dict[int, Decimal],
+    category_rates: dict[int, dict[int, Decimal]],
+    adjustments: dict[int, Decimal],
+) -> dict[int, Decimal]:
+    """Folds a scenario's {category_id: percent} adjustments into the
+    baseline per-account daily rate. -20 means "this category's slice of the
+    daily rate shrinks by 20%" - the delta added to that account's total is
+    slice * (percent / 100), NOT a replacement of the whole account rate, so
+    every OTHER category's (and every uncategorized transaction's)
+    contribution is completely unaffected. Returns `daily_rates` itself,
+    unmodified, when there are no adjustments - the common case, and the
+    exact object callers already treat as the baseline.
+    """
+
+    if not adjustments:
+        return daily_rates
+
+    adjusted = dict(daily_rates)
+
+    for account_id, per_category in category_rates.items():
+        for category_id, rate in per_category.items():
+
+            percent = adjustments.get(category_id)
+
+            if percent is None:
+                continue
+
+            delta = rate * (percent / Decimal("100"))
+            adjusted[account_id] = adjusted.get(account_id, Decimal("0")) + delta
+
+    return adjusted
+
+
 def _future_occurrences(series: RecurringSeries, as_of: date, horizon_end: date) -> list[date]:
     """Every date `series` is expected to recur on, from the first
     occurrence at or after as_of through horizon_end inclusive. Steps past
@@ -153,9 +260,17 @@ def _future_occurrences(series: RecurringSeries, as_of: date, horizon_end: date)
     return occurrences
 
 
-def project(db: Session, months: int = DEFAULT_FORECAST_MONTHS) -> dict:
+def project(
+    db: Session,
+    months: int = DEFAULT_FORECAST_MONTHS,
+    stopped_series_keys: frozenset[tuple[int, str]] = frozenset(),
+    category_adjustments: dict[int, Decimal] | None = None,
+) -> dict:
     """Everything /forecast needs, built from one consistent snapshot of the
-    ledger - see module docstring for the modelling decisions.
+    ledger - see module docstring for the modelling decisions, and for what
+    `stopped_series_keys`/`category_adjustments` do (both default to "no
+    scenario", producing exactly the baseline projection every existing
+    caller already gets).
     """
 
     as_of = latest_transaction_date(db)
@@ -169,6 +284,12 @@ def project(db: Session, months: int = DEFAULT_FORECAST_MONTHS) -> dict:
 
     series = detect_series(db)  # dismissed excluded by default - see module docstring
     run_rates = daily_run_rates(db, as_of, series)
+
+    if category_adjustments:
+        run_rates = apply_category_adjustments(
+            run_rates, category_daily_rates(db, as_of, series), category_adjustments
+        )
+
     balances = account_balances(db)
     account_names = dict(db.query(Account.id, Account.name).all())
 
@@ -182,6 +303,14 @@ def project(db: Session, months: int = DEFAULT_FORECAST_MONTHS) -> dict:
         if s.status == "ended":
             continue
 
+        # A scenario's stopped series is still exactly as recurring as ever
+        # for the run-rate exclusion above (it did happen historically) -
+        # only its FUTURE occurrences in THIS projection are hypothesised
+        # away. See module docstring for why this is deliberately not the
+        # same thing as a RecurringDismissal.
+        if (s.account_id, s.narration_key) in stopped_series_keys:
+            continue
+
         direction_key = "in" if s.direction == "inflow" else "out"
 
         for occurrence in _future_occurrences(s, as_of, horizon_end):
@@ -191,6 +320,7 @@ def project(db: Session, months: int = DEFAULT_FORECAST_MONTHS) -> dict:
             upcoming.append({
                 "due_date": occurrence,
                 "account_id": s.account_id,
+                "narration_key": s.narration_key,
                 "merchant": s.merchant,
                 "amount": s.typical_amount,
                 "direction": s.direction,

@@ -94,6 +94,107 @@ def test_budget_amount_cleared_for_non_expense_kind(client):
     assert response.json()["budget_amount"] is None
 
 
+def test_create_category_with_rolls_over_stamps_the_current_month_as_start(client):
+
+    today = date.today()
+
+    response = client.post(
+        "/api/categories",
+        json={"name": "Rego", "kind": "expense", "budget_amount": "100.00", "rolls_over": True},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["rolls_over"] is True
+    assert body["rollover_start_year"] == today.year
+    assert body["rollover_start_month"] == today.month
+
+
+def test_create_category_without_rolls_over_has_no_start(client):
+
+    body = client.post("/api/categories", json={"name": "Groceries"}).json()
+
+    assert body["rolls_over"] is False
+    assert body["rollover_start_year"] is None
+    assert body["rollover_start_month"] is None
+
+
+def test_rolls_over_cleared_for_non_expense_kind(client):
+
+    response = client.post(
+        "/api/categories",
+        json={"name": "Salary", "kind": "income", "rolls_over": True},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["rolls_over"] is False
+    assert body["rollover_start_year"] is None
+
+
+def test_update_category_turning_rollover_on_stamps_start(client):
+
+    category_id = client.post(
+        "/api/categories", json={"name": "Rego", "kind": "expense", "budget_amount": "100.00"}
+    ).json()["id"]
+    today = date.today()
+
+    response = client.put(
+        f"/api/categories/{category_id}",
+        json={"name": "Rego", "kind": "expense", "budget_amount": "100.00", "rolls_over": True},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["rolls_over"] is True
+    assert body["rollover_start_year"] == today.year
+    assert body["rollover_start_month"] == today.month
+
+
+def test_update_category_turning_rollover_off_clears_start(client):
+
+    category_id = client.post(
+        "/api/categories",
+        json={"name": "Rego", "kind": "expense", "budget_amount": "100.00", "rolls_over": True},
+    ).json()["id"]
+
+    response = client.put(
+        f"/api/categories/{category_id}",
+        json={"name": "Rego", "kind": "expense", "budget_amount": "100.00", "rolls_over": False},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["rolls_over"] is False
+    assert body["rollover_start_year"] is None
+    assert body["rollover_start_month"] is None
+
+
+def test_update_category_leaving_rollover_on_does_not_restamp_start(client, db_session):
+
+    category_id = client.post(
+        "/api/categories",
+        json={"name": "Rego", "kind": "expense", "budget_amount": "100.00", "rolls_over": True},
+    ).json()["id"]
+
+    # Backdate the recorded start, as if this had been switched on months
+    # ago - a later, unrelated edit (renaming) must not reset it to "now".
+    category = db_session.get(Category, category_id)
+    category.rollover_start_year = 2026
+    category.rollover_start_month = 1
+    db_session.commit()
+
+    response = client.put(
+        f"/api/categories/{category_id}",
+        json={"name": "Car Registration", "kind": "expense", "budget_amount": "100.00", "rolls_over": True},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["rollover_start_year"] == 2026
+    assert body["rollover_start_month"] == 1
+
+
 def test_update_category_changes_kind_and_budget(client):
 
     category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]

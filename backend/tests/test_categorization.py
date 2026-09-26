@@ -7,6 +7,8 @@ from app.services.categorization import (
     criteria_match,
     load_rules,
     match_rule,
+    narration_matches,
+    rule_patterns,
 )
 
 
@@ -136,6 +138,89 @@ def test_all_criteria_are_anded_together():
         max_amount=Decimal("150"),
         row_transaction_type="WDL",
     )
+
+
+# --- Rules v2: additional_patterns (OR) and use_regex --------------------------
+
+def test_rule_patterns_reduces_to_a_single_pattern_when_there_are_no_additional_ones():
+
+    assert rule_patterns("woolworths", None) == ["woolworths"]
+    assert rule_patterns("woolworths", []) == ["woolworths"]
+
+
+def test_rule_patterns_combines_and_normalizes():
+
+    assert rule_patterns(" woolworths ", ["coles", "  ", None, "iga"]) == ["woolworths", "coles", "iga"]
+
+
+def test_narration_matches_any_pattern_substring():
+
+    assert narration_matches(["coles", "woolworths"], False, "COLES NEWPORT")
+    assert narration_matches(["coles", "woolworths"], False, "WOOLWORTHS ONLINE")
+    assert not narration_matches(["coles", "woolworths"], False, "ALDI NEWPORT")
+
+
+def test_narration_matches_is_case_insensitive_for_regex_too():
+
+    assert narration_matches(["^coles"], True, "Coles Newport")
+    assert not narration_matches(["^coles"], True, "Big W Coles")  # not anchored to the start of THIS string
+
+
+def test_narration_matches_regex_search_is_unanchored_by_default():
+
+    assert narration_matches([r"\d{4}"], True, "REF 1234 PAYMENT")
+
+
+def test_narration_matches_empty_pattern_list_never_matches():
+
+    assert narration_matches([], False, "ANYTHING") is False
+    assert narration_matches([], True, "ANYTHING") is False
+
+
+def test_narration_matches_an_invalid_regex_matches_nothing_rather_than_raising():
+
+    assert narration_matches(["("], True, "ANYTHING") is False
+
+
+def test_criteria_match_ors_additional_patterns_with_the_primary_pattern():
+
+    assert match(narration_pattern="woolworths", additional_patterns=["coles"], narration="COLES NEWPORT")
+    assert match(narration_pattern="woolworths", additional_patterns=["coles"], narration="WOOLWORTHS NEWPORT QL")
+    assert not match(narration_pattern="woolworths", additional_patterns=["coles"], narration="ALDI NEWPORT")
+
+
+def test_criteria_match_uses_regex_when_use_regex_is_set():
+
+    assert match(narration_pattern=r"^woolworths", use_regex=True, narration="Woolworths Newport")
+    assert not match(narration_pattern=r"^woolworths", use_regex=True, narration="Big W Woolworths")
+
+
+def test_match_rule_respects_a_multi_pattern_rule(db_session):
+
+    category = make_category(db_session)
+    rule = make_rule(db_session, category.id, pattern="woolworths", additional_patterns=["coles", "iga"])
+
+    matched = match_rule(
+        [rule], narration="IGA NEWPORT", transaction_type="WDL", debit=Decimal("-20.00"), credit=None
+    )
+
+    assert matched is not None
+    assert matched.id == rule.id
+
+
+def test_apply_rules_categorizes_via_an_additional_pattern(db_session):
+
+    category = make_category(db_session)
+    make_rule(db_session, category.id, pattern="woolworths", additional_patterns=["coles"])
+    transaction = make_transaction(db_session, narration="COLES NEWPORT")
+    db_session.commit()
+
+    rules = load_rules(db_session)
+    updated = apply_rules_to_existing(db_session, rules)
+
+    db_session.refresh(transaction)
+    assert updated == 1
+    assert transaction.category_id == category.id
 
 
 def test_first_matching_rule_by_priority_wins(db_session):

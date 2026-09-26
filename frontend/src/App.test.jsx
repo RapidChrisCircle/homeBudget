@@ -40,6 +40,9 @@ function mockApi({ version, versionRejects = false } = {}) {
     if (path === '/version') {
       return versionRejects ? Promise.reject(new Error('network error')) : Promise.resolve({ data: version })
     }
+    if (path === '/alerts') {
+      return Promise.resolve({ data: { alerts: [], count: 0 } })
+    }
     if (path === '/accounts') {
       return Promise.resolve({ data: [] })
     }
@@ -101,6 +104,69 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Accounts' })).toHaveClass('active')
     expect(screen.getByRole('link', { name: 'Transactions' })).not.toHaveClass('active')
     expect(screen.getByRole('link', { name: 'Home' })).not.toHaveClass('active')
+  })
+
+  it('groups every content-area page under a named nav group, with no orphans', async () => {
+    mockApi({ version: { version: '0.11.0', commit: 'unknown' } })
+
+    renderApp(['/accounts'])
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/version'))
+
+    // Every group label from the registry appears...
+    for (const label of ['Money', 'Plan', 'Insight', 'Setup']) {
+      expect(screen.getByText(label)).toBeInTheDocument()
+    }
+
+    // ...and every page link the registry assigns a group to is actually
+    // nested inside SOME .nav-group, not left sitting bare in .nav-links.
+    const groupedLabels = ['Transactions', 'Accounts', 'Categories', 'Recurring', 'Forecast', 'Goals', 'Reports', 'Trends', 'Rules']
+    for (const label of groupedLabels) {
+      expect(screen.getByRole('link', { name: label }).closest('.nav-group')).not.toBeNull()
+    }
+
+    // Home and Alerts are the deliberate exceptions - cross-cutting links,
+    // not content areas, so they sit directly in .nav-links.
+    expect(screen.getByRole('link', { name: 'Home' }).closest('.nav-group')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Alerts' }).closest('.nav-group')).toBeNull()
+  })
+
+  it('shows the alerts count as a badge on the Alerts nav link', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/alerts') {
+        return Promise.resolve({ data: { alerts: [], count: 3 } })
+      }
+      if (path === '/version') {
+        return Promise.resolve({ data: { version: '0.11.0', commit: 'unknown' } })
+      }
+      if (path === '/accounts') {
+        return Promise.resolve({ data: [] })
+      }
+      if (path.startsWith('/reports/monthly')) {
+        return Promise.resolve({ data: {} })
+      }
+      if (path.startsWith('/transactions')) {
+        return Promise.resolve({ data: { items: [], total: 0 } })
+      }
+      if (path === '/recurring') {
+        return Promise.resolve({ data: { series: [], summary: null, as_of: null } })
+      }
+      return Promise.reject(new Error(`unexpected path ${path}`))
+    })
+
+    renderApp(['/accounts'])
+
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Alerts (3)' })).toBeInTheDocument())
+  })
+
+  it('shows no badge on the Alerts nav link when there are no alerts', async () => {
+    mockApi({ version: { version: '0.11.0', commit: 'unknown' } })
+
+    renderApp(['/accounts'])
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/version'))
+
+    expect(screen.getByRole('link', { name: 'Alerts' })).toBeInTheDocument()
   })
 
   it('surfaces a mismatch notice when the API commit differs from the frontend commit', async () => {

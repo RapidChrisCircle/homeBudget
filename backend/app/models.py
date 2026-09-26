@@ -271,6 +271,37 @@ class Category(Base):
         nullable=True
     )
 
+    # Opt-in sinking-fund behaviour: unspent budget accumulates into next
+    # month's available amount, overspend carries as a deficit. Resolving
+    # THIS - "available" rather than "budgeted" - is deliberately NOT part
+    # of effective_budget() above; it's a different question, answered by
+    # its own single choke point, services/budgets.rollover_available().
+    # rollover_start_year/month is the month accumulation began - stamped
+    # automatically (api/categories.py) the moment rolls_over flips
+    # False->True, and cleared back to NULL when it flips True->False, so
+    # re-enabling later starts a fresh accumulation rather than resurrecting
+    # a stale one. Deliberately NOT the category's creation date: a category
+    # can predate rollover being turned on by years, and walking that whole
+    # history on every read would be both expensive and not what "I just
+    # turned this on" means. Only meaningful when kind == "expense", same
+    # as budget_amount itself.
+    rolls_over = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false()
+    )
+
+    rollover_start_year = Column(
+        Integer,
+        nullable=True
+    )
+
+    rollover_start_month = Column(
+        Integer,
+        nullable=True
+    )
+
     # Archiving is NOT deleting - every historical assignment (transactions,
     # splits, rules) is left completely alone. It only changes AVAILABILITY:
     # GET /categories excludes archived by default (?include_archived=true
@@ -354,7 +385,27 @@ class CategoryRule(Base):
 
     Criteria are ANDed: a transaction matches only if every populated
     criterion matches. narration_pattern is a case-insensitive substring
-    match and is always required.
+    match and is always required - it is the rule's first (and, for every
+    rule created before Rules v2, only) narration pattern.
+
+    additional_patterns (T3.2, "Rules v2") is an optional list of EXTRA
+    narration patterns, OR'd with narration_pattern - a transaction matches
+    the narration criterion if it matches narration_pattern OR any pattern
+    in this list. NULL/empty behaves identically to not having this column
+    at all, which is why every rule created before this existed - and every
+    rule that never opts in - matches EXACTLY as it always has; this is
+    additive, never a replacement for narration_pattern.
+
+    use_regex (also T3.2) switches every pattern above (narration_pattern
+    AND additional_patterns) from a plain case-insensitive substring to a
+    case-insensitive regex (re.search - a match anywhere in the narration,
+    not anchored to the start). Defaults to False, so an existing rule's
+    matching semantics are completely unchanged unless a user explicitly
+    turns this on. See services/categorization.py's module docstring for
+    where the single matcher that applies all of this lives, and services/
+    rule_review.py's for why regex rules are deliberately excluded from the
+    redundancy analysis (containment of two arbitrary regexes isn't
+    decidable in general, unlike two substrings or two OR'd sets of them).
 
     min_amount/max_amount are entered as POSITIVE dollar values and are
     compared against the absolute value of whichever of debit/credit is
@@ -376,6 +427,18 @@ class CategoryRule(Base):
     narration_pattern = Column(
         String,
         nullable=False
+    )
+
+    additional_patterns = Column(
+        JSON,
+        nullable=True
+    )
+
+    use_regex = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false()
     )
 
     transaction_type = Column(
@@ -1072,6 +1135,77 @@ class DashboardWidget(Base):
     config = Column(
         JSON,
         nullable=True
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )
+
+
+class PaySchedule(Base):
+    """The household's fortnightly pay anchor - a SINGLE row, always id=1,
+    enforced in Python (api/pay_periods.py upserts rather than inserts a
+    second row) rather than a schema constraint, matching this app's usual
+    preference for explicit application logic over exotic constraints for a
+    single-household deployment.
+
+    anchor_date is any one real payday - services/pay_periods.py counts
+    whole 14-day steps forward and backward from it to find the boundaries
+    of the fortnight containing any given date, so it works identically
+    for a date long before or long after anchor_date, and across a
+    calendar-year boundary, since nothing about the calculation resets at
+    January 1st.
+
+    No row existing at all means pay-period budgeting hasn't been set up -
+    GET /pay-periods reports {"configured": false} rather than silently
+    guessing an anchor from today's date, which would misalign every
+    boundary it computes without the user ever having chosen anything.
+    """
+
+    __tablename__ = "pay_schedule"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    anchor_date = Column(
+        Date,
+        nullable=False
+    )
+
+
+class AlertDismissal(Base):
+    """A user's decision that one specific alert (services/alerts.py) is not
+    something they want to see again - the generic sibling of
+    RecurringDismissal, for the alert kinds that had no dismissal concept of
+    their own (over-budget, a coverage gap, an unmatched transfer). A
+    recurring-sourced alert (a price change, a missed/stopped series)
+    deliberately reuses RecurringDismissal itself rather than creating a
+    second, parallel dismissal here - see services/alerts.py's docstring.
+
+    alert_key is a deterministic string built from the alert's own identity
+    (e.g. "over_budget:{category_id}:{year}:{month}"), never a surrogate
+    reference to a row that might not exist next time alerts are collected -
+    there is no persisted "alert" to point at, only the recomputed fact. A
+    DIFFERENT occurrence of the same kind of problem (a different month, a
+    different account, a different transaction) gets a different key and is
+    therefore never silently suppressed by an old dismissal of something else.
+    """
+
+    __tablename__ = "alert_dismissals"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    alert_key = Column(
+        String,
+        nullable=False,
+        unique=True
     )
 
     created_at = Column(

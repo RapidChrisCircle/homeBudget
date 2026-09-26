@@ -49,6 +49,118 @@ def test_create_rule_rejects_blank_pattern(client):
     assert response.status_code == 422
 
 
+def test_create_rule_defaults_to_no_additional_patterns_and_no_regex(client):
+
+    category_id = make_category(client)
+
+    body = client.post("/api/category-rules", json=rule_payload(category_id)).json()
+
+    assert body["additional_patterns"] == []
+    assert body["use_regex"] is False
+
+
+def test_create_rule_accepts_additional_patterns_and_use_regex(client):
+
+    category_id = make_category(client)
+
+    body = client.post("/api/category-rules", json=rule_payload(
+        category_id, additional_patterns=["coles", "iga"], use_regex=False,
+    )).json()
+
+    assert body["additional_patterns"] == ["coles", "iga"]
+
+
+def test_create_rule_rejects_an_invalid_regex(client):
+
+    category_id = make_category(client)
+
+    response = client.post("/api/category-rules", json=rule_payload(
+        category_id, narration_pattern="(unclosed", use_regex=True,
+    ))
+
+    assert response.status_code == 422
+
+
+def test_create_rule_rejects_an_invalid_regex_in_an_additional_pattern(client):
+
+    category_id = make_category(client)
+
+    response = client.post("/api/category-rules", json=rule_payload(
+        category_id, narration_pattern="woolworths", additional_patterns=["(unclosed"], use_regex=True,
+    ))
+
+    assert response.status_code == 422
+
+
+def test_create_rule_accepts_a_valid_regex(client):
+
+    category_id = make_category(client)
+
+    response = client.post("/api/category-rules", json=rule_payload(
+        category_id, narration_pattern="^woolworths", use_regex=True,
+    ))
+
+    assert response.status_code == 201
+    assert response.json()["use_regex"] is True
+
+
+def test_update_rule_can_turn_on_use_regex(client):
+
+    category_id = make_category(client)
+    rule_id = client.post("/api/category-rules", json=rule_payload(category_id)).json()["id"]
+
+    response = client.put(f"/api/category-rules/{rule_id}", json=rule_payload(
+        category_id, narration_pattern="^woolworths", use_regex=True,
+    ))
+
+    assert response.status_code == 200
+    assert response.json()["use_regex"] is True
+
+
+def test_update_rule_rejects_an_invalid_regex(client):
+
+    category_id = make_category(client)
+    rule_id = client.post("/api/category-rules", json=rule_payload(category_id)).json()["id"]
+
+    response = client.put(f"/api/category-rules/{rule_id}", json=rule_payload(
+        category_id, narration_pattern="(unclosed", use_regex=True,
+    ))
+
+    assert response.status_code == 422
+
+
+def test_preview_rejects_an_invalid_regex(client):
+
+    category_id = make_category(client)
+
+    response = client.post("/api/category-rules/preview", json={
+        "narration_pattern": "(unclosed",
+        "use_regex": True,
+        "category_id": category_id,
+    })
+
+    assert response.status_code == 422
+
+
+def test_preview_matches_via_an_additional_pattern(client):
+
+    category_id = make_category(client)
+    csv_content = (
+        HEADER
+        + ',1111,24/07/2026,"Woolworths Newport",,-45.00,,100.00,WDL\n'
+    )
+    upload(client, csv_content)
+
+    response = client.post("/api/category-rules/preview", json={
+        "narration_pattern": "this-pattern-matches-nothing",
+        "additional_patterns": ["woolworths"],
+        "category_id": category_id,
+    })
+
+    assert response.status_code == 200
+    assert response.json()["match_count"] >= 1
+
+
 def test_create_rule_rejects_min_greater_than_max(client):
 
     category_id = make_category(client)

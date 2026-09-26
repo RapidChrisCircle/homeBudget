@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Amount from '../components/Amount.jsx'
 import Card from '../components/Card.jsx'
+import CategorySelect from '../components/CategorySelect.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
@@ -9,6 +10,14 @@ import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { formatAmount } from '../utils/format.js'
 import { useTableSort } from '../utils/tableSort.js'
+
+// A stopped-series checkbox is keyed on (account_id, narration_key) - the
+// same natural key services/forecast.py's stopped_series_keys matches
+// against - via JSON, not string concatenation, so a narration_key
+// containing an arbitrary character can never collide with a delimiter.
+function stoppedSeriesKey(accountId, narrationKey) {
+  return JSON.stringify([accountId, narrationKey])
+}
 
 const DEFAULT_MONTHS = 3
 
@@ -28,6 +37,17 @@ export default function ForecastPage() {
   const [forecast, setForecast] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  // Scenarios (T3.1) - a non-destructive "what if" overlay computed by the
+  // backend (services/forecast.py), never a second, client-side projection.
+  // Categories are fetched once, lazily, only for the adjustment picker -
+  // this page doesn't need them for anything else.
+  const [categories, setCategories] = useState([])
+  const [stoppedKeys, setStoppedKeys] = useState(() => new Set())
+  const [adjustmentRows, setAdjustmentRows] = useState([])
+  const [scenario, setScenario] = useState(null)
+  const [scenarioLoading, setScenarioLoading] = useState(false)
+  const [scenarioError, setScenarioError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -58,9 +78,89 @@ export default function ForecastPage() {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    api.get('/categories')
+      .then((response) => {
+        if (!cancelled) {
+          setCategories(response.data)
+        }
+      })
+      .catch(() => {
+        // The scenario picker just offers no categories to adjust - the
+        // rest of the page (a live projection) doesn't depend on this.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Called unconditionally, before the loading/error/empty early returns
   // below - React requires hooks to run in the same order every render.
   const upcomingSort = useTableSort(forecast?.upcoming ?? [], UPCOMING_SORT_COLUMNS)
+
+  const toggleStoppedSeries = (accountId, narrationKeyValue) => {
+    const key = stoppedSeriesKey(accountId, narrationKeyValue)
+    setStoppedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
+  const addAdjustmentRow = () => {
+    setAdjustmentRows((prev) => [...prev, { key: `adjustment-${prev.length}-${Date.now()}`, category_id: '', percent: '' }])
+  }
+
+  const updateAdjustmentRow = (key, field, value) => {
+    setAdjustmentRows((prev) => prev.map((row) => (row.key === key ? { ...row, [field]: value } : row)))
+  }
+
+  const removeAdjustmentRow = (key) => {
+    setAdjustmentRows((prev) => prev.filter((row) => row.key !== key))
+  }
+
+  const activeAdjustments = adjustmentRows.filter((row) => row.category_id && row.percent !== '')
+  const hasScenarioInputs = stoppedKeys.size > 0 || activeAdjustments.length > 0
+
+  const runScenario = async () => {
+    setScenarioError('')
+    setScenarioLoading(true)
+    try {
+      const stopped_series = [...stoppedKeys].map((key) => {
+        const [account_id, narration_key] = JSON.parse(key)
+        return { account_id, narration_key }
+      })
+      const category_adjustments = activeAdjustments.map((row) => ({
+        category_id: Number(row.category_id),
+        percent: row.percent,
+      }))
+      const response = await api.post('/forecast/scenario', {
+        months: DEFAULT_MONTHS,
+        stopped_series,
+        category_adjustments,
+      })
+      setScenario(response.data)
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Scenario failed'
+      setScenarioError(String(message))
+    } finally {
+      setScenarioLoading(false)
+    }
+  }
+
+  const clearScenario = () => {
+    setScenario(null)
+    setStoppedKeys(new Set())
+    setAdjustmentRows([])
+    setScenarioError('')
+  }
 
   if (loading) {
     return (
@@ -109,6 +209,38 @@ export default function ForecastPage() {
     { label: 'Combined cash position', values: combined.months.map((m) => Number(m.closing)) },
   ]
 
+  // One row per unique recurring series across the whole upcoming list -
+  // several occurrences of the same series would otherwise offer the
+  // identical "stop this" checkbox more than once.
+  const uniqueSeries = []
+  const seenSeriesKeys = new Set()
+  for (const item of upcoming) {
+    const key = stoppedSeriesKey(item.account_id, item.narration_key)
+    if (!seenSeriesKeys.has(key)) {
+      seenSeriesKeys.add(key)
+      uniqueSeries.push(item)
+    }
+  }
+
+  const accountName = (accountId) =>
+    accounts.find((a) => a.account_id === accountId)?.account_name || `Account ${accountId}`
+
+  // While a scenario is active, the chart swaps to a direct two-line
+  // comparison (baseline muted, scenario normal - the same "one series is
+  // the point, rest is context" convention Spending Pace's own comparison
+  // line already uses) rather than cluttering the default per-account view
+  // with a second set of lines per account.
+  const chartSeries = scenario
+    ? [
+        { label: 'Baseline combined', values: combined.months.map((m) => Number(m.closing)), muted: true },
+        { label: 'Scenario combined', values: scenario.combined.months.map((m) => Number(m.closing)) },
+      ]
+    : balanceSeries
+
+  const scenarioDelta = scenario
+    ? Number(scenario.combined.months.at(-1).closing) - Number(combined.months.at(-1).closing)
+    : null
+
   return (
     <section className="page">
       <h2>Forecast</h2>
@@ -119,6 +251,94 @@ export default function ForecastPage() {
         guarantee - a month that closes comfortably can still dip lower partway through it.
       </p>
 
+      <Card id="forecast-scenarios" title="Scenarios">
+        <p>
+          A non-destructive &ldquo;what if&rdquo; &mdash; nothing here changes any real
+          transaction, category or recurring series. Stop a subscription, or adjust a category&rsquo;s
+          everyday spending, and see how the projection would change.
+        </p>
+
+        {uniqueSeries.length > 0 && (
+          <div className="forecast-scenario-group">
+            <span className="forecast-scenario-legend">Stop a recurring commitment</span>
+            {uniqueSeries.map((item) => {
+              const key = stoppedSeriesKey(item.account_id, item.narration_key)
+              return (
+                <label key={key} className="forecast-scenario-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={stoppedKeys.has(key)}
+                    onChange={() => toggleStoppedSeries(item.account_id, item.narration_key)}
+                  />
+                  {' '}{item.merchant} ({accountName(item.account_id)})
+                </label>
+              )
+            })}
+          </div>
+        )}
+
+        <div className="forecast-scenario-group">
+          <span className="forecast-scenario-legend">Adjust a category&rsquo;s everyday spending</span>
+          {adjustmentRows.map((row) => (
+            <div key={row.key} className="forecast-scenario-adjustment">
+              <CategorySelect
+                aria-label="Category to adjust"
+                categories={categories}
+                value={row.category_id}
+                onChange={(e) => updateAdjustmentRow(row.key, 'category_id', e.target.value)}
+              >
+                <option value="">Select a category</option>
+              </CategorySelect>
+              <input
+                type="number"
+                step="1"
+                aria-label="Percent change"
+                placeholder="e.g. -20"
+                value={row.percent}
+                onChange={(e) => updateAdjustmentRow(row.key, 'percent', e.target.value)}
+              />
+              <span>%</span>
+              <button
+                type="button"
+                className="button-ghost"
+                aria-label="Remove this adjustment"
+                onClick={() => removeAdjustmentRow(row.key)}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={addAdjustmentRow}>+ Add adjustment</button>
+        </div>
+
+        {scenarioError && <ErrorState label="Scenario failed:" message={scenarioError} />}
+
+        <div className="forecast-scenario-actions">
+          <button
+            type="button"
+            className="button-primary"
+            onClick={runScenario}
+            disabled={!hasScenarioInputs || scenarioLoading}
+          >
+            {scenarioLoading ? 'Running...' : 'Run scenario'}
+          </button>
+          {scenario && (
+            <button type="button" onClick={clearScenario}>
+              Clear scenario
+            </button>
+          )}
+        </div>
+
+        {scenario && (
+          <p>
+            Under this scenario, the combined cash position at the end of the projection would be{' '}
+            <Amount value={scenario.combined.months.at(-1).closing} /> instead of{' '}
+            <Amount value={combined.months.at(-1).closing} neutral /> &mdash; a difference of{' '}
+            <Amount value={scenarioDelta} />.
+          </p>
+        )}
+      </Card>
+
       {/* Deliberately NOT wired for drill-down, unlike every other chart in
           the app: every series here is a PROJECTION of months that mostly
           haven't happened yet (services/forecast.py) - there are no
@@ -128,7 +348,7 @@ export default function ForecastPage() {
       <Card id="forecast-closing-balance" title="Projected Closing Balance">
         <LineChart
           periods={periodLabels}
-          series={balanceSeries}
+          series={chartSeries}
           formatValue={formatAmount}
           title="Projected closing balance"
         />

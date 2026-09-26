@@ -8,8 +8,10 @@ import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
+import { showToast } from '../services/toast'
 import { categoryPathLabel, groupByParent } from '../utils/categories.js'
 import { sortRowsBy, useTableSort } from '../utils/tableSort.js'
+import { formatDate, lastInclusiveDay } from '../utils/format.js'
 
 const CATEGORIES_TABLE_COLUMN_COUNT = 5
 
@@ -38,6 +40,7 @@ const BUDGET_SORT_COLUMNS = {
   category: { getValue: (r) => categoryPathLabel(r), type: 'string' },
   standing: { getValue: (r) => r.standing_amount, type: 'numeric' },
   this_month: { getValue: (r) => r.effective_amount, type: 'numeric' },
+  available: { getValue: (r) => r.available_amount, type: 'numeric' },
   actual: { getValue: (r) => r.actual, type: 'numeric' },
   difference: { getValue: (r) => r.difference, type: 'numeric' },
 }
@@ -59,6 +62,7 @@ const EMPTY_FORM = {
   kind: 'expense',
   budget_amount: '',
   parent_id: '',
+  rolls_over: false,
 }
 
 // Shifts a <input type="month"> value ("YYYY-MM") by whole months.
@@ -66,6 +70,27 @@ function shiftMonthString(monthStr, delta) {
   const [year, month] = monthStr.split('-').map(Number)
   const zeroBased = year * 12 + (month - 1) + delta
   return `${Math.floor(zeroBased / 12)}-${String((zeroBased % 12) + 1).padStart(2, '0')}`
+}
+
+// Shifts a plain 'YYYY-MM-DD' string by whole days, via Date.UTC arithmetic
+// so a local timezone behind UTC can't shift the result a day - the same
+// hazard utils/format.js's lastInclusiveDay works around.
+function shiftIsoDate(isoDate, days) {
+  const [year, month, day] = isoDate.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+const PAY_PERIOD_SORT_COLUMNS = {
+  category: { getValue: (r) => categoryPathLabel(r), type: 'string' },
+  pace: { getValue: (r) => r.pace, type: 'numeric' },
+  actual: { getValue: (r) => r.actual, type: 'numeric' },
+  difference: { getValue: (r) => r.difference, type: 'numeric' },
 }
 
 // Blank optional fields are sent as null, not '' - the backend treats an
@@ -76,6 +101,7 @@ function buildPayload(form) {
     kind: form.kind,
     budget_amount: form.budget_amount || null,
     parent_id: form.parent_id ? Number(form.parent_id) : null,
+    rolls_over: form.rolls_over,
   }
 }
 
@@ -152,6 +178,14 @@ export default function CategoriesPage() {
   const [budgetError, setBudgetError] = useState('')
   const [budgetActionError, setBudgetActionError] = useState('')
   const [copying, setCopying] = useState(false)
+
+  const [payPeriodReferenceDate, setPayPeriodReferenceDate] = useState(todayIsoDate)
+  const [payPeriod, setPayPeriod] = useState(null)
+  const [payPeriodLoading, setPayPeriodLoading] = useState(true)
+  const [payPeriodError, setPayPeriodError] = useState('')
+  const [payPeriodActionError, setPayPeriodActionError] = useState('')
+  const [anchorDraft, setAnchorDraft] = useState('')
+  const [savingAnchor, setSavingAnchor] = useState(false)
 
   const [presetMessage, setPresetMessage] = useState('')
   const [presetError, setPresetError] = useState('')
@@ -292,6 +326,7 @@ export default function CategoriesPage() {
     try {
       const [year, month] = budgetMonth.split('-').map(Number)
       await api.put(`/budgets/${categoryId}`, { year, month, amount: budgetEdits[categoryId] })
+      showToast('Budget saved.')
       await refreshBudgets()
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Save failed'
@@ -332,6 +367,83 @@ export default function CategoriesPage() {
     }
   }
 
+  const fetchPayPeriod = async (referenceDate) => {
+    const response = await api.get(`/pay-periods?reference_date=${referenceDate}`)
+    return response.data
+  }
+
+  // GET /pay-periods always answers 200 - {configured: false} when no
+  // PaySchedule has been set up yet, never a 404 - so this effect doesn't
+  // need to know that state up front; it just renders whatever comes back.
+  useEffect(() => {
+    let cancelled = false
+
+    setPayPeriodLoading(true)
+    setPayPeriodError('')
+
+    fetchPayPeriod(payPeriodReferenceDate)
+      .then((data) => {
+        if (!cancelled) {
+          setPayPeriod(data)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          const message = err?.response?.data?.detail || err?.message || 'Unknown error'
+          setPayPeriodError(String(message))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPayPeriodLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [payPeriodReferenceDate])
+
+  const handleSetPayday = async (event) => {
+    event.preventDefault()
+    if (!anchorDraft) {
+      return
+    }
+    setPayPeriodActionError('')
+    setSavingAnchor(true)
+    try {
+      await api.put('/pay-schedule', { anchor_date: anchorDraft })
+      setAnchorDraft('')
+      setPayPeriod(await fetchPayPeriod(payPeriodReferenceDate))
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Save failed'
+      setPayPeriodActionError(String(message))
+    } finally {
+      setSavingAnchor(false)
+    }
+  }
+
+  // Previous/Next move by exactly one fortnight regardless of which day
+  // within the current period payPeriodReferenceDate happens to be -
+  // anchored on the CURRENT period's own start/end rather than the
+  // reference date itself, so repeated clicks can't drift.
+  const handlePreviousPayPeriod = () => {
+    if (!payPeriod?.start_date) {
+      return
+    }
+    setPayPeriodReferenceDate(shiftIsoDate(payPeriod.start_date, -14))
+  }
+
+  const handleNextPayPeriod = () => {
+    if (!payPeriod?.end_date) {
+      return
+    }
+    // end_date is exclusive - it IS the next period's own start day.
+    setPayPeriodReferenceDate(payPeriod.end_date)
+  }
+
+  const payPeriodSort = useTableSort(payPeriod?.categories ?? [], PAY_PERIOD_SORT_COLUMNS)
+
   useEffect(() => {
     let cancelled = false
 
@@ -360,6 +472,10 @@ export default function CategoriesPage() {
     setForm((prev) => ({ ...prev, [field]: event.target.value }))
   }
 
+  const handleRolloverChange = (event) => {
+    setForm((prev) => ({ ...prev, rolls_over: event.target.checked }))
+  }
+
   const startEdit = (category) => {
     setEditingId(category.id)
     setForm({
@@ -367,6 +483,7 @@ export default function CategoriesPage() {
       kind: category.kind,
       budget_amount: category.budget_amount ?? '',
       parent_id: category.parent_id ?? '',
+      rolls_over: category.rolls_over ?? false,
     })
   }
 
@@ -382,10 +499,10 @@ export default function CategoriesPage() {
     try {
       const response = await api.post('/categories/preset')
       const { created, skipped } = response.data
-      setPresetMessage(
-        `Created ${created.length} categor${created.length === 1 ? 'y' : 'ies'}, `
+      const summary = `Created ${created.length} categor${created.length === 1 ? 'y' : 'ies'}, `
         + `skipped ${skipped.length} already present.`
-      )
+      setPresetMessage(summary)
+      showToast(summary)
       // Same reason handleSubmit/handleDelete refresh both: new categories
       // (and their budgets) must show up in the Monthly Budgets card too,
       // not just the list above it.
@@ -685,6 +802,20 @@ export default function CategoriesPage() {
             Applies to every month unless overridden for a specific month in Monthly Budgets
             below.
           </p>
+          <label>
+            <input
+              type="checkbox"
+              checked={form.rolls_over}
+              onChange={handleRolloverChange}
+            />
+            {' '}Roll unspent budget into next month
+          </label>
+          <p>
+            For a sinking fund (an annual bill paid from a monthly budget) &mdash; unspent budget
+            accumulates, and overspend carries as a deficit, starting from whenever this is turned
+            on. Reports and Monthly Budgets will then show an accumulated &ldquo;Available&rdquo;
+            figure alongside this standing amount.
+          </p>
         </div>
       )}
     </>
@@ -980,6 +1111,7 @@ export default function CategoriesPage() {
                     <SortableHeader label="Category" sortKey="category" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} />
                     <SortableHeader label="Standing" sortKey="standing" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} numeric />
                     <SortableHeader label="This Month" sortKey="this_month" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} numeric />
+                    <SortableHeader label="Available" sortKey="available" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} numeric />
                     <SortableHeader label="Actual" sortKey="actual" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} numeric />
                     <SortableHeader label="Difference" sortKey="difference" activeSortKey={budgetSortKey} activeDirection={budgetSortDirection} onSort={toggleBudgetSort} numeric />
                     <th scope="col"></th>
@@ -995,7 +1127,12 @@ export default function CategoriesPage() {
                       {/* The path, not the bare leaf name - this table is a
                           flat list with no group headings of its own to
                           say which "Insurance" a row is. */}
-                      <td>{categoryPathLabel(row)}</td>
+                      <td>
+                        {categoryPathLabel(row)}
+                        {row.rolls_over && (
+                          <Badge tone="neutral" title="Unspent budget rolls into next month; overspend carries as a deficit"> rolls over</Badge>
+                        )}
+                      </td>
                       <td><Amount value={row.standing_amount} neutral /></td>
                       <td>
                         <input
@@ -1009,6 +1146,11 @@ export default function CategoriesPage() {
                         {row.is_overridden && (
                           <Badge tone="info" title="Overridden for this month specifically"> (overridden)</Badge>
                         )}
+                      </td>
+                      <td>
+                        {row.available_amount != null
+                          ? <Amount value={row.available_amount} neutral />
+                          : <span aria-hidden="true">&mdash;</span>}
                       </td>
                       <td><Amount value={row.actual} neutral /></td>
                       <td>
@@ -1039,6 +1181,13 @@ export default function CategoriesPage() {
                   <tr>
                     <td>Total</td>
                     <td></td>
+                    <td></td>
+                    {/* Sums available_amount for any rollover category and
+                        effective_amount for everything else (see
+                        api/budgets.py's get_budgets) - shown under
+                        Available, not This Month, since it's no longer a
+                        purely nominal figure once a rollover category is
+                        in the mix. */}
                     <td><Amount value={budgetData.totals.budgeted} neutral /></td>
                     <td><Amount value={budgetData.totals.actual} neutral /></td>
                     <td>
@@ -1049,6 +1198,105 @@ export default function CategoriesPage() {
                   </tr>
                 </tfoot>
               </table>
+            )}
+          </>
+        )}
+      </Card>
+
+      <Card id="categories-pay-period" title="Pay Period Budgeting">
+        {payPeriodActionError && <ErrorState label="Action failed:" message={payPeriodActionError} />}
+        {payPeriodLoading && <LoadingState message="Loading pay period..." />}
+        {!payPeriodLoading && payPeriodError && (
+          <ErrorState label="Failed to load pay period:" message={payPeriodError} />
+        )}
+        {!payPeriodLoading && !payPeriodError && payPeriod && !payPeriod.configured && (
+          <>
+            <p>
+              Rescales each expense category&rsquo;s standing monthly budget to a fortnightly pace,
+              for a household paid every two weeks &mdash; three months a year hold three pay
+              cycles, which a calendar month alone doesn&rsquo;t show. Only the standing amount is
+              used, never a monthly override - a fortnight can straddle two different months.
+            </p>
+            <form onSubmit={handleSetPayday}>
+              <label>
+                A recent payday
+                <input
+                  type="date"
+                  value={anchorDraft}
+                  onChange={(event) => setAnchorDraft(event.target.value)}
+                  required
+                />
+              </label>
+              <button type="submit" className="button-primary" disabled={savingAnchor}>
+                Set payday
+              </button>
+            </form>
+          </>
+        )}
+        {!payPeriodLoading && !payPeriodError && payPeriod && payPeriod.configured && (
+          <>
+            <div className="pay-period-nav">
+              <button type="button" onClick={handlePreviousPayPeriod}>&larr; Previous</button>
+              <strong>
+                {formatDate(payPeriod.start_date)} &ndash; {formatDate(lastInclusiveDay(payPeriod.end_date))}
+              </strong>
+              <button type="button" onClick={handleNextPayPeriod}>Next &rarr;</button>
+            </div>
+
+            <details>
+              <summary>Change payday</summary>
+              <form onSubmit={handleSetPayday}>
+                <label>
+                  A recent payday
+                  <input
+                    type="date"
+                    value={anchorDraft}
+                    onChange={(event) => setAnchorDraft(event.target.value)}
+                    required
+                  />
+                </label>
+                <button type="submit" className="button-primary" disabled={savingAnchor}>
+                  Save
+                </button>
+              </form>
+            </details>
+
+            {payPeriod.categories.length === 0 && <p>No budgeted or active expense categories this period.</p>}
+            {payPeriod.categories.length > 0 && (
+              <table>
+                <caption className="visually-hidden">Pay period budget pace</caption>
+                <thead>
+                  <tr>
+                    <SortableHeader label="Category" sortKey="category" activeSortKey={payPeriodSort.sortKey} activeDirection={payPeriodSort.sortDirection} onSort={payPeriodSort.toggleSort} />
+                    <SortableHeader label="Pace" sortKey="pace" activeSortKey={payPeriodSort.sortKey} activeDirection={payPeriodSort.sortDirection} onSort={payPeriodSort.toggleSort} numeric />
+                    <SortableHeader label="Actual" sortKey="actual" activeSortKey={payPeriodSort.sortKey} activeDirection={payPeriodSort.sortDirection} onSort={payPeriodSort.toggleSort} numeric />
+                    <SortableHeader label="Difference" sortKey="difference" activeSortKey={payPeriodSort.sortKey} activeDirection={payPeriodSort.sortDirection} onSort={payPeriodSort.toggleSort} numeric />
+                  </tr>
+                </thead>
+                <tbody>
+                  {payPeriodSort.sortedRows.map((row) => (
+                    <tr key={row.category_id}>
+                      <td>{categoryPathLabel(row)}</td>
+                      <td><Amount value={row.pace} neutral /></td>
+                      <td><Amount value={row.actual} neutral /></td>
+                      <td>
+                        <Amount value={row.difference} />
+                        {row.difference !== null && Number(row.difference) < 0 && (
+                          <Badge tone="danger" title="Over pace for this fortnight"> (over)</Badge>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {payPeriod.summary && (
+              <p>
+                Income <Amount value={payPeriod.summary.total_income} neutral />, spending{' '}
+                <Amount value={payPeriod.summary.total_spending} neutral />, net saved{' '}
+                <Amount value={payPeriod.summary.net_saved} /> this period.
+              </p>
             )}
           </>
         )}

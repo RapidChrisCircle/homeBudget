@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -15,16 +17,38 @@ from ..schemas import (
     RemoveRedundantRulesResponse,
     RuleReviewResponse,
 )
-from ..services.categorization import apply_rules_to_existing, preview_rule
+from ..services.categorization import apply_rules_to_existing, preview_rule, rule_patterns
 from ..services.rule_review import remove_redundant_rules, review_rules
 
 router = APIRouter()
+
+
+def _validate_regex_patterns(narration_pattern: str, additional_patterns: list[str], use_regex: bool) -> None:
+    """Rules v2 (T3.2): every pattern must be syntactically valid up front,
+    rather than a bad regex silently matching nothing for every row - see
+    services/categorization.narration_matches's own defensive fallback for
+    why that's the ONLY other place an invalid regex is handled, not the
+    primary guard against one. Shared by rule create/update and preview, so
+    a rule can never be saved with a pattern its own preview would have
+    rejected.
+    """
+
+    if not use_regex:
+        return
+
+    for pattern in rule_patterns(narration_pattern, additional_patterns):
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid regex pattern '{pattern}': {exc}") from exc
 
 
 def _validate_rule_payload(db: Session, payload):
 
     if not payload.narration_pattern or not payload.narration_pattern.strip():
         raise HTTPException(status_code=422, detail="Narration pattern is required")
+
+    _validate_regex_patterns(payload.narration_pattern, payload.additional_patterns, payload.use_regex)
 
     for field_name, value in (("min_amount", payload.min_amount), ("max_amount", payload.max_amount)):
         if value is not None and value < 0:
@@ -67,9 +91,13 @@ def preview_category_rule(
     db: Session = Depends(get_db)
 ):
 
+    _validate_regex_patterns(payload.narration_pattern, payload.additional_patterns, payload.use_regex)
+
     match_count, would_categorize_count = preview_rule(
         db,
         narration_pattern=payload.narration_pattern,
+        additional_patterns=payload.additional_patterns,
+        use_regex=payload.use_regex,
         transaction_type=payload.transaction_type,
         min_amount=payload.min_amount,
         max_amount=payload.max_amount,

@@ -33,6 +33,13 @@ def _category_response(db: Session, category: Category, year: int, month: int) -
     standing = category.budget_amount
     effective = effective_budget(standing, override)
     actual = total.actual if total is not None else Decimal("0")
+    # total is None only when category_totals_for_period() has nothing to
+    # report for this category at all, which can't happen for an expense
+    # category (it always gets a row, zero-activity or not) - available_
+    # amount defaults to None here purely to satisfy the type, matching
+    # "not a rollover category" rather than a real code path.
+    available = total.available_amount if total is not None else None
+    reference = available if available is not None else effective
 
     return BudgetPeriodCategoryResponse(
         category_id=category.id,
@@ -43,8 +50,10 @@ def _category_response(db: Session, category: Category, year: int, month: int) -
         override_amount=override,
         effective_amount=effective,
         is_overridden=override is not None,
+        rolls_over=category.rolls_over,
+        available_amount=available,
         actual=actual,
-        difference=(effective - actual) if effective is not None else None,
+        difference=(reference - actual) if reference is not None else None,
     )
 
 
@@ -79,6 +88,9 @@ def get_budgets(
     standing_by_id = dict(
         db.query(Category.id, Category.budget_amount).filter(Category.kind == "expense").all()
     )
+    rolls_over_by_id = dict(
+        db.query(Category.id, Category.rolls_over).filter(Category.kind == "expense").all()
+    )
     overrides = overrides_for_period(db, year, month)
 
     categories = [
@@ -91,6 +103,8 @@ def get_budgets(
             override_amount=overrides.get(t.category_id),
             effective_amount=t.budget_amount,
             is_overridden=t.category_id in overrides,
+            rolls_over=rolls_over_by_id.get(t.category_id, False),
+            available_amount=t.available_amount,
             actual=t.actual,
             difference=t.difference,
         )
@@ -98,7 +112,15 @@ def get_budgets(
     ]
 
     budgeted_categories = [c for c in categories if c.effective_amount is not None]
-    total_budgeted = sum((c.effective_amount for c in budgeted_categories), Decimal("0"))
+    # A rollover category's own accumulated available_amount, not its bare
+    # effective_amount, once it has one - same reference-picking rule as
+    # CategoryPeriodTotal.difference, so the totals row can't disagree with
+    # the per-category rows it's summed from about whether the month reads
+    # as over or under budget.
+    total_budgeted = sum(
+        ((c.available_amount if c.available_amount is not None else c.effective_amount) for c in budgeted_categories),
+        Decimal("0"),
+    )
     # Matches trends.budget_totals()'s scoping exactly: "actual" in the
     # totals row counts only the categories that are themselves budgeted -
     # otherwise the totals row would always look "over" the moment any

@@ -62,8 +62,28 @@
 
 .nav-links {
   display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* One cluster of related destinations (Money/Plan/Insight/Setup - see
+   pageRegistry.jsx's PAGE_GROUP_ORDER) - Finding 9: nine ungrouped peers in
+   one flat row forced a scan every time. A page with no group (Home,
+   Alerts) sits directly in .nav-links instead, never inside a .nav-group. */
+.nav-group {
+  display: flex;
+  align-items: center;
   gap: var(--space-1);
   flex-wrap: wrap;
+}
+
+.nav-group-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-right: var(--space-1);
 }
 
 .nav-links a {
@@ -84,6 +104,18 @@
 .nav-links a.active {
   background: var(--accent);
   color: var(--accent-contrast);
+}
+
+/* Below the same 900px breakpoint the widget grid already collapses at -
+   each group becomes its own full-width row rather than everything
+   wrapping into one dense block, which is what "collapse sensibly on a
+   phone" actually means for a row of nav groups, not just word-wrap. */
+@media (max-width: 900px) {
+  .nav-links {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
 }
 
 /* Footer */
@@ -449,6 +481,158 @@ input[type='checkbox'] {
   color: var(--text-primary);
 }
 
+/* Forecast scenarios (ForecastPage) - a labelled group of related controls,
+   the same "span styled as a legend" idiom as .transaction-direction-legend
+   above rather than a native <fieldset>/<legend>, whose default styling this
+   app doesn't otherwise theme anywhere. */
+.forecast-scenario-group {
+  margin-bottom: var(--space-4);
+}
+
+.forecast-scenario-legend {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.forecast-scenario-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.9rem;
+  margin-bottom: var(--space-1);
+}
+
+.forecast-scenario-adjustment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.forecast-scenario-adjustment input[type="number"] {
+  width: 6rem;
+}
+
+.forecast-scenario-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Rules v2 (RulesPage) - the repeatable "also match" pattern list, the same
+   labelled-group idiom as .forecast-scenario-legend above. */
+.rule-pattern-legend {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.rule-pattern-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+/* Guided first-run onboarding (OnboardingChecklist, T3.3) - a plain <ol>
+   rather than a table, since each step is a paragraph of copy plus a link,
+   not tabular data. */
+.onboarding-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.onboarding-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.onboarding-step-marker {
+  font-size: 1.1rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.onboarding-step-done .onboarding-step-marker {
+  color: var(--success);
+}
+
+.onboarding-step-done strong {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.onboarding-checklist p {
+  margin: var(--space-1) 0;
+  color: var(--text-secondary);
+}
+
+/* Toast notifications (ToastContainer, T3.4) - a transient SUCCESS
+   confirmation only, never an error (see services/toast.ts's own
+   docstring) - <ErrorState> remains the one place any error appears. */
+.toast-container {
+  position: fixed;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  z-index: 100;
+  max-width: 320px;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.85rem;
+  animation: toast-in 0.15s ease;
+}
+
+.toast-success {
+  border-left-color: var(--success);
+}
+
+.toast-info {
+  border-left-color: var(--accent);
+}
+
+.toast-dismiss {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0;
+  margin-left: auto;
+}
+
 /* Ledger toolbar (TransactionsPage) - the DATA actions: bulk-assign
    CategoryQuickAdd, Set category, Apply rules now. Everything here changes
    the ledger's data, which is what separates it from .ledger-filter-bar
@@ -533,6 +717,39 @@ input[type='checkbox'] {
 
 .ledger-totals .amount {
   font-weight: 600;
+}
+
+.pay-period-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+/* Shared LineChart/BarChart hover+keyboard-focus tooltip (ChartTooltip.jsx).
+   position: relative is what makes the tooltip's own absolute positioning
+   (computed from the hovered point/bar's real screen rect, see that
+   component's docstring) relative to the chart rather than the page. */
+.chart-container {
+  position: relative;
+}
+
+.chart-tooltip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - var(--space-2)));
+  background: var(--surface-1);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  /* Purely informational - never the target of a click/hover itself, so it
+     can't shadow the point/bar underneath it or steal the mouseleave that
+     would otherwise hide it. */
+  pointer-events: none;
+  z-index: 20;
 }
 
 /* Grouped-by-merchant Set-category cell (TransactionsPage) - a plain select
@@ -626,6 +843,73 @@ a:focus-visible {
 
 .card table th.numeric .header-filter-heading {
   justify-content: flex-end;
+}
+
+/* Card-per-transaction below ~700px (Finding 17) - the ledger's own two
+   tables (plain and grouped-by-merchant) opt in via .responsive-table.
+   Standard accessible responsive-table technique: the <thead> is hidden the
+   same way a visually-hidden <caption> already is elsewhere in this app
+   (clip, not display:none, so a screen reader in table-navigation mode
+   still has real column headers - it just isn't the SIGHTED presentation
+   any more), and each <td> gets its own column label back via a
+   `data-label` attribute + ::before, since visual position no longer
+   conveys "which column is this" once every row stacks into its own card.
+   A <td> with no data-label (a row checkbox, the Details toggle) simply has
+   no label prefix - both are self-explanatory without one. */
+@media (max-width: 700px) {
+  .responsive-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .responsive-table,
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .responsive-table tbody tr {
+    margin-bottom: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+  }
+
+  /* A detail/expander row (colSpan across every column) is already a single
+     full-width block once its own <td> is display:block - excluded from
+     the card border/margin above via :not(), since it visually belongs to
+     the card of the row it expands, not a card of its own. */
+  .responsive-table tbody tr.ledger-detail-row {
+    margin-bottom: var(--space-2);
+    border: none;
+    padding: 0 var(--space-2);
+  }
+
+  .responsive-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-1) var(--space-2);
+    border-bottom: none;
+    white-space: normal;
+  }
+
+  .responsive-table td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
 }
 
 /* Column headers (<thead> th) only - a <tbody> th (scope="row", a few
@@ -1440,7 +1724,8 @@ th .amount {
   .header-filter-popover,
   .modal-overlay,
   .modal,
-  .skeleton-row {
+  .skeleton-row,
+  .toast {
     animation: none;
   }
 }

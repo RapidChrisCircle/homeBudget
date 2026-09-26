@@ -204,7 +204,14 @@ export default function ReportsPage() {
               {budgetVsActualSort.sortedRows.map((line) => (
                 <tr key={line.category_id}>
                   <td>{categoryPathLabel(line)}</td>
-                  <td><Amount value={line.budget_amount} neutral /></td>
+                  <td>
+                    <Amount value={line.budget_amount} neutral />
+                    {line.available_amount != null && (
+                      <Badge tone="neutral" title="Unspent budget rolls into next month; overspend carries as a deficit - this is what Difference is actually computed against">
+                        {' '}rolls over: <Amount value={line.available_amount} neutral /> available
+                      </Badge>
+                    )}
+                  </td>
                   <td>
                     <Amount value={line.actual} neutral />
                     {Number(line.actual) < 0 && (

@@ -141,7 +141,7 @@ def test_export_database_includes_every_table(client):
     assert set(body.keys()) == {
         "account_groups", "accounts", "categories", "category_rules", "category_budgets",
         "import_batches", "transactions", "csv_format_mappings", "savings_goals",
-        "dashboard_widgets", "recurring_dismissals",
+        "dashboard_widgets", "recurring_dismissals", "pay_schedule",
     }
 
 
@@ -227,5 +227,14 @@ def test_export_database_on_an_empty_database_has_empty_lists(client):
     assert body == {
         "account_groups": [], "accounts": [], "categories": [], "category_rules": [],
         "category_budgets": [], "import_batches": [], "transactions": [], "csv_format_mappings": [],
-        "savings_goals": [], "dashboard_widgets": [], "recurring_dismissals": [],
+        "savings_goals": [], "dashboard_widgets": [], "recurring_dismissals": [], "pay_schedule": None,
     }
+
+
+def test_export_database_includes_the_pay_schedule_when_configured(client):
+
+    client.put("/api/pay-schedule", json={"anchor_date": "2026-01-02"})
+
+    body = json.loads(client.get("/api/export/database").text)
+
+    assert body["pay_schedule"] == {"anchor_date": "2026-01-02"}

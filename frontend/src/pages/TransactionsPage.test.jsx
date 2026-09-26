@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
+import { showToast } from '../services/toast'
 import TransactionsPage from './TransactionsPage.jsx'
 
 vi.mock('../services/api', () => ({
@@ -12,6 +13,10 @@ vi.mock('../services/api', () => ({
     put: vi.fn(),
     delete: vi.fn(),
   },
+}))
+
+vi.mock('../services/toast', () => ({
+  showToast: vi.fn(),
 }))
 
 const sampleTransaction = {
@@ -72,8 +77,12 @@ function mockLoad({
   transactionTypes = ['WDL'],
   listResponse = envelope(transactions),
   groups = [],
+  transfers = { matches: [], unmatched: [] },
 } = {}) {
   api.get.mockImplementation((path) => {
+    if (path === '/transfers') {
+      return Promise.resolve({ data: transfers })
+    }
     if (path === '/transactions/types') {
       return Promise.resolve({ data: transactionTypes })
     }
@@ -144,6 +153,22 @@ describe('TransactionsPage', () => {
     })
 
     expect(screen.getAllByText('transactions.csv').length).toBeGreaterThan(0)
+  })
+
+  it('marks the ledger table responsive, with a data-label on every labelled cell', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const row = screen.getByText('Coffee').closest('tr')
+    expect(row.closest('table')).toHaveClass('responsive-table')
+    expect(row.querySelector('td[data-label="Date"]')).toBeInTheDocument()
+    expect(row.querySelector('td[data-label="Account"]')).toBeInTheDocument()
+    expect(row.querySelector('td[data-label="Narration"]')).toBeInTheDocument()
+    expect(row.querySelector('td[data-label="Amount"]')).toBeInTheDocument()
+    expect(row.querySelector('td[data-label="Category"]')).toBeInTheDocument()
   })
 
   it('holds both the file input and the batch history in a single Import card', async () => {
@@ -248,6 +273,7 @@ describe('TransactionsPage', () => {
       expect(screen.getByText(/created 1 new account\(s\)/)).toBeInTheDocument()
     })
     expect(screen.getByText(/auto-categorized\s+2 transaction\(s\)/)).toBeInTheDocument()
+    expect(showToast).toHaveBeenCalledWith('Imported 2 transaction(s).')
   })
 
   it('mentions skipped pending authorisations only when any were skipped', async () => {
@@ -673,6 +699,9 @@ describe('TransactionsPage', () => {
     await waitFor(() => expect(screen.getByText('IGA Newport')).toBeInTheDocument())
 
     const row = screen.getByText('IGA Newport').closest('tr')
+    expect(row.closest('table')).toHaveClass('responsive-table')
+    expect(row.querySelector('td[data-label="Merchant"]')).toBeInTheDocument()
+    expect(row.querySelector('td[data-label="Total"]')).toBeInTheDocument()
     expect(within(row).getByText('3')).toBeInTheDocument()
     expect(within(row).getByText('3 uncategorized')).toBeInTheDocument()
 
@@ -1203,7 +1232,7 @@ describe('TransactionsPage', () => {
     const isLookupCall = ([path]) => !path.startsWith('/transactions?') && !path.startsWith('/transactions/groups')
 
     const lookupCallsAfterMount = api.get.mock.calls.filter(isLookupCall).length
-    expect(lookupCallsAfterMount).toBe(5)
+    expect(lookupCallsAfterMount).toBe(6)
 
     applyHeaderFilter('Narration', () => {
       fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
@@ -1214,7 +1243,7 @@ describe('TransactionsPage', () => {
     })
 
     const lookupCallsAfterFilter = api.get.mock.calls.filter(isLookupCall).length
-    expect(lookupCallsAfterFilter).toBe(5)
+    expect(lookupCallsAfterFilter).toBe(6)
   })
 
   it('does refetch the lookups after an import, which can create accounts and batches', async () => {

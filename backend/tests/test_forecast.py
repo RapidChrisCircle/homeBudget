@@ -2,7 +2,13 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from app.models import RecurringDismissal
-from app.services.forecast import daily_run_rates, forecast_periods, project
+from app.services.forecast import (
+    apply_category_adjustments,
+    category_daily_rates,
+    daily_run_rates,
+    forecast_periods,
+    project,
+)
 from app.services.recurring import detect_series, narration_key
 from test_recurring import make_account, make_category, make_transaction, monthly_dates, seed_series
 
@@ -267,3 +273,161 @@ def test_empty_ledger_returns_empty_forecast_not_an_error(db_session):
     result = project(db_session, months=3)
 
     assert result == {"as_of": None, "periods": [], "accounts": [], "combined": None, "upcoming": []}
+
+
+# --- category_daily_rates -------------------------------------------------------
+
+def test_category_daily_rates_isolates_one_categorys_slice(db_session):
+
+    account_id = make_account(db_session).id
+    groceries = make_category(db_session, name="Groceries")
+    fuel = make_category(db_session, name="Fuel")
+    make_transaction(db_session, account_id, date(2026, 1, 3), "IGA", amount=-90.00, category_id=groceries.id)
+    make_transaction(db_session, account_id, date(2026, 2, 3), "IGA", amount=-90.00, category_id=groceries.id)
+    make_transaction(db_session, account_id, date(2026, 1, 10), "SHELL", amount=-60.00, category_id=fuel.id)
+    make_transaction(db_session, account_id, date(2026, 4, 1), "COFFEE", amount=-4.00)
+    db_session.commit()
+
+    rates = category_daily_rates(db_session, date(2026, 4, 1), [])
+
+    window_days = (date(2026, 4, 1) - date(2026, 1, 1)).days
+    assert rates[account_id][groceries.id] == Decimal("-180.00") / window_days
+    assert rates[account_id][fuel.id] == Decimal("-60.00") / window_days
+
+
+def test_category_daily_rates_excludes_recurring_activity(db_session):
+
+    groceries = make_category(db_session, name="Groceries")
+    account_id = seed_series(
+        db_session, monthly_dates(date(2026, 1, 15), 3), [20.00] * 3, narration="NETFLIX.COM",
+        category_id=groceries.id,
+    )
+    make_transaction(db_session, account_id, date(2026, 1, 3), "IGA", amount=-90.00, category_id=groceries.id)
+    make_transaction(db_session, account_id, date(2026, 4, 1), "COFFEE", amount=-4.00)
+    db_session.commit()
+
+    series = detect_series(db_session)
+    rates = category_daily_rates(db_session, date(2026, 4, 1), series)
+
+    window_days = (date(2026, 4, 1) - date(2026, 1, 1)).days
+    # Only the IGA spend counts - Netflix (recurring) is excluded even though
+    # it was assigned the same category.
+    assert rates[account_id][groceries.id] == Decimal("-90.00") / window_days
+
+
+def test_category_daily_rates_excludes_uncategorized_transactions(db_session):
+
+    account_id = make_account(db_session).id
+    make_transaction(db_session, account_id, date(2026, 1, 3), "MYSTERY", amount=-50.00)
+    make_transaction(db_session, account_id, date(2026, 4, 1), "COFFEE", amount=-4.00)
+    db_session.commit()
+
+    rates = category_daily_rates(db_session, date(2026, 4, 1), [])
+
+    assert rates == {}
+
+
+# --- apply_category_adjustments -------------------------------------------------
+
+def test_apply_category_adjustments_reduces_only_the_targeted_slice():
+
+    daily_rates = {1: Decimal("-10.00")}
+    category_rates = {1: {100: Decimal("-6.00"), 200: Decimal("-4.00")}}
+
+    adjusted = apply_category_adjustments(daily_rates, category_rates, {100: Decimal("-20")})
+
+    # Category 100's slice shrinks by 20% of -6.00 (i.e. +1.20), category
+    # 200's slice is completely untouched.
+    assert adjusted[1] == Decimal("-10.00") + (Decimal("-6.00") * Decimal("-20") / 100)
+    assert adjusted[1] == Decimal("-8.80")
+
+
+def test_apply_category_adjustments_returns_the_same_object_when_no_adjustments():
+
+    daily_rates = {1: Decimal("-10.00")}
+
+    assert apply_category_adjustments(daily_rates, {}, {}) is daily_rates
+
+
+def test_apply_category_adjustments_ignores_a_category_with_no_activity_for_an_account():
+
+    daily_rates = {1: Decimal("-10.00")}
+    category_rates = {1: {100: Decimal("-6.00")}}
+
+    # Category 999 isn't in category_rates[1] at all - the adjustment for it
+    # simply has nothing to apply to.
+    adjusted = apply_category_adjustments(daily_rates, category_rates, {999: Decimal("-50")})
+
+    assert adjusted[1] == Decimal("-10.00")
+
+
+# --- project() scenarios (T3.1) --------------------------------------------------
+
+def test_scenario_stopping_a_series_removes_its_future_occurrences(db_session):
+
+    account_id = seed_series(
+        db_session, monthly_dates(date(2026, 1, 15), 4), [50.00] * 4, narration="GYM"
+    )
+    db_session.commit()
+
+    baseline = project(db_session, months=3)
+    assert any(e["merchant"] == "GYM" for e in baseline["upcoming"])
+
+    stopped = project(db_session, months=3, stopped_series_keys=frozenset({(account_id, narration_key("GYM"))}))
+
+    assert all(e["merchant"] != "GYM" for e in stopped["upcoming"])
+
+
+def test_scenario_stopping_a_series_does_not_touch_the_run_rate_exclusion(db_session):
+    # Stopping GYM in the SCENARIO must not resurrect its historical
+    # transactions into the everyday run rate - that's what a real
+    # RecurringDismissal does, and this is deliberately a different thing.
+    account_id = seed_series(
+        db_session, monthly_dates(date(2026, 1, 15), 4), [50.00] * 4, narration="GYM"
+    )
+    make_transaction(db_session, account_id, date(2026, 4, 1), "COFFEE", amount=-4.00)
+    db_session.commit()
+
+    baseline = project(db_session, months=1)
+    stopped = project(db_session, months=1, stopped_series_keys=frozenset({(account_id, narration_key("GYM"))}))
+
+    baseline_account = next(a for a in baseline["accounts"] if a["account_id"] == account_id)
+    stopped_account = next(a for a in stopped["accounts"] if a["account_id"] == account_id)
+    assert baseline_account["daily_run_rate"] == stopped_account["daily_run_rate"]
+
+
+def test_scenario_category_adjustment_changes_the_run_rate_and_closing_balance(db_session):
+    # Irregular (varying day-of-month, varying amount) so detect_series does
+    # NOT classify this as a recurring series of its own - it must land in
+    # the everyday run rate, which is the whole point of this scenario.
+    account_id = make_account(db_session).id
+    groceries = make_category(db_session, name="Groceries")
+    make_transaction(db_session, account_id, date(2026, 1, 3), "IGA", amount=-100.00, category_id=groceries.id)
+    make_transaction(db_session, account_id, date(2026, 2, 20), "IGA", amount=-80.00, category_id=groceries.id)
+    make_transaction(db_session, account_id, date(2026, 3, 9), "IGA", amount=-120.00, category_id=groceries.id)
+    make_transaction(db_session, account_id, date(2026, 4, 1), "COFFEE", amount=-4.00)
+    db_session.commit()
+
+    baseline = project(db_session, months=1)
+    reduced = project(db_session, months=1, category_adjustments={groceries.id: Decimal("-50")})
+
+    baseline_account = next(a for a in baseline["accounts"] if a["account_id"] == account_id)
+    reduced_account = next(a for a in reduced["accounts"] if a["account_id"] == account_id)
+
+    # Spending less (a smaller negative rate) means a HIGHER projected
+    # closing balance.
+    assert reduced_account["daily_run_rate"] > baseline_account["daily_run_rate"]
+    assert reduced_account["months"][0]["closing"] > baseline_account["months"][0]["closing"]
+
+
+def test_no_scenario_params_matches_the_baseline_exactly(db_session):
+
+    account_id = seed_series(
+        db_session, monthly_dates(date(2026, 1, 15), 4), [50.00] * 4, narration="GYM"
+    )
+    db_session.commit()
+
+    plain = project(db_session, months=2)
+    explicit_defaults = project(db_session, months=2, stopped_series_keys=frozenset(), category_adjustments=None)
+
+    assert plain == explicit_defaults

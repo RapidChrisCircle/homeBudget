@@ -112,6 +112,35 @@ describe('ReportsPage', () => {
     expect(screen.getAllByText('912.34').length).toBeGreaterThan(0)
   })
 
+  it('shows a rollover badge with the accumulated available amount when present', async () => {
+    mockLoad({
+      ...sampleReport,
+      budgets: [
+        {
+          ...sampleReport.budgets[0],
+          budget_amount: '100.00',
+          actual: '600.00',
+          available_amount: '700.00',
+          difference: '100.00',
+        },
+      ],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/rolls over/)).toBeInTheDocument())
+    expect(screen.getByText('700.00')).toBeInTheDocument()
+  })
+
+  it('shows no rollover badge for an ordinary category', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/-112.34/)).toBeInTheDocument())
+    expect(screen.queryByText(/rolls over/)).not.toBeInTheDocument()
+  })
+
   it('renders the grid with one column per month', async () => {
     mockLoad()
 

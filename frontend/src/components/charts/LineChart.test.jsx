@@ -14,6 +14,48 @@ describe('LineChart', () => {
     expect(screen.getByText('Groceries — 2026-02: 120')).toBeInTheDocument()
   })
 
+  it('shows a shared tooltip on hover and hides it on mouseleave', () => {
+    const { container } = render(
+      <LineChart periods={periods} series={[{ label: 'Groceries', values: [100, 120, 90] }]} />
+    )
+
+    const point = container.querySelectorAll('circle')[1]
+    fireEvent.mouseEnter(point)
+
+    expect(container.querySelector('.chart-tooltip')).toHaveTextContent('Groceries — 2026-02: 120')
+
+    fireEvent.mouseLeave(point)
+
+    expect(container.querySelector('.chart-tooltip')).not.toBeInTheDocument()
+  })
+
+  it('shows the tooltip on keyboard focus for a clickable point, not just hover', () => {
+    const { container } = render(
+      <LineChart
+        periods={periods}
+        series={[{ label: 'Groceries', values: [100, 120, 90] }]}
+        onSelectPoint={vi.fn()}
+      />
+    )
+
+    const point = container.querySelectorAll('circle')[0]
+    fireEvent.focus(point)
+
+    expect(container.querySelector('.chart-tooltip')).toHaveTextContent('Groceries — 2026-01: 100')
+
+    fireEvent.blur(point)
+
+    expect(container.querySelector('.chart-tooltip')).not.toBeInTheDocument()
+  })
+
+  it('renders no tooltip element at all until something is hovered or focused', () => {
+    const { container } = render(
+      <LineChart periods={periods} series={[{ label: 'Groceries', values: [100, 120, 90] }]} />
+    )
+
+    expect(container.querySelector('.chart-tooltip')).not.toBeInTheDocument()
+  })
+
   it('renders multiple series side by side with a legend', () => {
     const { container } = render(
       <LineChart

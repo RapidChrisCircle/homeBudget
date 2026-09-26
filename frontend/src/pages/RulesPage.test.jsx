@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
+import { showToast } from '../services/toast'
 import RulesPage from './RulesPage.jsx'
 
 vi.mock('../services/api', () => ({
@@ -11,6 +12,10 @@ vi.mock('../services/api', () => ({
     put: vi.fn(),
     delete: vi.fn(),
   },
+}))
+
+vi.mock('../services/toast', () => ({
+  showToast: vi.fn(),
 }))
 
 const sampleRule = {
@@ -109,6 +114,8 @@ describe('RulesPage', () => {
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/category-rules', {
         narration_pattern: 'coles',
+        additional_patterns: [],
+        use_regex: false,
         transaction_type: null,
         min_amount: null,
         max_amount: null,
@@ -185,6 +192,7 @@ describe('RulesPage', () => {
       expect(api.post).toHaveBeenCalledWith('/category-rules/apply')
     })
     expect(await screen.findByText('Categorized 8 transaction(s).')).toBeInTheDocument()
+    expect(showToast).toHaveBeenCalledWith('Categorized 8 transaction(s).')
   })
 
   it('moves a rule up when the up button is clicked', async () => {
@@ -344,6 +352,8 @@ describe('RulesPage', () => {
     await waitFor(() => {
       expect(api.put).toHaveBeenCalledWith('/category-rules/1', {
         narration_pattern: 'coles',
+        additional_patterns: [],
+        use_regex: false,
         transaction_type: null,
         min_amount: null,
         max_amount: null,
@@ -367,5 +377,110 @@ describe('RulesPage', () => {
     await waitFor(() => {
       expect(api.delete).toHaveBeenCalledWith('/category-rules/1')
     })
+  })
+})
+
+describe('RulesPage v2 patterns (T3.2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows every pattern joined with OR, and a regex badge, in the rules table', async () => {
+    const rule = { ...sampleRule, additional_patterns: ['coles', 'iga'], use_regex: true }
+    mockLoad([rule])
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText(/woolworths OR coles OR iga/)).toBeInTheDocument())
+    const row = screen.getByText(/woolworths OR coles OR iga/).closest('tr')
+    expect(within(row).getByText(/regex/)).toBeInTheDocument()
+  })
+
+  it('shows no regex badge for an ordinary rule', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('woolworths')).toBeInTheDocument())
+    const row = screen.getByText('woolworths').closest('tr')
+    expect(within(row).queryByText(/regex/)).not.toBeInTheDocument()
+  })
+
+  it('adds an alternative pattern row and submits it with the create form', async () => {
+    mockLoad([])
+    api.post.mockResolvedValue({ data: sampleRule })
+
+    renderPage()
+    await waitFor(() => expect(screen.queryByText('Loading rules...')).not.toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: '+ Add alternative pattern' }))
+    fireEvent.change(screen.getByLabelText('Additional pattern 1'), { target: { value: 'coles' } })
+    fireEvent.click(screen.getByLabelText('Treat patterns as regular expressions'))
+
+    const addRuleButtons = screen.getAllByRole('button', { name: 'Add Rule' })
+    fireEvent.click(addRuleButtons[addRuleButtons.length - 1])
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/category-rules', {
+        narration_pattern: 'woolworths',
+        additional_patterns: ['coles'],
+        use_regex: true,
+        transaction_type: null,
+        min_amount: null,
+        max_amount: null,
+        category_id: 1,
+      })
+    })
+  })
+
+  it('removes an alternative pattern row', async () => {
+    mockLoad([])
+
+    renderPage()
+    await waitFor(() => expect(screen.queryByText('Loading rules...')).not.toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Add alternative pattern' }))
+    expect(screen.getByLabelText('Additional pattern 1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove additional pattern 1' }))
+
+    expect(screen.queryByLabelText('Additional pattern 1')).not.toBeInTheDocument()
+  })
+
+  it('omits a blank alternative pattern row from the submitted payload', async () => {
+    mockLoad([])
+    api.post.mockResolvedValue({ data: sampleRule })
+
+    renderPage()
+    await waitFor(() => expect(screen.queryByText('Loading rules...')).not.toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'woolworths' } })
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: '+ Add alternative pattern' }))
+    // Left blank on purpose.
+
+    const addRuleButtons = screen.getAllByRole('button', { name: 'Add Rule' })
+    fireEvent.click(addRuleButtons[addRuleButtons.length - 1])
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/category-rules', expect.objectContaining({
+        additional_patterns: [],
+      }))
+    })
+  })
+
+  it('prefills additional patterns and use_regex when editing an existing v2 rule', async () => {
+    const rule = { ...sampleRule, additional_patterns: ['coles'], use_regex: true }
+    mockLoad([rule])
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText(/woolworths OR coles/)).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getByLabelText('Treat patterns as regular expressions')).toBeChecked()
+    expect(screen.getByLabelText('Additional pattern 1')).toHaveValue('coles')
   })
 })

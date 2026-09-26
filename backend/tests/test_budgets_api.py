@@ -4,9 +4,13 @@ from decimal import Decimal
 from app.models import Category, CategoryBudget, ImportBatch, Transaction
 
 
-def make_category(db_session, name="Groceries", kind="expense", budget_amount=None):
+def make_category(db_session, name="Groceries", kind="expense", budget_amount=None,
+                   rolls_over=False, rollover_start_year=None, rollover_start_month=None):
 
-    category = Category(name=name, kind=kind, budget_amount=budget_amount)
+    category = Category(
+        name=name, kind=kind, budget_amount=budget_amount, rolls_over=rolls_over,
+        rollover_start_year=rollover_start_year, rollover_start_month=rollover_start_month,
+    )
     db_session.add(category)
     db_session.flush()
     return category
@@ -52,8 +56,31 @@ def test_get_budgets_shape(client, db_session):
     assert row["is_overridden"] is False
     assert row["actual"] == "60.00"
     assert row["difference"] == "40.00"
+    assert row["rolls_over"] is False
+    assert row["available_amount"] is None
     assert body["totals"]["budgeted"] == "100.00"
     assert body["totals"]["actual"] == "60.00"
+
+
+def test_get_budgets_rollover_category_shows_accumulated_available(client, db_session):
+
+    category = make_category(
+        db_session, budget_amount="100.00",
+        rolls_over=True, rollover_start_year=2026, rollover_start_month=1,
+    )
+    make_transaction(db_session, date(2026, 7, 15), "-600.00", category.id)
+    db_session.commit()
+
+    body = client.get("/api/budgets?year=2026&month=7").json()
+    row = next(c for c in body["categories"] if c["category_id"] == category.id)
+
+    assert row["rolls_over"] is True
+    assert row["effective_amount"] == "100.00"
+    assert row["available_amount"] == "700.00"
+    # The month reads as UNDER budget once accumulation is considered, even
+    # though 600 spent against a nominal 100 would otherwise look wildly over.
+    assert row["difference"] == "100.00"
+    assert body["totals"]["budgeted"] == "700.00"
 
 
 def test_get_budgets_marks_an_overridden_category(client, db_session):

@@ -1,3 +1,4 @@
+import ChartTooltip, { useChartTooltip } from './ChartTooltip.jsx'
 import { CHART_HEIGHT, CHART_MARGIN, CHART_WIDTH, seriesColor } from './chartConstants.js'
 import { computeDomain, linearScale, niceTicks } from './chartScale.js'
 
@@ -42,6 +43,8 @@ export default function LineChart({
   onSelectSeries = null,
 }) {
 
+  const { containerRef, tooltip, showTooltip, hideTooltip } = useChartTooltip()
+
   const allValues = series.flatMap((s) => s.values)
   const domain = computeDomain(allValues, { includeZero })
 
@@ -55,7 +58,8 @@ export default function LineChart({
   const showZeroLine = domain.min < 0 && domain.max > 0
 
   return (
-    <div>
+    <div className="chart-container" ref={containerRef}>
+      <ChartTooltip tooltip={tooltip} />
       <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} role="img" aria-label={title}>
         <g transform={`translate(${CHART_MARGIN.left}, ${CHART_MARGIN.top})`}>
           {ticks.map((tick) => (
@@ -106,7 +110,15 @@ export default function LineChart({
 
                   if (!pointsClickable) {
                     return (
-                      <circle key={index} cx={xScale(index)} cy={yScale(value)} r="3" fill={color}>
+                      <circle
+                        key={index}
+                        cx={xScale(index)}
+                        cy={yScale(value)}
+                        r="3"
+                        fill={color}
+                        onMouseEnter={(event) => showTooltip(event, description)}
+                        onMouseLeave={hideTooltip}
+                      >
                         <title>{description}</title>
                       </circle>
                     )
@@ -118,7 +130,11 @@ export default function LineChart({
                     // onClick on a decorative shape - an SVG element takes
                     // role/tabIndex the same way any other element does,
                     // and there is no HTML button that can live inside the
-                    // plot area at the point's own coordinates.
+                    // plot area at the point's own coordinates. onFocus/
+                    // onBlur mirror onMouseEnter/onMouseLeave so the same
+                    // tooltip a mouse gets also appears for keyboard
+                    // navigation, which tabIndex already makes possible here
+                    // but a hover-only tooltip never would.
                     <circle
                       key={index}
                       cx={xScale(index)}
@@ -138,6 +154,10 @@ export default function LineChart({
                           onSelectPoint({ series: s, seriesIndex, periodIndex: index, period: periods[index], value })
                         }
                       }}
+                      onMouseEnter={(event) => showTooltip(event, description)}
+                      onMouseLeave={hideTooltip}
+                      onFocus={(event) => showTooltip(event, description)}
+                      onBlur={hideTooltip}
                     >
                       <title>{description}</title>
                     </circle>

@@ -16,6 +16,7 @@ import Pagination from '../components/Pagination.jsx'
 import RuleEditor from '../components/RuleEditor.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import SplitEditor from '../components/SplitEditor.jsx'
+import TransferMatchingCard from '../components/TransferMatchingCard.jsx'
 import {
   activeFilterCount,
   describeFilters,
@@ -29,6 +30,7 @@ import {
   sortFromSearchParams,
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
+import { showToast } from '../services/toast'
 import { formatDate, transactionAmount } from '../utils/format.js'
 import { useTableSort } from '../utils/tableSort.js'
 import { groupCategorySummary } from '../utils/transactionGroups.js'
@@ -620,6 +622,7 @@ export default function TransactionsPage() {
     try {
       const response = await api.post('/transactions/import', formData)
       setUploadResult(response.data)
+      showToast(`Imported ${response.data.imported_count} transaction(s).`)
       // An import adds a batch and can auto-create accounts.
       await refresh({ withLookups: true })
     } catch (err) {
@@ -646,6 +649,7 @@ export default function TransactionsPage() {
   const handleMappingImported = async (result) => {
     setMappingPanel(null)
     setUploadResult(result)
+    showToast(`Imported ${result.imported_count} transaction(s).`)
     await refresh({ withLookups: true })
   }
 
@@ -916,6 +920,8 @@ export default function TransactionsPage() {
         />
       </Card>
 
+      <TransferMatchingCard />
+
       <Card id="transactions-ledger" title="Ledger">
         {loading && <LoadingState message="Loading transactions..." rows={8} />}
         {!loading && error && <ErrorState label="Failed to load transactions:" message={error} />}
@@ -1030,7 +1036,7 @@ export default function TransactionsPage() {
             )}
 
             {groupByMerchant && !groupsLoading && !groupsError && groups.length > 0 && (
-                <table>
+                <table className="responsive-table">
                   <caption className="visually-hidden">Ledger grouped by merchant</caption>
                   <thead>
                     <tr>
@@ -1052,12 +1058,12 @@ export default function TransactionsPage() {
                       return (
                         <Fragment key={group.narration_key}>
                           <tr>
-                            <td className="cell-wrap">{group.merchant}</td>
-                            <td className="numeric">{group.transaction_count}</td>
-                            <td><Amount value={signedTotal} /></td>
-                            <td>{formatDate(group.first_date)} - {formatDate(group.last_date)}</td>
-                            <td>{groupCategorySummary(group)}</td>
-                            <td className="group-set-category">
+                            <td className="cell-wrap" data-label="Merchant">{group.merchant}</td>
+                            <td className="numeric" data-label="Count">{group.transaction_count}</td>
+                            <td data-label="Total"><Amount value={signedTotal} /></td>
+                            <td data-label="Date range">{formatDate(group.first_date)} - {formatDate(group.last_date)}</td>
+                            <td data-label="Categorized">{groupCategorySummary(group)}</td>
+                            <td className="group-set-category" data-label="Set category">
                               {/* A plain select, not a per-row CategoryQuickAdd -
                                   the "+ New category" affordance now lives once
                                   in the toolbar above (see CategoryQuickAdd's
@@ -1133,7 +1139,7 @@ export default function TransactionsPage() {
             {!groupByMerchant && (
             <>
             <div className="table-scroll">
-              <table>
+              <table className="responsive-table">
                 <caption className="visually-hidden">Ledger</caption>
                 <thead>
                   <tr>
@@ -1221,16 +1227,16 @@ export default function TransactionsPage() {
                               onChange={() => toggleSelected(transaction.id)}
                             />
                           </td>
-                          <td>{formatDate(transaction.transaction_date)}</td>
-                          <td>{transaction.account_name || formatAccount(transaction)}</td>
-                          <td className="ledger-narration">
+                          <td data-label="Date">{formatDate(transaction.transaction_date)}</td>
+                          <td data-label="Account">{transaction.account_name || formatAccount(transaction)}</td>
+                          <td className="ledger-narration" data-label="Narration">
                             {transaction.narration}
                             {transaction.is_manual && (
                               <Badge tone="neutral" title="Entered by hand, not imported from a bank export"> manual</Badge>
                             )}
                           </td>
-                          <td><Amount value={transactionAmount(transaction)} /></td>
-                          <td>
+                          <td data-label="Amount"><Amount value={transactionAmount(transaction)} /></td>
+                          <td data-label="Category">
                             {transaction.is_split ? (
                               <div className="split-summary">
                                 <Badge tone="info" title="This transaction is split across categories">split</Badge>

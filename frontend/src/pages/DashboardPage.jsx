@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import Card from '../components/Card.jsx'
-import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import OnboardingChecklist from '../components/OnboardingChecklist.jsx'
 import { api } from '../services/api'
 import { WIDGET_TYPE_KEYS, WIDGET_TYPES, WIDGET_WIDTHS, widgetTypeLabel } from '../widgetRegistry.jsx'
 
@@ -200,9 +200,7 @@ export default function DashboardPage() {
     return (
       <section className="page">
         <h2>Dashboard</h2>
-        <EmptyState message="No transactions imported yet.">
-          <Link to="/transactions">Import a bank statement to get started</Link>
-        </EmptyState>
+        <OnboardingChecklist />
       </section>
     )
   }
@@ -232,6 +230,8 @@ export default function DashboardPage() {
       </div>
 
       {layoutError && <ErrorState label="Action failed:" message={layoutError} />}
+
+      <OnboardingChecklist />
 
       {addingWidget && (
         <Card id="dashboard-add-widget" title="Add a Widget">

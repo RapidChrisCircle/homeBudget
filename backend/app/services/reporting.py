@@ -79,7 +79,7 @@ from sqlalchemy.orm import Session, aliased
 
 from ..models import Category, Transaction
 from .allocations import allocation_subquery
-from .budgets import effective_budget, overrides_for_period, overrides_for_periods
+from .budgets import effective_budget, overrides_for_period, overrides_for_periods, rollover_available
 
 DEFAULT_GRID_MONTHS = 6
 MAX_GRID_MONTHS = 24
@@ -111,6 +111,12 @@ class CategoryPeriodTotal:
     # total_spending would silently drop real money. See reporting.py's
     # module docstring and Category.archived's own docstring in models.py.
     archived: bool
+    # None for every category that hasn't opted into budget rollover (see
+    # Category.rolls_over) - there is no "available including carry-in"
+    # concept for them, only budget_amount. Populated by category_totals_
+    # for_period() via services.budgets.rollover_available(), the one
+    # choke point for this question - never computed here.
+    available_amount: Decimal | None = None
 
     @property
     def actual(self) -> Decimal:
@@ -120,12 +126,19 @@ class CategoryPeriodTotal:
 
     @property
     def difference(self) -> Decimal | None:
-        """budget - actual. Positive = under budget, negative = over."""
+        """(available if this is a rollover category, else budget) - actual.
+        Positive = under budget, negative = over. Using available_amount
+        here - rather than a second "is this over budget" computation - is
+        what makes a sinking-fund category's accumulated carry-in actually
+        absorb a spike instead of just being a number nobody reads.
+        """
 
-        if self.budget_amount is None:
+        reference = self.available_amount if self.available_amount is not None else self.budget_amount
+
+        if reference is None:
             return None
 
-        return self.budget_amount - self.actual
+        return reference - self.actual
 
 
 def month_bounds(year: int, month: int) -> tuple[date, date]:
@@ -259,7 +272,7 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
         .all()
     )
 
-    return [
+    totals = [
         CategoryPeriodTotal(
             category_id=row.id,
             category_name=row.name,
@@ -273,6 +286,26 @@ def category_totals_for_period(db: Session, start: date, end: date) -> list[Cate
         )
         for row in rows
     ]
+
+    # A second, small pass rather than a column in the query above: rollover
+    # categories are rare (opt-in) and rollover_available() needs to walk
+    # each one's own accumulation history, which isn't expressible as part
+    # of this single-month aggregate. Filtering to just the categories
+    # already in `totals` keeps this cheap even on a large category list.
+    rollover_categories = {
+        c.id: c
+        for c in db.query(Category).filter(
+            Category.id.in_([t.category_id for t in totals]),
+            Category.rolls_over.is_(True),
+        )
+    }
+
+    for t in totals:
+        category = rollover_categories.get(t.category_id)
+        if category is not None:
+            t.available_amount = rollover_available(db, category, start.year, start.month)
+
+    return totals
 
 
 def monthly_summary(totals: list[CategoryPeriodTotal]) -> tuple[Decimal, Decimal, Decimal]:

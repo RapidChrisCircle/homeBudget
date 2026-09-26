@@ -17,12 +17,14 @@ const sampleAccounts = [
   {
     id: 1,
     name: 'Joint Everyday',
+    account_type: 'everyday',
     balance: '1200.50',
     balance_as_of: '2026-07-24',
   },
   {
     id: 2,
     name: 'Credit Card',
+    account_type: 'credit_card',
     balance: '-300.50',
     balance_as_of: '2026-07-20',
   },
@@ -183,6 +185,7 @@ function mockLoad({
   listResponse = null,
   recurring = emptyRecurring,
   widgets = sampleWidgets,
+  categories = [{ id: 1, name: 'Groceries', budget_amount: '400.00' }],
 } = {}) {
   const list = listResponse || envelope(transactions)
 
@@ -192,6 +195,9 @@ function mockLoad({
     }
     if (path === '/accounts') {
       return Promise.resolve({ data: accounts })
+    }
+    if (path === '/categories') {
+      return Promise.resolve({ data: categories })
     }
     if (path.startsWith('/reports/monthly')) {
       return Promise.resolve({ data: report })
@@ -584,15 +590,15 @@ describe('DashboardPage', () => {
     expect(screen.getByText('No account balance history in this window yet.')).toBeInTheDocument()
   })
 
-  it('shows an empty state when nothing has been imported', async () => {
+  it('shows the guided onboarding checklist when nothing has been imported', async () => {
     mockLoad({ transactions: [], listResponse: envelope([], { total: 0 }) })
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('No transactions imported yet.')).toBeInTheDocument()
+      expect(screen.getByText('Getting Started')).toBeInTheDocument()
     })
-    expect(screen.getByRole('link', { name: /Import a bank statement/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Go to Transactions' })).toBeInTheDocument()
   })
 
   it('shows an error message when a request fails', async () => {

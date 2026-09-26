@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
+import { showToast } from '../services/toast'
 import CategoriesPage from './CategoriesPage.jsx'
 
 vi.mock('../services/api', () => ({
@@ -10,6 +11,10 @@ vi.mock('../services/api', () => ({
     put: vi.fn(),
     delete: vi.fn(),
   },
+}))
+
+vi.mock('../services/toast', () => ({
+  showToast: vi.fn(),
 }))
 
 const sampleCategory = { id: 1, name: 'Groceries', kind: 'expense', budget_amount: '250.00' }
@@ -32,7 +37,11 @@ const sampleBudgetData = {
   totals: { budgeted: '250.00', actual: '180.00', difference: '70.00' },
 }
 
-function mockLoad({ categories = [sampleCategory], budgetData = sampleBudgetData, usage = [] } = {}) {
+const samplePayPeriod = { configured: false, start_date: null, end_date: null, label: null, categories: [], summary: null }
+
+function mockLoad({
+  categories = [sampleCategory], budgetData = sampleBudgetData, usage = [], payPeriod = samplePayPeriod,
+} = {}) {
   api.get.mockImplementation((path) => {
     // Checked before the plain /categories match below, since it's the
     // more specific path.
@@ -44,6 +53,9 @@ function mockLoad({ categories = [sampleCategory], budgetData = sampleBudgetData
     }
     if (path.startsWith('/budgets')) {
       return Promise.resolve({ data: budgetData })
+    }
+    if (path.startsWith('/pay-periods')) {
+      return Promise.resolve({ data: payPeriod })
     }
     return Promise.reject(new Error(`unexpected path ${path}`))
   })
@@ -119,6 +131,7 @@ describe('CategoriesPage', () => {
         kind: 'expense',
         budget_amount: '800',
         parent_id: null,
+        rolls_over: false,
       })
     })
   })
@@ -144,6 +157,7 @@ describe('CategoriesPage', () => {
         kind: 'income',
         budget_amount: null,
         parent_id: null,
+        rolls_over: false,
       })
     })
   })
@@ -259,6 +273,7 @@ describe('CategoriesPage', () => {
         kind: 'expense',
         budget_amount: '250.00',
         parent_id: null,
+        rolls_over: false,
       })
     })
     expect(screen.queryByRole('button', { name: 'Save Changes' })).not.toBeInTheDocument()
@@ -582,6 +597,7 @@ describe('CategoriesPage', () => {
     await waitFor(() => {
       expect(api.put).toHaveBeenCalledWith('/budgets/1', { year: 2026, month: 7, amount: '300' })
     })
+    expect(showToast).toHaveBeenCalledWith('Budget saved.')
   })
 
   it('disables Save when the input is left empty', async () => {
@@ -663,6 +679,7 @@ describe('CategoriesPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Created 2 categories, skipped 1 already present.')).toBeInTheDocument()
     })
+    expect(showToast).toHaveBeenCalledWith('Created 2 categories, skipped 1 already present.')
   })
 
   it('shows an error message when applying the preset fails', async () => {
@@ -852,6 +869,74 @@ describe('CategoriesPage', () => {
     const footRow = table.querySelector('tfoot tr')
     expect(within(footRow).getByText('Total')).toBeInTheDocument()
   })
+
+  it('submits rolls_over: true when the rollover checkbox is checked', async () => {
+    mockLoad({ categories: [] })
+    api.post.mockResolvedValue({ data: sampleCategory })
+
+    render(<CategoriesPage />)
+    await waitFor(() => expect(screen.queryByText('Loading categories...')).not.toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Car Registration' } })
+    fireEvent.change(screen.getByLabelText('Standing monthly budget'), { target: { value: '100' } })
+    fireEvent.click(screen.getByLabelText('Roll unspent budget into next month'))
+    const addCategoryButtons = screen.getAllByRole('button', { name: 'Add Category' })
+    fireEvent.click(addCategoryButtons[addCategoryButtons.length - 1])
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/categories', {
+        name: 'Car Registration',
+        kind: 'expense',
+        budget_amount: '100',
+        parent_id: null,
+        rolls_over: true,
+      })
+    })
+  })
+
+  it('prefills the rollover checkbox when editing a category that already rolls over', async () => {
+    const rollingCategory = { ...sampleCategory, rolls_over: true }
+    mockLoad({ categories: [rollingCategory] })
+
+    render(<CategoriesPage />)
+    await waitFor(() => expect(within(categoriesSection()).getByText('Groceries')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getByLabelText('Roll unspent budget into next month')).toBeChecked()
+  })
+
+  it('shows the accumulated Available amount and a badge for a rollover category', async () => {
+    const budgetData = {
+      ...sampleBudgetData,
+      categories: [
+        {
+          ...sampleBudgetData.categories[0],
+          rolls_over: true,
+          available_amount: '700.00',
+        },
+      ],
+    }
+    mockLoad({ budgetData })
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    const row = categoryRow(budgetsSection(), 'Groceries')
+    expect(within(row).getByText('700.00')).toBeInTheDocument()
+    expect(within(row).getByText(/rolls over/)).toBeInTheDocument()
+  })
+
+  it('shows no Available figure or badge for a category that does not roll over', async () => {
+    mockLoad()
+
+    render(<CategoriesPage />)
+    await waitForBudgetsLoaded()
+
+    const row = categoryRow(budgetsSection(), 'Groceries')
+    expect(within(row).queryByText(/rolls over/)).not.toBeInTheDocument()
+    expect(within(row).getByText('—')).toBeInTheDocument()
+  })
 })
 
 describe('CategoriesPage hierarchy', () => {
@@ -1006,5 +1091,127 @@ describe('CategoriesPage combining', () => {
     fireEvent.click(within(combineCard).getByRole('button', { name: /into the one kept/ }))
 
     expect(await screen.findByText('"Salary" is an income category')).toBeInTheDocument()
+  })
+})
+
+describe('CategoriesPage pay periods', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function payPeriodSection() {
+    return screen.getByText('Pay Period Budgeting').closest('.card')
+  }
+
+  async function waitForPayPeriodLoaded() {
+    await waitFor(() => expect(screen.queryByText('Loading pay period...')).not.toBeInTheDocument())
+  }
+
+  it('offers to set a payday when none is configured', async () => {
+    mockLoad()
+
+    render(<CategoriesPage />)
+    await waitForPayPeriodLoaded()
+
+    expect(within(payPeriodSection()).getByLabelText('A recent payday')).toBeInTheDocument()
+    expect(within(payPeriodSection()).getByRole('button', { name: 'Set payday' })).toBeInTheDocument()
+  })
+
+  it('submits a new payday and reloads the period', async () => {
+    mockLoad()
+    api.put.mockResolvedValue({ data: { configured: true, anchor_date: '2026-01-02' } })
+
+    render(<CategoriesPage />)
+    await waitForPayPeriodLoaded()
+
+    fireEvent.change(within(payPeriodSection()).getByLabelText('A recent payday'), {
+      target: { value: '2026-01-02' },
+    })
+    fireEvent.click(within(payPeriodSection()).getByRole('button', { name: 'Set payday' }))
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/pay-schedule', { anchor_date: '2026-01-02' })
+    })
+  })
+
+  it('shows the current period range, pace table and summary once configured', async () => {
+    mockLoad({
+      payPeriod: {
+        configured: true,
+        start_date: '2026-01-01',
+        end_date: '2026-01-15',
+        label: '2026-01-01 to 2026-01-14',
+        categories: [
+          {
+            category_id: 1, category_name: 'Groceries', parent_id: null, parent_name: null,
+            standing_budget: '200.00', pace: '92.31', actual: '50.00', difference: '42.31',
+          },
+        ],
+        summary: { total_income: '1000.00', total_spending: '50.00', net_saved: '950.00' },
+      },
+    })
+
+    render(<CategoriesPage />)
+    await waitForPayPeriodLoaded()
+
+    const section = payPeriodSection()
+    expect(within(section).getByText(/01\/01\/26/)).toBeInTheDocument()
+    expect(within(section).getByText('92.31')).toBeInTheDocument()
+    expect(within(section).getAllByText('50.00').length).toBeGreaterThan(0)
+    expect(within(section).getByText('42.31')).toBeInTheDocument()
+    expect(within(section).getByText(/950.00/)).toBeInTheDocument()
+  })
+
+  it('moves to the next and previous fortnight', async () => {
+    mockLoad({
+      payPeriod: {
+        configured: true,
+        start_date: '2026-01-01',
+        end_date: '2026-01-15',
+        label: '',
+        categories: [],
+        summary: { total_income: '0.00', total_spending: '0.00', net_saved: '0.00' },
+      },
+    })
+
+    render(<CategoriesPage />)
+    await waitForPayPeriodLoaded()
+
+    api.get.mockClear()
+    fireEvent.click(within(payPeriodSection()).getByRole('button', { name: /Next/ }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/pay-periods?reference_date=2026-01-15')
+    })
+
+    api.get.mockClear()
+    fireEvent.click(within(payPeriodSection()).getByRole('button', { name: /Previous/ }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/pay-periods?reference_date=2025-12-18')
+    })
+  })
+
+  it('marks an over-pace category', async () => {
+    mockLoad({
+      payPeriod: {
+        configured: true,
+        start_date: '2026-01-01',
+        end_date: '2026-01-15',
+        label: '',
+        categories: [
+          {
+            category_id: 1, category_name: 'Groceries', parent_id: null, parent_name: null,
+            standing_budget: '100.00', pace: '46.15', actual: '80.00', difference: '-33.85',
+          },
+        ],
+        summary: { total_income: '0.00', total_spending: '80.00', net_saved: '-80.00' },
+      },
+    })
+
+    render(<CategoriesPage />)
+    await waitForPayPeriodLoaded()
+
+    expect(within(payPeriodSection()).getByText(/over/)).toBeInTheDocument()
   })
 })

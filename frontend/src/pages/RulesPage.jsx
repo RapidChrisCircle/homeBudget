@@ -1,18 +1,25 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Amount from '../components/Amount.jsx'
+import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
 import CategorySelect from '../components/CategorySelect.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import { api } from '../services/api'
+import { showToast } from '../services/toast'
 import { categoryPathLabel } from '../utils/categories.js'
 
 const RULES_TABLE_COLUMN_COUNT = 7
 
 const EMPTY_FORM = {
   narration_pattern: '',
+  // Rules v2 (T3.2) - additional_patterns is [{key, value}] in FORM state
+  // (a stable key per row for React, the same reason SplitEditor's own
+  // rows carry one), reduced to a plain array of strings in buildPayload.
+  additional_patterns: [],
+  use_regex: false,
   transaction_type: '',
   min_amount: '',
   max_amount: '',
@@ -24,6 +31,10 @@ const EMPTY_FORM = {
 function buildPayload(form) {
   return {
     narration_pattern: form.narration_pattern,
+    additional_patterns: form.additional_patterns
+      .map((row) => row.value.trim())
+      .filter((value) => value !== ''),
+    use_regex: form.use_regex,
     transaction_type: form.transaction_type || null,
     min_amount: form.min_amount || null,
     max_amount: form.max_amount || null,
@@ -118,11 +129,44 @@ export default function RulesPage() {
     setPreview(null)
     setForm({
       narration_pattern: rule.narration_pattern,
+      additional_patterns: (rule.additional_patterns || []).map((value, index) => ({
+        key: `existing-${index}`,
+        value,
+      })),
+      use_regex: rule.use_regex || false,
       transaction_type: rule.transaction_type || '',
       min_amount: rule.min_amount ?? '',
       max_amount: rule.max_amount ?? '',
       category_id: String(rule.category_id),
     })
+  }
+
+  const handleUseRegexChange = (event) => {
+    setForm((prev) => ({ ...prev, use_regex: event.target.checked }))
+  }
+
+  const addPatternRow = () => {
+    setForm((prev) => ({
+      ...prev,
+      additional_patterns: [
+        ...prev.additional_patterns,
+        { key: `pattern-${Date.now()}-${prev.additional_patterns.length}`, value: '' },
+      ],
+    }))
+  }
+
+  const updatePatternRow = (key, value) => {
+    setForm((prev) => ({
+      ...prev,
+      additional_patterns: prev.additional_patterns.map((row) => (row.key === key ? { ...row, value } : row)),
+    }))
+  }
+
+  const removePatternRow = (key) => {
+    setForm((prev) => ({
+      ...prev,
+      additional_patterns: prev.additional_patterns.filter((row) => row.key !== key),
+    }))
   }
 
   const cancelEdit = () => {
@@ -175,7 +219,9 @@ export default function RulesPage() {
     setApplying(true)
     try {
       const response = await api.post('/category-rules/apply')
-      setApplyMessage(`Categorized ${response.data.categorized_count} transaction(s).`)
+      const message = `Categorized ${response.data.categorized_count} transaction(s).`
+      setApplyMessage(message)
+      showToast(message)
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Apply rules failed'
       setActionError(String(message))
@@ -279,6 +325,38 @@ export default function RulesPage() {
             required
           />
         </label>
+      </div>
+      <div>
+        <label>
+          <input type="checkbox" checked={form.use_regex} onChange={handleUseRegexChange} />
+          {' '}Treat patterns as regular expressions
+        </label>
+        <p>
+          Off (default): each pattern below is plain, case-insensitive text found anywhere in the
+          narration. On: each pattern is a case-insensitive regular expression instead.
+        </p>
+      </div>
+      <div>
+        <span className="rule-pattern-legend">Also match (OR)</span>
+        {form.additional_patterns.map((row, index) => (
+          <div key={row.key} className="rule-pattern-row">
+            <input
+              type="text"
+              aria-label={`Additional pattern ${index + 1}`}
+              value={row.value}
+              onChange={(event) => updatePatternRow(row.key, event.target.value)}
+            />
+            <button
+              type="button"
+              className="button-ghost"
+              aria-label={`Remove additional pattern ${index + 1}`}
+              onClick={() => removePatternRow(row.key)}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <button type="button" onClick={addPatternRow}>+ Add alternative pattern</button>
       </div>
       <div>
         <label>
@@ -468,7 +546,12 @@ export default function RulesPage() {
                           ▼
                         </button>
                       </td>
-                      <td className="cell-wrap">{rule.narration_pattern}</td>
+                      <td className="cell-wrap">
+                        {[rule.narration_pattern, ...(rule.additional_patterns || [])].join(' OR ')}
+                        {rule.use_regex && (
+                          <Badge tone="info" title="Patterns are matched as case-insensitive regular expressions"> regex</Badge>
+                        )}
+                      </td>
                       <td>{rule.transaction_type}</td>
                       <td><Amount value={rule.min_amount} neutral /></td>
                       <td><Amount value={rule.max_amount} neutral /></td>

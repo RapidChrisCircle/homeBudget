@@ -142,3 +142,93 @@ def test_apply_rules_after_removing_redundant_categorizes_the_same_count(client)
 
     assert before == 0  # already categorized on import
     assert after == 0
+
+
+# --- Rules v2: multi-pattern and regex rules -------------------------------------
+
+def test_a_later_multi_pattern_rule_fully_covered_by_the_earlier_pattern_is_subsumed(client):
+
+    category_id = make_category(client)
+    create_rule(client, category_id, narration_pattern="woolworths")
+    # Every one of the later rule's own alternatives contains "woolworths".
+    second = create_rule(
+        client, category_id, narration_pattern="woolworths metro",
+        additional_patterns=["woolworths online"],
+    )
+
+    findings = review(client)
+
+    assert len(findings) == 1
+    assert findings[0]["rule_id"] == second["id"]
+    assert findings[0]["kind"] == "subsumed"
+
+
+def test_a_later_multi_pattern_rule_only_partly_covered_is_not_reported(client):
+
+    category_id = make_category(client)
+    create_rule(client, category_id, narration_pattern="woolworths")
+    # "coles" is NOT covered by "woolworths" - partial coverage isn't
+    # containment, so the earlier rule does NOT make this one unreachable
+    # (a COLES transaction only ever reaches the later rule).
+    second = create_rule(
+        client, category_id, narration_pattern="woolworths metro",
+        additional_patterns=["coles"],
+    )
+
+    findings = review(client)
+
+    assert all(f["rule_id"] != second["id"] for f in findings)
+
+
+def test_an_earlier_multi_pattern_rule_can_cover_a_later_single_pattern_rule(client):
+
+    category_id = make_category(client)
+    create_rule(client, category_id, narration_pattern="woolworths", additional_patterns=["coles"])
+    second = create_rule(client, category_id, narration_pattern="coles online")
+
+    findings = review(client)
+
+    assert len(findings) == 1
+    assert findings[0]["rule_id"] == second["id"]
+
+
+def test_a_regex_rule_is_never_reported_as_the_later_rule(client):
+
+    category_id = make_category(client)
+    create_rule(client, category_id, narration_pattern="woolworths")
+    create_rule(client, category_id, narration_pattern="woolworths.*", use_regex=True)
+
+    assert review(client) == []
+
+
+def test_a_regex_rule_is_never_reported_as_the_blocking_rule(client):
+
+    category_id = make_category(client)
+    create_rule(client, category_id, narration_pattern="woolworths", use_regex=True)
+    create_rule(client, category_id, narration_pattern="woolworths metro")
+
+    assert review(client) == []
+
+
+def test_exact_duplicate_with_the_same_pattern_set_in_a_different_order(client):
+
+    category_id = make_category(client)
+    create_rule(client, category_id, narration_pattern="woolworths", additional_patterns=["coles"])
+    second = create_rule(client, category_id, narration_pattern="coles", additional_patterns=["woolworths"])
+
+    findings = review(client)
+
+    assert len(findings) == 1
+    assert findings[0]["rule_id"] == second["id"]
+    assert findings[0]["kind"] == "duplicate"
+
+
+def test_identical_pattern_but_different_use_regex_is_not_reported_at_all(client):
+    # Same literal pattern text, but one rule treats it as a regex - _covers
+    # excludes any pair involving a regex rule entirely (see module
+    # docstring), so this isn't reported as duplicate, subsumed OR shadowed.
+    category_id = make_category(client)
+    create_rule(client, category_id, narration_pattern="woolworths")
+    create_rule(client, category_id, narration_pattern="woolworths", use_regex=True)
+
+    assert review(client) == []
