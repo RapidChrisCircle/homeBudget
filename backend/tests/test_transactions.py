@@ -581,6 +581,38 @@ def test_list_transactions_filters_by_amount_range(client):
     assert items[0]["narration"].startswith("LS Taquiza")
 
 
+def test_list_transactions_filters_by_import_batch_id(client):
+
+    upload(client, SAMPLE_CSV)
+    second_csv = HEADER + ',1111,25/07/2026,"Second import row",,-9.00,,91.00,WDL\n'
+    upload(client, second_csv, filename="second.csv")
+
+    transactions = list_transactions(client)
+    second_import_id = next(t["import_batch_id"] for t in transactions if t["narration"] == "Second import row")
+
+    response = client.get(f"/api/transactions?import_batch_id={second_import_id}")
+
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["narration"] == "Second import row"
+
+
+def test_export_csv_filters_by_import_batch_id(client):
+
+    upload(client, SAMPLE_CSV)
+    second_csv = HEADER + ',1111,25/07/2026,"Second import row",,-9.00,,91.00,WDL\n'
+    upload(client, second_csv, filename="second.csv")
+
+    transactions = list_transactions(client)
+    second_import_id = next(t["import_batch_id"] for t in transactions if t["narration"] == "Second import row")
+
+    response = client.get(f"/api/transactions/export?import_batch_id={second_import_id}")
+
+    assert response.status_code == 200
+    assert "Second import row" in response.text
+    assert "CCTrueUp" not in response.text
+
+
 def test_list_transaction_types_returns_distinct_sorted_values(client):
 
     upload(client, SAMPLE_CSV)

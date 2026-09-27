@@ -142,6 +142,23 @@ export default function HeaderFilter({
           {isActive && valueLabel && <span className="header-filter-chip-value">{valueLabel}</span>}
           <span aria-hidden="true" className="header-filter-chip-caret">▾</span>
         </button>
+        {/* A sibling button, not nested inside the chip above - the chip IS
+            a <button>, and nested interactive controls are invalid HTML
+            (the outer button would swallow every click meant for this
+            one). One click clears the filter without opening its popover
+            first, alongside the popover's own Clear and the toolbar's
+            Clear all filters - a third path, worth it for a single-click
+            filter it's genuinely reached from often. */}
+        {isActive && (
+          <button
+            type="button"
+            className="header-filter-chip-clear"
+            aria-label={`Clear ${label} filter`}
+            onClick={handleClear}
+          >
+            <span aria-hidden="true">&times;</span>
+          </button>
+        )}
         {popover}
       </div>
     )

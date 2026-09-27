@@ -141,6 +141,12 @@ describe('groupsQueryFromSearchParams', () => {
     expect(query).toContain('kind=income')
   })
 
+  it('carries import_batch_id through to the groups query', () => {
+    const query = groupsQueryFromSearchParams(new URLSearchParams({ import_batch_id: '4' }))
+
+    expect(query).toContain('import_batch_id=4')
+  })
+
   it('still omits page and page_size - groups are not paginated', () => {
     const query = groupsQueryFromSearchParams(new URLSearchParams({ page: '2', page_size: '50', search: 'coffee' }))
 
@@ -215,6 +221,17 @@ describe('sortFromSearchParams / nextSortParams', () => {
     expect(activeFilterCount({ ...EMPTY_FILTERS, search: 'coles', account: '3' })).toBe(2)
   })
 
+  it('activeFilterCount counts an import batch filter as one filter', () => {
+    expect(activeFilterCount({ ...EMPTY_FILTERS, import_batch_id: '4' })).toBe(1)
+  })
+
+  it('searchParamsFromFilters round-trips an import batch id', () => {
+    const params = searchParamsFromFilters({ ...EMPTY_FILTERS, import_batch_id: '4' })
+
+    expect(params.get('import_batch_id')).toBe('4')
+    expect(filtersFromSearchParams(params).import_batch_id).toBe('4')
+  })
+
   it('describeFilters resolves ids to the names the chips show', () => {
     const labels = describeFilters(
       { ...EMPTY_FILTERS, account: '3', category: '7' },
@@ -246,6 +263,19 @@ describe('sortFromSearchParams / nextSortParams', () => {
     // A deleted account, or a hand-edited URL - showing the id beats an
     // empty chip, which would read as "no filter" while still filtering.
     expect(describeFilters({ ...EMPTY_FILTERS, account: '99' }, { accounts: [] }).account).toBe('99')
+  })
+
+  it('describeFilters resolves an import batch id to its filename', () => {
+    const labels = describeFilters(
+      { ...EMPTY_FILTERS, import_batch_id: '4' },
+      { batches: [{ id: 4, filename: 'july-statement.csv' }] },
+    )
+
+    expect(labels.import).toBe('july-statement.csv')
+  })
+
+  it('describeFilters falls back to the raw batch id when it cannot resolve one', () => {
+    expect(describeFilters({ ...EMPTY_FILTERS, import_batch_id: '4' }, { batches: [] }).import).toBe('4')
   })
 
   it('describeFilters renders open-ended ranges as From/To rather than a dash', () => {

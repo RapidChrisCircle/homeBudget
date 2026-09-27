@@ -6,6 +6,7 @@ import LineChart from '../components/charts/LineChart.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { formatAmount } from '../utils/format.js'
@@ -165,7 +166,7 @@ export default function ForecastPage() {
   if (loading) {
     return (
       <section className="page">
-        <h2>Forecast</h2>
+        <PageHeader title="Forecast" />
         <LoadingState message="Loading forecast..." />
       </section>
     )
@@ -174,7 +175,7 @@ export default function ForecastPage() {
   if (error) {
     return (
       <section className="page">
-        <h2>Forecast</h2>
+        <PageHeader title="Forecast" />
         <ErrorState label="Failed to load forecast:" message={error} />
       </section>
     )
@@ -183,7 +184,7 @@ export default function ForecastPage() {
   if (!forecast.as_of || forecast.accounts.length === 0) {
     return (
       <section className="page">
-        <h2>Forecast</h2>
+        <PageHeader title="Forecast" />
         <EmptyState message="Not enough history yet - import a few months of statements and check back." />
       </section>
     )
@@ -243,7 +244,7 @@ export default function ForecastPage() {
 
   return (
     <section className="page">
-      <h2>Forecast</h2>
+      <PageHeader title="Forecast" />
 
       <p>
         Projected from transactions imported up to {asOf}: known recurring commitments plus an

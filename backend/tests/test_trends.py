@@ -9,7 +9,7 @@ from app.services.reporting import (
     month_bounds,
     monthly_summary,
 )
-from app.services.trends import budget_totals, monthly_summaries
+from app.services.trends import budget_totals, monthly_summaries, top_movers
 
 
 def make_category(db_session, name="Groceries", kind="expense", budget_amount=None):
@@ -160,6 +160,73 @@ def test_budget_totals_actual_only_counts_categories_budgeted_in_that_specific_p
     assert may["budgeted"] == Decimal("0") and may["actual"] == Decimal("0")
     assert june["budgeted"] == Decimal("200.00") and june["actual"] == Decimal("150.00")
     assert july["budgeted"] == Decimal("0") and july["actual"] == Decimal("0")
+
+
+def test_top_movers_ranks_by_absolute_delta_between_the_last_two_periods(db_session):
+
+    groceries = make_category(db_session, name="Groceries", kind="expense")
+    fuel = make_category(db_session, name="Fuel", kind="expense")
+    dining = make_category(db_session, name="Dining", kind="expense")
+
+    # Groceries: 100 -> 500, delta +400 (the biggest swing)
+    make_transaction(db_session, transaction_date=date(2026, 6, 5), debit="-100.00", category_id=groceries.id)
+    make_transaction(db_session, transaction_date=date(2026, 7, 5), debit="-500.00", category_id=groceries.id)
+    # Fuel: 200 -> 150, delta -50
+    make_transaction(db_session, transaction_date=date(2026, 6, 5), debit="-200.00", category_id=fuel.id)
+    make_transaction(db_session, transaction_date=date(2026, 7, 5), debit="-150.00", category_id=fuel.id)
+    # Dining: 80 -> 80, delta 0 - not a mover at all, must be excluded
+    make_transaction(db_session, transaction_date=date(2026, 6, 5), debit="-80.00", category_id=dining.id)
+    make_transaction(db_session, transaction_date=date(2026, 7, 5), debit="-80.00", category_id=dining.id)
+    db_session.commit()
+
+    periods, grid_rows = category_grid(db_session, 2026, 7, months=2)
+    movers = top_movers(periods, grid_rows)
+
+    assert [m["category_name"] for m in movers] == ["Groceries", "Fuel"]
+    assert movers[0]["delta"] == Decimal("400.00")
+    assert movers[0]["current"] == Decimal("500.00")
+    assert movers[0]["prior"] == Decimal("100.00")
+    assert movers[1]["delta"] == Decimal("-50.00")
+
+
+def test_top_movers_respects_the_limit(db_session):
+
+    for i in range(5):
+        category = make_category(db_session, name=f"Category {i}", kind="expense")
+        make_transaction(db_session, transaction_date=date(2026, 6, 5), debit="-10.00", category_id=category.id)
+        make_transaction(db_session, transaction_date=date(2026, 7, 5), debit=f"-{20 + i}.00", category_id=category.id)
+    db_session.commit()
+
+    periods, grid_rows = category_grid(db_session, 2026, 7, months=2)
+    movers = top_movers(periods, grid_rows, limit=3)
+
+    assert len(movers) == 3
+
+
+def test_top_movers_includes_income_categories_alongside_expense(db_session):
+
+    salary = make_category(db_session, name="Salary", kind="income")
+    make_transaction(db_session, transaction_date=date(2026, 6, 5), credit="4000.00", category_id=salary.id)
+    make_transaction(db_session, transaction_date=date(2026, 7, 5), credit="5000.00", category_id=salary.id)
+    db_session.commit()
+
+    periods, grid_rows = category_grid(db_session, 2026, 7, months=2)
+    movers = top_movers(periods, grid_rows)
+
+    assert movers[0]["category_name"] == "Salary"
+    assert movers[0]["kind"] == "income"
+    assert movers[0]["delta"] == Decimal("1000.00")
+
+
+def test_top_movers_returns_empty_with_fewer_than_two_periods(db_session):
+
+    category = make_category(db_session, name="Groceries", kind="expense")
+    make_transaction(db_session, transaction_date=date(2026, 7, 5), debit="-50.00", category_id=category.id)
+    db_session.commit()
+
+    periods, grid_rows = category_grid(db_session, 2026, 7, months=1)
+
+    assert top_movers(periods, grid_rows) == []
 
 
 def test_periods_stay_contiguous_when_a_middle_month_has_no_transactions_at_all(db_session):

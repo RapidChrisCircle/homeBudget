@@ -566,6 +566,12 @@ def build_monthly_report(
     consistent snapshot of the ledger.
     """
 
+    # Deferred, not a module-level import: trends.py imports month_bounds/
+    # _year_month_columns FROM this module, so importing trends.py at the
+    # top of this one would be circular - by the time this function
+    # actually runs, both modules are fully loaded and the cycle is moot.
+    from .trends import monthly_summaries, top_movers
+
     if year is None or month is None:
         year, month = default_period(db)
 
@@ -574,6 +580,38 @@ def build_monthly_report(
     totals = category_totals_for_period(db, start, end)
     total_income, total_spending, net_saved = monthly_summary(totals)
     periods, grid_rows = category_grid(db, year, month, months=months)
+
+    # Whether the period immediately before this one has ANY real ledger
+    # data - not whether it grid-zero-fills to 0 (category_grid zero-fills
+    # every returned period regardless, so a true "nothing happened" month
+    # and "the ledger didn't exist yet" would otherwise read identically).
+    # Used by the Dashboard's narrative block (T4.2) to omit a month-over-
+    # month comparison entirely on the earliest month in the database,
+    # rather than rendering it against a phantom zero - the same "no data
+    # is not zero" rule dashboard_kpis already applies to a zero
+    # denominator.
+    prior_year, prior_month = periods[-2] if len(periods) >= 2 else (None, None)
+    has_prior_period_data = (
+        prior_year is not None
+        and any(y == prior_year and m == prior_month for y, m, _ in available_periods(db))
+    )
+
+    # The prior period's own {total_income, total_spending, net_saved} -
+    # via monthly_summaries(), not a second sum reimplemented here, so this
+    # can never quietly disagree with the SAME figures /trends shows for
+    # that exact month (a dedicated test already proves monthly_summaries
+    # agrees with this function's own single-month summary above). None,
+    # not a dict of zeros, when has_prior_period_data is False - there is
+    # literally no prior month to summarize, the same "absence, not a
+    # zero" distinction that flag exists to make.
+    prior_summary = None
+    if has_prior_period_data:
+        prior_summary = next(s for s in monthly_summaries(periods, grid_rows) if s["period"] == (prior_year, prior_month))
+        prior_summary = {
+            "total_income": prior_summary["total_income"],
+            "total_spending": prior_summary["total_spending"],
+            "net_saved": prior_summary["net_saved"],
+        }
 
     return {
         "year": year,
@@ -592,4 +630,7 @@ def build_monthly_report(
             "rows": grid_rows,
         },
         "uncategorized": uncategorized_summary(db, start, end),
+        "top_movers": top_movers(periods, grid_rows),
+        "has_prior_period_data": has_prior_period_data,
+        "prior_summary": prior_summary,
     }

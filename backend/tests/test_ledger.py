@@ -222,6 +222,26 @@ def test_combined_filters_are_anded(db_session):
     assert results[0].category_id == groceries.id
 
 
+def test_filter_by_import_batch_id(db_session):
+
+    # make_transaction seeds a fresh ImportBatch per call, so each
+    # transaction's own import_batch_id is already distinct - exactly what
+    # this filter needs to prove it isolates one batch from another.
+    from_this_import = make_transaction(db_session, narration="This import")
+    from_another_import = make_transaction(db_session, narration="A different import")
+    db_session.commit()
+
+    query = build_transaction_query(
+        db_session,
+        TransactionFilters(import_batch_id=from_this_import.import_batch_id),
+    )
+    results = query.all()
+
+    assert len(results) == 1
+    assert results[0].narration == "This import"
+    assert from_this_import.import_batch_id != from_another_import.import_batch_id
+
+
 # --- Sorting -----------------------------------------------------------
 # The ledger is PAGINATED, so sorting has to happen in SQL across the whole
 # result set - sorting only the rows already on a page would silently lie

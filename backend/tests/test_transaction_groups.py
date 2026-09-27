@@ -23,14 +23,20 @@ def make_category(db_session, name="Groceries", kind="expense"):
 
 def make_transaction(db_session, account_id, transaction_date, narration, amount,
                       credit=False, category_id=None, transaction_type="WDL",
-                      account_number="1111", balance="100.00"):
+                      account_number="1111", balance="100.00", import_batch_id=None):
 
-    batch = ImportBatch(filename="seed.csv", row_count=0, skipped_duplicate_count=0)
-    db_session.add(batch)
-    db_session.flush()
+    # A caller passing its own import_batch_id (test_groups_scope_by_import_
+    # batch_id below) wants two transactions to SHARE one batch - a fresh
+    # ImportBatch per call, the default, is what every other test here
+    # wants instead, since none of them care which batch a row landed in.
+    if import_batch_id is None:
+        batch = ImportBatch(filename="seed.csv", row_count=0, skipped_duplicate_count=0)
+        db_session.add(batch)
+        db_session.flush()
+        import_batch_id = batch.id
 
     transaction = Transaction(
-        import_batch_id=batch.id,
+        import_batch_id=import_batch_id,
         account_id=account_id,
         category_id=category_id,
         bsb_number=None,
@@ -119,6 +125,35 @@ def test_ledger_filters_scope_the_group(db_session):
     assert len(june_only) == 1
     assert june_only[0].transaction_count == 2
     assert june_only[0].total_amount == Decimal("9.45")
+
+
+def test_groups_scope_by_import_batch_id(db_session):
+
+    account = make_account(db_session)
+
+    this_import = ImportBatch(filename="this.csv", row_count=0, skipped_duplicate_count=0)
+    db_session.add(this_import)
+    db_session.flush()
+
+    make_transaction(
+        db_session, account.id, date(2026, 6, 1), "IGA NEWPORT              NEWPORT", -4.45,
+        import_batch_id=this_import.id,
+    )
+    make_transaction(
+        db_session, account.id, date(2026, 6, 2), "IGA NEWPORT              NEWPORT", -5.00,
+        import_batch_id=this_import.id,
+    )
+    # A third occurrence from an EARLIER import - counts toward the
+    # unscoped group, but must drop out once scoped to this_import alone.
+    make_transaction(db_session, account.id, date(2026, 5, 1), "IGA NEWPORT              NEWPORT", -6.00)
+
+    all_groups = transaction_groups(db_session, no_filters())
+    assert all_groups[0].transaction_count == 3
+
+    scoped = transaction_groups(db_session, no_filters(import_batch_id=this_import.id))
+    assert len(scoped) == 1
+    assert scoped[0].transaction_count == 2
+    assert scoped[0].total_amount == Decimal("9.45")
 
 
 def test_an_incoming_category_filter_is_overridden_by_the_grouped_view(db_session):
@@ -446,6 +481,33 @@ def test_groups_endpoint_honours_kind_with_include_categorized(client, db_sessio
     groups = response.json()["groups"]
     assert len(groups) == 1
     assert groups[0]["transaction_count"] == 3
+
+
+def test_groups_endpoint_honours_import_batch_id(client, db_session):
+
+    account = make_account(db_session)
+
+    this_import = ImportBatch(filename="this.csv", row_count=0, skipped_duplicate_count=0)
+    db_session.add(this_import)
+    db_session.flush()
+
+    make_transaction(
+        db_session, account.id, date(2026, 6, 1), "IGA NEWPORT              NEWPORT", -4.45,
+        import_batch_id=this_import.id,
+    )
+    make_transaction(
+        db_session, account.id, date(2026, 6, 2), "IGA NEWPORT              NEWPORT", -5.00,
+        import_batch_id=this_import.id,
+    )
+    make_transaction(db_session, account.id, date(2026, 5, 1), "IGA NEWPORT              NEWPORT", -6.00)
+    db_session.commit()
+
+    response = client.get("/api/transactions/groups", params={"import_batch_id": this_import.id})
+
+    assert response.status_code == 200
+    groups = response.json()["groups"]
+    assert len(groups) == 1
+    assert groups[0]["transaction_count"] == 2
 
 
 def test_groups_endpoint_rejects_unknown_kind(client):

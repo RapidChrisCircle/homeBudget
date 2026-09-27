@@ -5,6 +5,7 @@ import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import { api } from '../services/api'
 
 // Assembly only - see backend/app/services/alerts.py's module docstring.
@@ -79,7 +80,7 @@ export default function AlertsPage() {
 
   return (
     <section className="page">
-      <h2>Alerts</h2>
+      <PageHeader title="Alerts" />
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 

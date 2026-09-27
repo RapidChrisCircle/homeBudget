@@ -187,14 +187,34 @@ function renderChip(props = {}) {
 }
 
 describe('HeaderFilter chip (as="div")', () => {
-  it('is one button carrying the label - not a caret beside it', () => {
+  it('is one button carrying the label - not a caret beside it - while inactive', () => {
     renderChip()
 
     const chip = screen.getByRole('button', { name: 'Filter by Narration' })
     expect(chip).toHaveTextContent('Narration')
     // The <th> flavour splits label and toggle into two controls so the
-    // label can sort; a chip has nothing to sort, so it is one target.
+    // label can sort; an inactive chip has nothing else to offer, so it is
+    // one target. An ACTIVE chip gains a second, separate clear button -
+    // see the test below - since there is then something worth a
+    // one-click undo that opening the popover and hitting Clear does not
+    // improve on.
     expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('adds a separate clear button only when active, alongside the chip itself', () => {
+    renderChip({ isActive: true, valueLabel: 'woolworths' })
+
+    expect(screen.getAllByRole('button')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Clear Narration filter' })).toBeInTheDocument()
+  })
+
+  it('the clear button calls onClear without opening the popover', () => {
+    const { onClear } = renderChip({ isActive: true, valueLabel: 'woolworths' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Narration filter' }))
+
+    expect(onClear).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('shows the current value when active, so the row reads without opening anything', () => {

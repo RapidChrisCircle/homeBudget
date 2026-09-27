@@ -6,6 +6,7 @@ import Card from '../components/Card.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import { api } from '../services/api'
 import { formatAmount } from '../utils/format.js'
 import { buildLevel, buildSeries, drilledGroupName, monthBounds } from '../utils/trendsSeries.js'
@@ -81,7 +82,7 @@ export default function TrendsPage() {
   if (loading) {
     return (
       <section className="page">
-        <h2>Trends</h2>
+        <PageHeader title="Trends" />
         <LoadingState message="Loading trends..." />
       </section>
     )
@@ -90,7 +91,7 @@ export default function TrendsPage() {
   if (error) {
     return (
       <section className="page">
-        <h2>Trends</h2>
+        <PageHeader title="Trends" />
         <ErrorState label="Failed to load trends:" message={error} />
       </section>
     )
@@ -122,7 +123,7 @@ export default function TrendsPage() {
   if (!hasHistory) {
     return (
       <section className="page">
-        <h2>Trends</h2>
+        <PageHeader title="Trends" />
         {monthLabel}
         <EmptyState message="Not enough history yet - import a few months of statements and check back." />
       </section>
@@ -185,7 +186,7 @@ export default function TrendsPage() {
 
   return (
     <section className="page">
-      <h2>Trends</h2>
+      <PageHeader title="Trends" />
       {monthLabel}
 
       <Card

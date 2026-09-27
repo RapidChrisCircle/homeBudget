@@ -4,6 +4,140 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
+## [0.41.0] - 2026-09-27
+
+Roadmap item T4.1b (`ROADMAP.md`), the last of Tier 4 - no page had a page-header convention; every page was a bare `<h2>` repeated across each of its own loading/error/empty/happy branches.
+
+### Added
+
+- **`<PageHeader>`** (`components/PageHeader.jsx`) - title, an optional subtitle, and an actions slot, generalised from the Dashboard's own pre-existing `.dashboard-header` (already exactly this shape) rather than shipping a second, near-identical pattern alongside it.
+- Adopted across all ~31 `<h2>` sites in the app (13 page files, once T4.4's new `TriageQueuePage.jsx` is counted), including every early-return branch on every page - converted together, since converting only the happy path would make a page visibly jump in layout the moment it finishes loading.
+
+### Verification
+
+Every `<h2>` text stayed byte-identical, so **zero existing test assertions needed to change** across the entire sweep - the tightest possible bar, matching T4.1a's own sidebar rewrite. 6 new tests (`PageHeader.test.jsx`). Full suites (761 backend, unaffected; 822 frontend) green, lint and build clean.
+
+**This completes Tier 4 — UI & navigation uplift.** All nine tasks (T4.0, T4.1a, T4.5b, T4.3a, T4.3b, T4.2, T4.4, T4.5a, T4.1b) are shipped, versions 0.33.0 through 0.41.0.
+
+## [0.40.0] - 2026-09-27
+
+Roadmap item T4.5a (`ROADMAP.md`), Finding 13 - the ledger's per-row category `<select>` had no visual identity of its own.
+
+### Added
+
+- **`Category.color`** (migration `e28fb4860a15`, nullable `VARCHAR(20)`) - a per-category colour, stored as a design token NAME (e.g. `"category-3"`), not a hex literal, so it resolves per theme like every other colour in the app. `null` means no colour chosen, not a default one.
+- **A 10-swatch colour picker** on the Categories page's add/edit form, backed by a new `--category-1`..`--category-10` token family in `index.css` (all four theme blocks) - deliberately separate from the `--series-*` chart palette, and sized as a *chooser* rather than a cycler: a household can have far more categories than any cycled palette could keep visually distinct.
+- **The ledger's category pill** - the per-row control stays the same `<select>` (dozens of tests key off its accessible name), now tinted with a left border in the assigned category's colour. A split transaction (no select at all) gets a small colour dot per allocation instead. Three cases render neutral rather than a guessed colour: no colour chosen, an archived category (absent from the lookup list), and (for splits) a split line with no colour of its own.
+
+### Known limitation, recorded rather than silently skipped
+
+The `--series-*` chart palette was independently validated (colourblind separation, chroma floor, contrast) with the dataviz skill's `validate_palette.js`; that tool wasn't available in this environment, so the new `--category-*` family was hand-authored as an evenly-spaced HSL hue wheel instead. A real validation pass is a good candidate for a follow-up if that tooling becomes available. Similarly, the migration was verified to load and chain correctly onto the current head, and the backend test suite (which builds its schema from the ORM model directly) confirms the column works end-to-end - but `alembic upgrade`/`downgrade` were not run against a live Postgres, since no Postgres instance was reachable in this sandbox.
+
+### Verification
+
+5 new backend tests (`test_categories.py` - default/set/update/clear/length-validation) + 12 new frontend tests (`categoryColors.test.js` x4, `CategoriesPage.test.jsx` x3, `TransactionsPage.test.jsx` x5 covering a coloured category, an uncoloured one, an uncategorized row, an archived category, and mixed-colour splits). Full suites (761 backend, 816 frontend) green, lint and build clean.
+
+## [0.39.0] - 2026-09-27
+
+Roadmap item T4.4 (`ROADMAP.md`), Finding 19 - after an import, nothing distinguished "still needs a category" from the rest of the ledger except manually filtering to Uncategorized.
+
+### Added
+
+- **Ledger triage queue** (`pages/TriageQueuePage.jsx`, its own hidden route at `/transactions/review`, linked from the ledger's filter bar) - a keyboard-driven, one-merchant-at-a-time review of uncategorised merchant groups, largest first. No new backend endpoint: it reads the same `GET /transactions/groups` and writes through the same `POST /transactions/bulk-category` the ledger's own Group by merchant view already uses.
+- `j`/`k` (or the arrow keys) step through the queue without assigning anything; a live-filtering category combobox (typing narrows, Enter assigns) reuses the exact clamped-`activeIndex`/Arrow/Enter shape `CommandPalette.jsx` already established; `u` undoes the last assignment, restoring the merchant to the queue and re-nulling its category.
+- An **Also create a rule from this merchant** checkbox, best-effort - a rejected rule (e.g. a duplicate) never blocks progress through the queue.
+- A progress readout tracking the whole remaining queue, not just the current merchant.
+
+### Why a separate route, not a `?review=1` mode on the ledger
+
+Applying any ledger filter rebuilds the URL's search params from scratch (`ledgerFilterParams.searchParamsFromFilters`) - a mode flag living there would be silently dropped the moment a filter changed. Keyboard handling is bound to the queue's own container, never `document`, for the same reason every other document-level shortcut in this app is Escape-only: a bare letter key on `document` would fire while typing into the ledger's note field, a filter popover, or the command palette's own search box.
+
+### Verification
+
+12 new frontend tests (`TriageQueuePage.test.jsx`) covering largest-first ordering, j/k navigation without side effects, category filtering and assignment (by keyboard and by click), the "also create a rule" checkbox both ways, undo, a parent category correctly excluded from the assignable list, and an inline error that leaves the merchant in the queue. Full suites (756 backend, unaffected; 804 frontend) green, lint and build clean.
+
+## [0.38.0] - 2026-09-27
+
+Roadmap item T4.2 (`ROADMAP.md`) - the Dashboard now leads with a plain-language read of the month, not just charts of it.
+
+### Added
+
+- **Dashboard narrative** (`components/DashboardNarrative.jsx`, `utils/narrative.js`) - a fixed sentence or two above the widget grid: total spent, the month-over-month change, the biggest-moving category, an over-budget count, and an uncategorized count - each a real drill-down link into the ledger or `/reports` where relevant. Fixed rather than a removable widget.
+- **`services/trends.top_movers(periods, grid_rows)`** (backend) - the categories with the largest |delta| between the last two periods, ranked and limited, alongside `monthly_summaries`/`budget_totals` in the same module and following the same "derived from `category_grid`'s own rows, never a second query" contract.
+- **`GET /reports/monthly` gained three fields**: `top_movers`, `prior_summary` (the prior period's own income/spending/net, via `trends.monthly_summaries`), and `has_prior_period_data` (whether the prior period has any real transaction anywhere in the ledger - `category_grid` zero-fills every period regardless, so this is what tells "a real zero month" apart from "before the ledger existed"). No new endpoint; the Dashboard's existing `/reports/monthly` call moved from `months=1` to `months=2`.
+- `utils/budgets.overBudgetLines()` - the over-budget filter lifted out of `NeedsAttentionWidget` into a shared function, so the narrative's over-budget count can never quietly disagree with the widget that already shows the same categories.
+
+### Verification
+
+"No data is not zero" holds throughout: on the earliest month in the database, the comparison clause and the biggest-mover sentence are both omitted rather than compared against a phantom zero prior period; a real, genuinely zero-spend prior month still gets a comparison, just as an absolute change rather than a percentage against a zero base. 9 new backend tests (`test_trends.py` x4, `test_reports.py` x5) + 20 new frontend tests (`narrative.test.js` x12, `DashboardNarrative.test.jsx` x2, `budgets.test.js` x3, `DashboardPage.test.jsx` x3). Full suites (756 backend, 792 frontend) green, lint and build clean.
+
+## [0.37.0] - 2026-09-27
+
+Roadmap item T4.3b (`ROADMAP.md`) - the frontend half of T4.3a's backend filter, plus quicker access to the ledger's existing chips.
+
+### Added
+
+- **Quick filter presets** above the ledger's filter chips - This month, Last month, Uncategorised, This import - each calling the exact same `applyFilterPatch` path a chip itself uses. "This import" scopes to the most recently imported batch (`/import-batches`' own newest-first order) and is disabled when nothing has been imported.
+- **Import batch chip** - a seventh filter chip, scoping the ledger to one CSV import by filename, from the batch list already fetched for the History table (no new request). Labelled "Import batch" rather than "Import" to avoid colliding with the Import card's own title.
+- **A clear (×) button on every active chip** (`HeaderFilter.jsx`), beside the chip rather than inside it - a chip is itself a `<button>`, and nested interactive controls are invalid HTML. A third way to clear one filter, alongside the popover's own Clear and the toolbar's Clear all filters - worth the single click since it's the one reached from most often.
+- `currentMonthRange()` / `previousMonthRange()` (`utils/format.js`) - the calendar-month bounds behind the two date presets, using the same UTC-safe date arithmetic `lastInclusiveDay` already established.
+
+### Verification
+
+16 new frontend tests (`HeaderFilter.test.jsx` x2, `ledgerFilterParams.test.js` x5, `format.test.js` x5, `TransactionsPage.test.jsx` x4) plus one existing `TransactionsPage.test.jsx` assertion extended from six filter names to seven. Full suites (747 backend, unaffected; 772 frontend) green, lint and build clean.
+
+## [0.36.0] - 2026-09-27
+
+Roadmap item T4.3a (`ROADMAP.md`) - backend groundwork for T4.3b's "This import" filter chip and T4.4's ledger triage queue. No UI change yet.
+
+### Added
+
+- **`import_batch_id` ledger filter** (`services/ledger.TransactionFilters`, `build_transaction_query`) - an exact match against a transaction's own import batch, threaded through all three endpoints that build a ledger query: `GET /transactions`, `GET /transactions/export`, and `GET /transactions/groups` (which builds its own separate `TransactionFilters` and needed the parameter added there too). A hand-entered transaction has no batch to match, so scoping to a batch id simply excludes it - the correct behaviour with no special case.
+
+### Verification
+
+5 new backend tests (`test_ledger.py`, `test_transactions.py` x2, `test_transaction_groups.py` x2) covering the filter at the service layer and across all three endpoints, including that it composes correctly with the grouped view's own uncategorized-override. Full backend suite (742 + 5 = 747) green; frontend untouched.
+
+## [0.35.0] - 2026-09-27
+
+Roadmap item T4.5b (`ROADMAP.md`) - Finding 12: everything except the Dashboard was one vertical column of full-width cards.
+
+### Added
+
+- **Two-column layout on `/reports`, `/categories` and `/accounts`** (`.page-columns` in `shell.css`) at viewports wider than 1100px, for the independent, narrow top-level cards on each page - Reports' Month/Monthly Summary/Uncategorized Review, Categories' Presets/Add Category and its separate Combine/Split/Unused/Archived group, Accounts' Backup/Add Account. Wide per-category tables (Budget vs Actual, Category Totals Over Time, All Categories, Monthly Budgets, Pay Period Budgeting, All Accounts) stay full-width, outside the grid - squeezing a many-column table into a half-width space would make it illegible rather than denser.
+
+### Verification
+
+`.page-columns` is not a `.card`, so every existing `.closest('.card')` scoping helper across the three pages' test files - the dominant test idiom in this codebase - finds the same nearest card exactly as before. Full suites (742 backend, unaffected; 756 frontend) green with zero assertion changes, lint and build clean.
+
+## [0.34.0] - 2026-09-27
+
+Roadmap item T4.1a (`ROADMAP.md`) - Finding 18: eleven destinations had outgrown a single wrapping link row.
+
+### Added
+
+- **Sidebar navigation** replaces the top header/nav row - a persistent left rail with the app's brand and version, a search entry point into the command palette, Home and Alerts as standalone links, and the four page groups (Money/Plan/Insight/Setup) each with an inline icon (`navIcons.jsx` - decorative, `aria-hidden`, so no link's accessible name changes). The theme selector moves to the bottom of the rail.
+- **Collapse-to-icons**, toggled from the rail and persisted in `localStorage` (`sidebar.js`, the same read/store shape `theme.js` already uses for the theme mode) - link text is hidden with the same clip technique `.visually-hidden` uses, never unmounted, so nothing queryable about a link changes when it collapses.
+- **An off-canvas drawer below 900px**, behind a hamburger button always present in the DOM (shown only below that width by CSS) - closes on Escape, an outside click, or navigating to a new page.
+- `services/commandPalette.ts`, a small pub-sub module (mirroring `services/toast.ts`'s own shape) letting the sidebar's search button open `<CommandPalette>` without lifting its `open` state out of the component - its existing Ctrl+K path and all 17 of its tests are unaffected.
+
+### Changed
+
+- `--sidebar-width`, `--sidebar-width-collapsed` and `--table-scroll-reserve` added to `index.css` as single, un-themed structural tokens (alongside the spacing/radius scales, not repeated per theme). The ledger's `.table-scroll` now reads its scroll-region height from `--table-scroll-reserve` instead of a literal `220px` baked in for the old top header - with a `max(320px, ...)` floor so a short viewport can no longer collapse the scrollport toward nothing - and the token is overridden inside the 900px breakpoint, where the sidebar becomes a top bar again.
+- `<main className="app-shell">` (which wrapped the nav) split into a plain `<div className="app-shell">` grid with `<aside>` and `<main>` as proper siblings - a landmark correctness fix, made while already touching this structure.
+
+### Verification
+
+Full suites green with **zero assertion changes** to `App.test.jsx` (all 11 tests) or `CommandPalette.test.jsx` (all 17 tests) - the sidebar rewrite was scoped tightly enough that nothing existing needed to move. 750 frontend tests plus 6 new (`sidebar.test.js`) = 756; 742 backend, unaffected. Lint and build clean.
+
+## [0.33.0] - 2026-09-27
+
+Roadmap item T4.0 (`ROADMAP.md`), the first of Tier 4 - UI & navigation uplift. Purely internal: no user-visible behaviour changed.
+
+### Changed
+
+- **`frontend/src/App.css` split into four files** (`src/styles/shell.css`, `primitives.css`, `features.css`, `motion.css`), imported from `App.jsx` in that order. Every rule moved verbatim - no selector, property or class renamed - verified by comparing the non-blank line contents of the four new files against the original as a multiset (exact match) and confirming brace counts agree (215/215). Done ahead of the rest of Tier 4 because the single shared `prefers-reduced-motion` block only worked by being *last* in a 1731-line file; from this file split's `motion.css` being imported last, that ordering is now structural rather than something a large append could silently violate. Tier 4 goes on to add a drawer animation, a narrative block and a triage queue, any of which could otherwise have landed after that block by accident.
+
 ## [0.32.0] - 2026-09-26
 
 Roadmap item T3.4 (`ROADMAP.md`), the last of Tier 3 - Finding 15: every action reported through inline text a user may already have scrolled past.

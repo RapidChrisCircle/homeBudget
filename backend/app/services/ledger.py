@@ -44,6 +44,13 @@ Filter semantics, in one place so the API and any future caller agree:
   logic as a SQL expression rather than sharing it, because _row_amount runs
   in Python against an ORM instance and this runs in SQL against a query;
   they cannot be merged, so a test asserts they agree on a boundary value.
+- import_batch_id is an exact match against Transaction.import_batch_id
+  (T4.3a) - "review just what I imported" for the ledger's own filter chips
+  and, on the same endpoints, the triage queue's "This import" scope. A
+  hand-entered (is_manual) transaction has no batch to match, the same way
+  it has no CSV row behind it - there is nothing to reconcile there, since
+  filtering TO a batch id a manual transaction can never carry simply
+  excludes it, which is the correct behaviour without any special case.
 
 Ordering defaults to transaction_date DESC, id DESC - already deterministic
 before pagination existed, which is exactly what pagination needs: a
@@ -161,6 +168,7 @@ class TransactionFilters:
     transaction_type: str | None = None
     min_amount: Decimal | None = None
     max_amount: Decimal | None = None
+    import_batch_id: int | None = None
 
 
 def build_transaction_query(
@@ -210,6 +218,9 @@ def build_transaction_query(
 
     if filters.max_amount is not None:
         query = query.filter(_AMOUNT_EXPR <= filters.max_amount)
+
+    if filters.import_batch_id is not None:
+        query = query.filter(Transaction.import_batch_id == filters.import_batch_id)
 
     if sort not in _SORT_EXPRESSIONS:
         return query.order_by(Transaction.transaction_date.desc(), Transaction.id.desc())

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import AddTransactionForm from '../components/AddTransactionForm.jsx'
 import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
@@ -12,6 +12,7 @@ import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import HeaderFilter from '../components/HeaderFilter.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import Pagination from '../components/Pagination.jsx'
 import RuleEditor from '../components/RuleEditor.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
@@ -31,7 +32,8 @@ import {
 } from '../components/ledgerFilterParams.js'
 import { api } from '../services/api'
 import { showToast } from '../services/toast'
-import { formatDate, transactionAmount } from '../utils/format.js'
+import { categoryColorVar } from '../utils/categoryColors.js'
+import { currentMonthRange, formatDate, previousMonthRange, transactionAmount } from '../utils/format.js'
 import { useTableSort } from '../utils/tableSort.js'
 import { groupCategorySummary } from '../utils/transactionGroups.js'
 
@@ -50,6 +52,21 @@ function formatAccount(transaction) {
     return `${transaction.bsb_number} / ${transaction.account_number}`
   }
   return transaction.account_number
+}
+
+// The ledger's per-row/per-split category colour (T4.5a, Finding 13) -
+// null when there's nothing to tint: no category assigned, no colour
+// chosen on that category, or the category has since been archived (it
+// arrives via CategorySelect's own fallbackOption then, absent from
+// `categories`, so its colour can't be resolved here at all - a neutral,
+// untinted control is the honest fallback, not a guessed colour).
+function resolveCategoryColorVar(categoryId, categories) {
+  if (!categoryId) {
+    return null
+  }
+
+  const category = categories.find((c) => c.id === categoryId)
+  return category ? categoryColorVar(category.color) : null
 }
 
 export default function TransactionsPage() {
@@ -148,6 +165,30 @@ export default function TransactionsPage() {
 
   const clearAllFilters = () => applyFilterPatch(EMPTY_FILTERS)
 
+  // Quick presets (T4.3b) - each one just calls the SAME applyFilterPatch
+  // the chips themselves use, so a preset is never a second way filters
+  // get applied, only a faster way to reach a common one. "This import"
+  // is explicitly the MOST RECENT batch (batches[0] - /import-batches
+  // orders imported_at DESC) rather than "whatever was last uploaded this
+  // session", so it means the same thing on a fresh page load too.
+  const applyThisMonth = () => {
+    const { from, to } = currentMonthRange()
+    applyFilterPatch({ date_from: from, date_to: to })
+  }
+
+  const applyLastMonth = () => {
+    const { from, to } = previousMonthRange()
+    applyFilterPatch({ date_from: from, date_to: to })
+  }
+
+  const applyUncategorizedPreset = () => applyFilterPatch({ category: 'uncategorized' })
+
+  const applyThisImportPreset = () => {
+    if (batches.length > 0) {
+      applyFilterPatch({ import_batch_id: String(batches[0].id) })
+    }
+  }
+
   // Every ledger filter, defined ONCE, as the toolbar chips both views
   // share. This used to exist twice - as <th> popovers on the ungrouped
   // table and, because the grouped table has none of those columns, as a
@@ -159,7 +200,7 @@ export default function TransactionsPage() {
   // exactly when you looked for them. The chips are now the one home for
   // filtering, identical in both views; the ungrouped table's headers keep
   // SORTING, which is genuinely per-column and has no equivalent problem.
-  const filterValueLabels = describeFilters(committedFilters, { accounts, accountGroups, categories })
+  const filterValueLabels = describeFilters(committedFilters, { accounts, accountGroups, categories, batches })
   const activeFilters = activeFilterCount(committedFilters)
 
   const filterChips = [
@@ -327,6 +368,38 @@ export default function TransactionsPage() {
             {transactionTypes.map((type) => (
               <option key={type} value={type}>
                 {type}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </HeaderFilter>,
+    // Import batch (T4.3b) - scopes the ledger to one CSV import, the same
+    // batch list already fetched for the History table below, so this adds
+    // no new request. Labelled "Import batch", not "Import" - the Import
+    // CARD above already owns that exact word as its own title, and
+    // TransactionsPage.test.jsx scopes into it via getByText('Import').
+    // closest('.card'), which a second element with the same text would
+    // break. A manual (is_manual) transaction has no batch, so it simply
+    // falls out of scope when this is set - no special case needed.
+    <HeaderFilter
+      key="import"
+      as="div"
+      label="Import batch"
+      valueLabel={filterValueLabels.import}
+      value={committedFilters.import_batch_id}
+      isActive={Boolean(committedFilters.import_batch_id)}
+      onApply={(draft) => applyFilterPatch({ import_batch_id: draft })}
+      onClear={() => applyFilterPatch({ import_batch_id: '' })}
+    >
+      {(draft, setDraft) => (
+        <label>
+          Import batch
+          <select value={draft} onChange={(event) => setDraft(event.target.value)}>
+            <option value="">Any import</option>
+            {batches.map((batch) => (
+              <option key={batch.id} value={batch.id}>
+                {batch.filename}
               </option>
             ))}
           </select>
@@ -815,7 +888,7 @@ export default function TransactionsPage() {
 
   return (
     <section className="page">
-      <h2>Transactions</h2>
+      <PageHeader title="Transactions" />
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
@@ -928,6 +1001,19 @@ export default function TransactionsPage() {
 
         {!loading && !error && (
           <>
+            {/* Quick presets (T4.3b) - each is a shortcut onto the SAME
+                filter state the chips themselves set, not a second
+                filtering mechanism, so a preset and a chip can never
+                disagree about what a filter means. */}
+            <div className="ledger-filter-presets">
+              <button type="button" onClick={applyThisMonth}>This month</button>
+              <button type="button" onClick={applyLastMonth}>Last month</button>
+              <button type="button" onClick={applyUncategorizedPreset}>Uncategorised</button>
+              <button type="button" onClick={applyThisImportPreset} disabled={batches.length === 0}>
+                This import
+              </button>
+            </div>
+
             {/* One filter bar, identical in both views - see filterChips
                 above for why the grouped/ungrouped split went away. The
                 chips narrow what's SHOWN; the toolbar below changes the
@@ -941,6 +1027,14 @@ export default function TransactionsPage() {
                 {filterChips}
               </div>
               <div className="ledger-filter-bar-end">
+                {/* T4.4 - its own page, not a mode of this one: applying
+                    any filter here rebuilds the URL from scratch (see
+                    ledgerFilterParams.searchParamsFromFilters), which
+                    would silently drop a `?review=1`-style param the
+                    moment a filter changed. */}
+                <Link to="/transactions/review" className="button-primary">
+                  Review uncategorised
+                </Link>
                 <label className="ledger-view-toggle">
                   <input
                     type="checkbox"
@@ -1243,6 +1337,13 @@ export default function TransactionsPage() {
                                 <ul>
                                   {transaction.splits.map((split) => (
                                     <li key={split.id}>
+                                      {resolveCategoryColorVar(split.category_id, categories) && (
+                                        <span
+                                          className="split-color-dot"
+                                          aria-hidden="true"
+                                          style={{ backgroundColor: resolveCategoryColorVar(split.category_id, categories) }}
+                                        />
+                                      )}
                                       {split.category_name || 'Uncategorized'}: <Amount value={split.amount} />
                                     </li>
                                   ))}
@@ -1251,6 +1352,12 @@ export default function TransactionsPage() {
                             ) : (
                               <CategorySelect
                                 aria-label={`Category for ${transaction.narration}`}
+                                className="ledger-category-select"
+                                style={
+                                  resolveCategoryColorVar(transaction.category_id, categories)
+                                    ? { borderLeftColor: resolveCategoryColorVar(transaction.category_id, categories) }
+                                    : {}
+                                }
                                 categories={categories}
                                 value={transaction.category_id ?? ''}
                                 onChange={(e) => handleCategoryChange(transaction.id, e.target.value)}

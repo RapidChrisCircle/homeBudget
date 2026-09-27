@@ -6,10 +6,12 @@ import CategorySplitter from '../components/CategorySplitter.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { showToast } from '../services/toast'
 import { categoryPathLabel, groupByParent } from '../utils/categories.js'
+import { CATEGORY_COLOR_TOKENS, categoryColorVar } from '../utils/categoryColors.js'
 import { sortRowsBy, useTableSort } from '../utils/tableSort.js'
 import { formatDate, lastInclusiveDay } from '../utils/format.js'
 
@@ -63,6 +65,7 @@ const EMPTY_FORM = {
   budget_amount: '',
   parent_id: '',
   rolls_over: false,
+  color: '',
 }
 
 // Shifts a <input type="month"> value ("YYYY-MM") by whole months.
@@ -102,6 +105,7 @@ function buildPayload(form) {
     budget_amount: form.budget_amount || null,
     parent_id: form.parent_id ? Number(form.parent_id) : null,
     rolls_over: form.rolls_over,
+    color: form.color || null,
   }
 }
 
@@ -476,6 +480,13 @@ export default function CategoriesPage() {
     setForm((prev) => ({ ...prev, rolls_over: event.target.checked }))
   }
 
+  // Clicking the SAME swatch again clears it back to "no colour" - the
+  // one-click way to undo a choice, since there's no separate "None"
+  // button in a swatch grid the way a <select> gets one for free.
+  const handleColorChange = (token) => {
+    setForm((prev) => ({ ...prev, color: prev.color === token ? '' : token }))
+  }
+
   const startEdit = (category) => {
     setEditingId(category.id)
     setForm({
@@ -484,6 +495,7 @@ export default function CategoriesPage() {
       budget_amount: category.budget_amount ?? '',
       parent_id: category.parent_id ?? '',
       rolls_over: category.rolls_over ?? false,
+      color: category.color ?? '',
     })
   }
 
@@ -763,6 +775,24 @@ export default function CategoriesPage() {
           between your own accounts.
         </p>
       </div>
+      <div>
+        <span className="category-color-legend">Colour</span>
+        <div className="category-color-swatches" role="group" aria-label="Category colour">
+          {CATEGORY_COLOR_TOKENS.map(({ token, label }) => (
+            <button
+              key={token}
+              type="button"
+              className={form.color === token ? 'category-color-swatch active' : 'category-color-swatch'}
+              style={{ backgroundColor: categoryColorVar(token) }}
+              aria-pressed={form.color === token}
+              aria-label={label}
+              title={label}
+              onClick={() => handleColorChange(token)}
+            />
+          ))}
+        </div>
+        <p>Optional &mdash; shown as a pill colour in the ledger. Click a swatch again to clear it.</p>
+      </div>
       {editingHasChildren ? (
         <p>
           This category groups its own sub-categories, so it cannot be given a parent itself.
@@ -823,37 +853,42 @@ export default function CategoriesPage() {
 
   return (
     <section className="page">
-      <h2>Categories</h2>
+      <PageHeader title="Categories" />
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 
-      <Card id="categories-preset" title="Presets">
-        <p>
-          Creates a starting chart of accounts for a typical Queensland household &mdash; parent
-          groups (Housing, Utilities, Food, ...) with sub-categories and indicative monthly
-          budgets for a family of four. Safe to run more than once: anything you already have,
-          by name, is left untouched, and nothing is ever overwritten or duplicated. Edit or
-          delete anything afterward &mdash; these are a starting point, not a recommendation.
-        </p>
-        {presetError && <ErrorState label="Preset failed:" message={presetError} />}
-        <button type="button" className="button-primary" onClick={handleApplyPreset} disabled={applyingPreset}>
-          {applyingPreset ? 'Loading preset...' : 'Load Queensland household preset'}
-        </button>
-        {presetMessage && <p>{presetMessage}</p>}
-      </Card>
+      {/* Finding 12 (T4.5b) - Presets and Add Category are independent of
+          each other and each other's own contents; the categories table
+          below stays full-width, outside this wrapper. */}
+      <div className="page-columns">
+        <Card id="categories-preset" title="Presets">
+          <p>
+            Creates a starting chart of accounts for a typical Queensland household &mdash; parent
+            groups (Housing, Utilities, Food, ...) with sub-categories and indicative monthly
+            budgets for a family of four. Safe to run more than once: anything you already have,
+            by name, is left untouched, and nothing is ever overwritten or duplicated. Edit or
+            delete anything afterward &mdash; these are a starting point, not a recommendation.
+          </p>
+          {presetError && <ErrorState label="Preset failed:" message={presetError} />}
+          <button type="button" className="button-primary" onClick={handleApplyPreset} disabled={applyingPreset}>
+            {applyingPreset ? 'Loading preset...' : 'Load Queensland household preset'}
+          </button>
+          {presetMessage && <p>{presetMessage}</p>}
+        </Card>
 
-      <Card id="categories-form" title="Add Category">
-        {editingId ? (
-          <p>Finish editing the category below to add another.</p>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            {renderFormFields()}
-            <button type="submit" className="button-primary" disabled={saving}>
-              Add Category
-            </button>
-          </form>
-        )}
-      </Card>
+        <Card id="categories-form" title="Add Category">
+          {editingId ? (
+            <p>Finish editing the category below to add another.</p>
+          ) : (
+            <form onSubmit={handleSubmit}>
+              {renderFormFields()}
+              <button type="submit" className="button-primary" disabled={saving}>
+                Add Category
+              </button>
+            </form>
+          )}
+        </Card>
+      </div>
 
       <Card id="categories-list" title="All Categories">
         {loading && <LoadingState message="Loading categories..." />}
@@ -962,125 +997,131 @@ export default function CategoriesPage() {
         })}
       </Card>
 
-      <Card id="categories-combine" title="Combine Categories">
-        <p>
-          Two categories that turned out to mean the same thing become one: every transaction,
-          split, rule and budget moves to the one you keep, and the others are deleted. Deleting
-          the duplicate instead would <em>uncategorize</em> its history rather than move it.
-          Tick the categories to combine in All Categories above, then pick which one to keep.
-        </p>
+      {/* Finding 12 (T4.5b) - these four cards are independent of each
+          other; Monthly Budgets and Pay Period Budgeting below stay
+          full-width, outside this wrapper - both are wide per-category
+          tables that would be squeezed into a half-width column. */}
+      <div className="page-columns">
+        <Card id="categories-combine" title="Combine Categories">
+          <p>
+            Two categories that turned out to mean the same thing become one: every transaction,
+            split, rule and budget moves to the one you keep, and the others are deleted. Deleting
+            the duplicate instead would <em>uncategorize</em> its history rather than move it.
+            Tick the categories to combine in All Categories above, then pick which one to keep.
+          </p>
 
-        {combineMessage && <p>{combineMessage}</p>}
+          {combineMessage && <p>{combineMessage}</p>}
 
-        {selectedIds.length < 2 ? (
-          <p>Select two or more categories above to combine them.</p>
-        ) : (
-          <>
-            <ul>
-              {selectedCategories.map((category) => (
-                <li key={category.id}>{categoryPathLabel(category)}</li>
-              ))}
-            </ul>
-            <label>
-              Keep
-              <select value={combineTargetId} onChange={(event) => setCombineTargetId(event.target.value)}>
-                <option value="">Select the category to keep</option>
-                {selectedCategories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {categoryPathLabel(category)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="button-primary"
-              onClick={handleCombine}
-              disabled={!combineTargetIsSelected || combining}
-            >
-              Combine {selectedIds.length - 1} into the one kept
-            </button>
-          </>
-        )}
-      </Card>
-
-      <Card id="categories-split" title="Split a Category">
-        <CategorySplitter categories={activeCategories} onDone={handleRestructured} />
-      </Card>
-
-      <Card id="categories-unused" title="Unused">
-        <p>
-          Categories with no transactions and no rule pointing at them &mdash; candidates to
-          archive and get out of the way of every category picker in the app. Archiving keeps the
-          category and its (nonexistent) history; it can be restored any time.
-        </p>
-
-        {usageLoading && <LoadingState message="Loading usage..." />}
-        {!usageLoading && usageError && <ErrorState label="Failed to load usage:" message={usageError} />}
-
-        {!usageLoading && !usageError && (
-          unusedCategories.length === 0 ? (
-            <p>Nothing unused right now.</p>
+          {selectedIds.length < 2 ? (
+            <p>Select two or more categories above to combine them.</p>
           ) : (
             <>
-              <button type="button" onClick={() => handleArchiveAllUnused(unusedCategories)}>
-                Archive all unused ({unusedCategories.length})
-              </button>
-              <table>
-                <caption className="visually-hidden">Unused categories</caption>
-                <thead>
-                  <tr>
-                    <SortableHeader label="Name" sortKey="name" activeSortKey={unusedSortKey} activeDirection={unusedSortDirection} onSort={toggleUnusedSort} />
-                    <SortableHeader label="Standing Budget" sortKey="budget" activeSortKey={unusedSortKey} activeDirection={unusedSortDirection} onSort={toggleUnusedSort} numeric />
-                    <th scope="col"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortRowsBy(unusedCategories, unusedSortKey, unusedSortDirection, UNUSED_SORT_COLUMNS).map((u) => (
-                    <tr key={u.category_id}>
-                      <td>{categoryPathLabel(u)}</td>
-                      <td><Amount value={u.budget_amount} neutral /></td>
-                      <td>
-                        <button type="button" onClick={() => handleArchive(u.category_id)}>
-                          Archive
-                        </button>
-                      </td>
-                    </tr>
+              <ul>
+                {selectedCategories.map((category) => (
+                  <li key={category.id}>{categoryPathLabel(category)}</li>
+                ))}
+              </ul>
+              <label>
+                Keep
+                <select value={combineTargetId} onChange={(event) => setCombineTargetId(event.target.value)}>
+                  <option value="">Select the category to keep</option>
+                  {selectedCategories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {categoryPathLabel(category)}
+                    </option>
                   ))}
-                </tbody>
-              </table>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="button-primary"
+                onClick={handleCombine}
+                disabled={!combineTargetIsSelected || combining}
+              >
+                Combine {selectedIds.length - 1} into the one kept
+              </button>
             </>
-          )
-        )}
-      </Card>
+          )}
+        </Card>
 
-      <Card id="categories-archived" title="Archived">
-        {archivedCategories.length === 0 ? (
-          <p>Nothing archived.</p>
-        ) : (
-          <table>
-            <caption className="visually-hidden">Archived categories</caption>
-            <thead>
-              <tr>
-                <SortableHeader label="Name" sortKey="name" activeSortKey={archivedSortKey} activeDirection={archivedSortDirection} onSort={toggleArchivedSort} />
-                <th scope="col"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortRowsBy(archivedCategories, archivedSortKey, archivedSortDirection, ARCHIVED_SORT_COLUMNS).map((category) => (
-                <tr key={category.id}>
-                  <td>{categoryPathLabel(category)}</td>
-                  <td>
-                    <button type="button" onClick={() => handleRestore(category.id)}>
-                      Restore
-                    </button>
-                  </td>
+        <Card id="categories-split" title="Split a Category">
+          <CategorySplitter categories={activeCategories} onDone={handleRestructured} />
+        </Card>
+
+        <Card id="categories-unused" title="Unused">
+          <p>
+            Categories with no transactions and no rule pointing at them &mdash; candidates to
+            archive and get out of the way of every category picker in the app. Archiving keeps the
+            category and its (nonexistent) history; it can be restored any time.
+          </p>
+
+          {usageLoading && <LoadingState message="Loading usage..." />}
+          {!usageLoading && usageError && <ErrorState label="Failed to load usage:" message={usageError} />}
+
+          {!usageLoading && !usageError && (
+            unusedCategories.length === 0 ? (
+              <p>Nothing unused right now.</p>
+            ) : (
+              <>
+                <button type="button" onClick={() => handleArchiveAllUnused(unusedCategories)}>
+                  Archive all unused ({unusedCategories.length})
+                </button>
+                <table>
+                  <caption className="visually-hidden">Unused categories</caption>
+                  <thead>
+                    <tr>
+                      <SortableHeader label="Name" sortKey="name" activeSortKey={unusedSortKey} activeDirection={unusedSortDirection} onSort={toggleUnusedSort} />
+                      <SortableHeader label="Standing Budget" sortKey="budget" activeSortKey={unusedSortKey} activeDirection={unusedSortDirection} onSort={toggleUnusedSort} numeric />
+                      <th scope="col"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortRowsBy(unusedCategories, unusedSortKey, unusedSortDirection, UNUSED_SORT_COLUMNS).map((u) => (
+                      <tr key={u.category_id}>
+                        <td>{categoryPathLabel(u)}</td>
+                        <td><Amount value={u.budget_amount} neutral /></td>
+                        <td>
+                          <button type="button" onClick={() => handleArchive(u.category_id)}>
+                            Archive
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )
+          )}
+        </Card>
+
+        <Card id="categories-archived" title="Archived">
+          {archivedCategories.length === 0 ? (
+            <p>Nothing archived.</p>
+          ) : (
+            <table>
+              <caption className="visually-hidden">Archived categories</caption>
+              <thead>
+                <tr>
+                  <SortableHeader label="Name" sortKey="name" activeSortKey={archivedSortKey} activeDirection={archivedSortDirection} onSort={toggleArchivedSort} />
+                  <th scope="col"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
+              </thead>
+              <tbody>
+                {sortRowsBy(archivedCategories, archivedSortKey, archivedSortDirection, ARCHIVED_SORT_COLUMNS).map((category) => (
+                  <tr key={category.id}>
+                    <td>{categoryPathLabel(category)}</td>
+                    <td>
+                      <button type="button" onClick={() => handleRestore(category.id)}>
+                        Restore
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      </div>
 
       <Card id="categories-monthly-budgets" title="Monthly Budgets">
         {budgetActionError && <ErrorState label="Action failed:" message={budgetActionError} />}

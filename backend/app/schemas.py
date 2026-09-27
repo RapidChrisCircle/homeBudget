@@ -99,6 +99,10 @@ class CategoryResponse(BaseModel):
     rolls_over: bool
     rollover_start_year: Optional[int]
     rollover_start_month: Optional[int]
+    # A design token NAME (e.g. "category-3"), not a hex literal - see
+    # Category.color's own docstring in models.py. None means no colour
+    # chosen, not a default one.
+    color: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -110,6 +114,7 @@ class CategoryCreate(BaseModel):
     budget_amount: Optional[Decimal] = None
     parent_id: Optional[int] = None
     rolls_over: bool = False
+    color: Optional[str] = None
 
 
 class CategoryUpdate(BaseModel):
@@ -119,6 +124,7 @@ class CategoryUpdate(BaseModel):
     budget_amount: Optional[Decimal] = None
     parent_id: Optional[int] = None
     rolls_over: bool = False
+    color: Optional[str] = None
 
 
 class CategoryBulkDelete(BaseModel):
@@ -674,6 +680,17 @@ class UncategorizedSummaryResponse(BaseModel):
     net_total: Decimal
 
 
+class TopMoverResponse(BaseModel):
+    """See services/trends.top_movers for the ranking and exclusion rules."""
+
+    category_id: int
+    category_name: str
+    kind: str
+    current: Decimal
+    prior: Decimal
+    delta: Decimal
+
+
 class MonthlyReportResponse(BaseModel):
 
     year: int
@@ -685,6 +702,16 @@ class MonthlyReportResponse(BaseModel):
     budgets: list[BudgetLineResponse]
     grid: CategoryGridResponse
     uncategorized: UncategorizedSummaryResponse
+    # All three T4.2 (Dashboard narrative) additions. has_prior_period_data
+    # is False precisely when grid.periods[-2] has no real transactions
+    # anywhere in the ledger - the "no data is not zero" distinction from a
+    # real, zero-activity month, which category_grid's own zero-fill would
+    # otherwise make indistinguishable. prior_summary is None exactly when
+    # has_prior_period_data is False - there is no prior month to summarize,
+    # not a dict of zeros standing in for one.
+    top_movers: list[TopMoverResponse]
+    has_prior_period_data: bool
+    prior_summary: Optional[MonthlySummaryResponse] = None
 
 
 class DashboardKpiResponse(BaseModel):

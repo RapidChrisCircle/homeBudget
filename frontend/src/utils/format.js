@@ -83,6 +83,32 @@ export function lastInclusiveDay(exclusiveEndDate) {
   return date.toISOString().slice(0, 10)
 }
 
+// {from, to} ISO date bounds for a calendar month, both INCLUSIVE - the
+// ledger filter's own date_from/date_to convention (see ledgerFilterParams.js,
+// TransactionFilters). year/month come from the caller's LOCAL calendar (the
+// point of "This month" is the user's own month, not UTC's), but the bounds
+// are then built with UTC arithmetic, the same pattern lastInclusiveDay
+// above already uses to avoid a local-timezone-behind-UTC date shift.
+// `month` is 0-based (JS Date convention) and deliberately left unclamped -
+// Date.UTC(year, -1, 1) normalizes to December of the PREVIOUS year, which
+// is exactly what previousMonthRange needs in January.
+function monthRange(year, month) {
+  const from = new Date(Date.UTC(year, month, 1))
+  const to = new Date(Date.UTC(year, month + 1, 1))
+  to.setUTCDate(to.getUTCDate() - 1)
+  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) }
+}
+
+// The ledger's "This month" filter preset (T4.3b).
+export function currentMonthRange(referenceDate = new Date()) {
+  return monthRange(referenceDate.getFullYear(), referenceDate.getMonth())
+}
+
+// The ledger's "Last month" filter preset (T4.3b).
+export function previousMonthRange(referenceDate = new Date()) {
+  return monthRange(referenceDate.getFullYear(), referenceDate.getMonth() - 1)
+}
+
 // The ledger URL a report's "review uncategorized" link should point at:
 // that month's uncategorized rows, with the exclusive end date converted.
 export function uncategorizedLedgerLink(startDate, exclusiveEndDate) {

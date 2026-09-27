@@ -8,6 +8,7 @@ import LineChart from '../components/charts/LineChart.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import HeaderFilter from '../components/HeaderFilter.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import Pagination from '../components/Pagination.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import {
@@ -213,7 +214,7 @@ export default function AccountDetailPage() {
   if (loading) {
     return (
       <section className="page">
-        <h2>Account</h2>
+        <PageHeader title="Account" />
         <LoadingState message="Loading account..." />
       </section>
     )
@@ -222,7 +223,7 @@ export default function AccountDetailPage() {
   if (error) {
     return (
       <section className="page">
-        <h2>Account</h2>
+        <PageHeader title="Account" />
         <ErrorState label="Failed to load account:" message={error} />
       </section>
     )
@@ -230,7 +231,7 @@ export default function AccountDetailPage() {
 
   return (
     <section className="page">
-      <h2>{account.name}</h2>
+      <PageHeader title={account.name} />
 
       <div className="card">
         <p>Institution: {account.institution || '—'}</p>

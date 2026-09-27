@@ -1,5 +1,6 @@
 import Amount from '../Amount.jsx'
 import SortableHeader from '../SortableHeader.jsx'
+import { overBudgetLines } from '../../utils/budgets.js'
 import { categoryPathLabel } from '../../utils/categories.js'
 import { useTableSort } from '../../utils/tableSort.js'
 
@@ -15,9 +16,7 @@ const OVER_BUDGET_SORT_COLUMNS = {
 // GET /reports/monthly?months=1 response the page has always fetched; the
 // over-budget filter itself lives here now instead of in DashboardPage.
 export default function NeedsAttentionWidget({ report }) {
-  const overBudget = (report?.budgets || []).filter(
-    (line) => line.difference !== null && Number(line.difference) < 0
-  )
+  const overBudget = overBudgetLines(report?.budgets)
   const overBudgetSort = useTableSort(overBudget, OVER_BUDGET_SORT_COLUMNS)
 
   if (overBudget.length === 0) {

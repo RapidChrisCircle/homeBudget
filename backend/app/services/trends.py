@@ -113,6 +113,57 @@ def budget_totals(periods: list[tuple[int, int]], grid_rows: list[dict]) -> list
     return totals
 
 
+def top_movers(periods: list[tuple[int, int]], grid_rows: list[dict], limit: int = 3) -> list[dict]:
+    """The `limit` categories with the largest month-over-month change
+    between the LAST TWO periods in `periods` (prior, then current) -
+    ranked by |delta|, for the Dashboard's narrative block (T4.2). Derived
+    from category_grid()'s rows, the same "no second query" reasoning as
+    monthly_summaries()/budget_totals() above.
+
+    Fewer than two periods returns [] rather than comparing a period
+    against itself, which would report every category with any activity at
+    all as a nonsensical +100% "swing" - the caller (build_monthly_report,
+    called with months=2) always provides two, but this stays honest for
+    any other caller.
+
+    Both expense and income rows are eligible - a big swing either way is
+    worth surfacing - so `kind` rides along with each mover, letting the
+    caller phrase it correctly ("spent more on" vs "earned less from"). A
+    category with no change between the two periods (delta == 0) is not a
+    "mover" and is excluded, even if it would otherwise rank in the top
+    `limit` - three categories that didn't move is not three movers.
+    """
+
+    if len(periods) < 2:
+        return []
+
+    prior_period, current_period = periods[-2], periods[-1]
+
+    movers = []
+
+    for row in grid_rows:
+
+        current = row["amounts"][current_period]
+        prior = row["amounts"][prior_period]
+        delta = current - prior
+
+        if delta == 0:
+            continue
+
+        movers.append({
+            "category_id": row["category_id"],
+            "category_name": row["category_name"],
+            "kind": row["kind"],
+            "current": current,
+            "prior": prior,
+            "delta": delta,
+        })
+
+    movers.sort(key=lambda mover: abs(mover["delta"]), reverse=True)
+
+    return movers[:limit]
+
+
 def account_balance_history(
     db: Session, periods: list[tuple[int, int]]
 ) -> dict[int, dict[tuple[int, int], Decimal | None]]:

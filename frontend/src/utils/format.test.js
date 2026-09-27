@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate, formatMonths, formatPercent, transactionAmount } from './format.js'
+import { currentMonthRange, formatDate, formatMonths, formatPercent, previousMonthRange, transactionAmount } from './format.js'
 
 describe('formatDate', () => {
   it('reorders YYYY-MM-DD to DD/MM/YY', () => {
@@ -71,5 +71,28 @@ describe('formatMonths', () => {
   it('returns an empty string for a missing value', () => {
     expect(formatMonths(null)).toBe('')
     expect(formatMonths(undefined)).toBe('')
+  })
+})
+
+describe('currentMonthRange / previousMonthRange', () => {
+  it('returns the inclusive bounds of the reference date\'s own calendar month', () => {
+    expect(currentMonthRange(new Date(2026, 6, 15))).toEqual({ from: '2026-07-01', to: '2026-07-31' })
+  })
+
+  it('returns the month before, not a rolling 30 days', () => {
+    expect(previousMonthRange(new Date(2026, 6, 15))).toEqual({ from: '2026-06-01', to: '2026-06-30' })
+  })
+
+  it('crosses a year boundary forward for December', () => {
+    expect(currentMonthRange(new Date(2026, 11, 5))).toEqual({ from: '2026-12-01', to: '2026-12-31' })
+  })
+
+  it('crosses a year boundary backward for January', () => {
+    expect(previousMonthRange(new Date(2026, 0, 5))).toEqual({ from: '2025-12-01', to: '2025-12-31' })
+  })
+
+  it('gets February right in both a leap and a non-leap year', () => {
+    expect(currentMonthRange(new Date(2024, 1, 10))).toEqual({ from: '2024-02-01', to: '2024-02-29' })
+    expect(currentMonthRange(new Date(2026, 1, 10))).toEqual({ from: '2026-02-01', to: '2026-02-28' })
   })
 })

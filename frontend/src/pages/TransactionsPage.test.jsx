@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
 import { showToast } from '../services/toast'
+import { currentMonthRange } from '../utils/format.js'
 import TransactionsPage from './TransactionsPage.jsx'
 
 vi.mock('../services/api', () => ({
@@ -153,6 +154,84 @@ describe('TransactionsPage', () => {
     })
 
     expect(screen.getAllByText('transactions.csv').length).toBeGreaterThan(0)
+  })
+
+  it('tints the category select border when the assigned category has a colour', async () => {
+    mockLoad({
+      transactions: [{ ...sampleTransaction, category_id: 1, category_name: 'Groceries' }],
+      categories: [{ ...sampleCategory, color: 'category-4' }],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const select = screen.getByLabelText('Category for Coffee')
+    expect(select.style.borderLeftColor).toBe('var(--category-4)')
+  })
+
+  it('leaves the category select untinted when the assigned category has no colour', async () => {
+    mockLoad({
+      transactions: [{ ...sampleTransaction, category_id: 1, category_name: 'Groceries' }],
+      categories: [sampleCategory],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const select = screen.getByLabelText('Category for Coffee')
+    expect(select.style.borderLeftColor).toBe('')
+  })
+
+  it('leaves the category select untinted for an uncategorized transaction', async () => {
+    mockLoad({ transactions: [sampleTransaction], categories: [{ ...sampleCategory, color: 'category-4' }] })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const select = screen.getByLabelText('Category for Coffee')
+    expect(select.style.borderLeftColor).toBe('')
+  })
+
+  it('leaves the category select untinted when the assigned category has since been archived', async () => {
+    // Archived means absent from `categories` (GET /categories excludes it
+    // by default) - the transaction still names it via fallbackOption, but
+    // its colour can no longer be resolved from the lookup list at all.
+    mockLoad({
+      transactions: [{ ...sampleTransaction, category_id: 9, category_name: 'Old Category' }],
+      categories: [{ ...sampleCategory, color: 'category-4' }],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const select = screen.getByLabelText('Category for Coffee')
+    expect(select.style.borderLeftColor).toBe('')
+  })
+
+  it('shows a colour dot per split for a split whose category has a colour, and none for one that has not', async () => {
+    mockLoad({
+      transactions: [{
+        ...sampleTransaction,
+        is_split: true,
+        splits: [
+          { id: 1, category_id: 1, category_name: 'Groceries', amount: '-3.00', note: null },
+          { id: 2, category_id: 2, category_name: 'Fuel', amount: '-2.00', note: null },
+        ],
+      }],
+      categories: [{ ...sampleCategory, color: 'category-4' }, { id: 2, name: 'Fuel' }],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    const dots = document.querySelectorAll('.split-color-dot')
+    expect(dots).toHaveLength(1)
+    expect(dots[0].style.backgroundColor).toBe('var(--category-4)')
   })
 
   it('marks the ledger table responsive, with a data-label on every labelled cell', async () => {
@@ -587,6 +666,7 @@ describe('TransactionsPage', () => {
       'Filter by Amount',
       'Filter by Category',
       'Filter by Date',
+      'Filter by Import batch',
       'Filter by Narration',
       'Filter by Type',
     ])
@@ -595,6 +675,67 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/transactions/groups')))
     expect(filterNames()).toEqual(ungrouped)
+  })
+
+  it('the Uncategorised preset applies the same filter the Category chip\'s own option does', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Uncategorised' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/uncategorized=true/))
+    })
+    expect(screen.getByRole('button', { name: 'Filter by Category' })).toHaveTextContent('Uncategorized')
+  })
+
+  it('the This month preset sets the Date chip to the current calendar month', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'This month' }))
+
+    // Derived from the REAL current date via the same helper the page
+    // itself calls, rather than a hardcoded month - mocking the system
+    // clock would fight testing-library's own use of real timers inside
+    // waitFor.
+    const { from, to } = currentMonthRange()
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringContaining(`date_from=${from}`))
+    })
+    expect(api.get).toHaveBeenCalledWith(expect.stringContaining(`date_to=${to}`))
+  })
+
+  it('the This import preset scopes to the most recent batch', async () => {
+    mockLoad({ batches: [{ ...sampleBatch, id: 7 }] })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'This import' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/import_batch_id=7/))
+    })
+    expect(screen.getByRole('button', { name: 'Filter by Import batch' })).toHaveTextContent(sampleBatch.filename)
+  })
+
+  it('disables the This import preset when there is nothing to import from', async () => {
+    mockLoad({ batches: [] })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(screen.getByRole('button', { name: 'This import' })).toBeDisabled()
   })
 
   it('keeps an applied filter, and its chip, across a view toggle', async () => {

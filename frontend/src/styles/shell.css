@@ -1,0 +1,447 @@
+/* App shell - the outer layout: the sidebar, its nav, the footer, and the
+   plain .page wrapper every page renders into. Originally split out of
+   App.css (T4.0) as a zero-rule-change move; the sidebar itself replaced
+   the old top header + wrapping nav row in T4.1a (Finding 18 - eleven
+   destinations had outgrown one flat, wrapping link row). Imported first
+   from App.jsx. */
+
+/* Page shell - a two-column grid: the sidebar, then everything else. The
+   sidebar's own width is a token (not repeated four times in index.css -
+   like the spacing and radius scales, this is structural, not themed) so
+   the collapsed state below only has to change one declaration. */
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  min-height: 100svh;
+  background: var(--surface-0);
+}
+
+.app-shell-collapsed {
+  grid-template-columns: var(--sidebar-width-collapsed) 1fr;
+}
+
+/* The hamburger that reveals the sidebar as a drawer below 900px. Always
+   in the DOM (never gated on a matchMedia/innerWidth check - jsdom
+   implements neither, so that would fail every test that mounts <App>
+   rather than merely being invisible to them) - hidden here, shown again
+   in the 900px block below. */
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: 60;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.sidebar-toggle:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+/* Sticky, not fixed - fixed would take the sidebar out of flow and need a
+   compensating margin on the content column; sticky needs none and still
+   pins it through a long nav list. */
+.sidebar {
+  grid-column: 1;
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-3);
+  background: var(--surface-1);
+  border-right: 1px solid var(--border);
+  /* No new color tokens: --surface-1 on a --surface-0 page with a 1px
+     --border edge is exactly how .card already reads in both themes. */
+}
+
+.sidebar-brand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+}
+
+.sidebar-brand h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.version-badge {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.sidebar-search-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sidebar-search-trigger:hover {
+  background: var(--surface-1);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.sidebar-search-trigger .nav-label {
+  flex: 1;
+}
+
+.sidebar-search-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1;
+}
+
+.nav-primary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* One cluster of related destinations (Money/Plan/Insight/Setup - see
+   pageRegistry.jsx's PAGE_GROUP_ORDER) - Finding 9: nine ungrouped peers in
+   one flat row forced a scan every time. A page with no group (Home,
+   Alerts) sits in .nav-primary instead, never inside a .nav-group -
+   App.test.jsx asserts both of those specifically stay ungrouped. */
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.nav-group-label {
+  padding: 0 var(--space-3);
+  margin-top: var(--space-2);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.nav-links a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.nav-links a svg {
+  flex-shrink: 0;
+}
+
+.nav-links a:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.nav-links a.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.nav-badge {
+  margin-left: var(--space-1);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.nav-links a.active .nav-badge {
+  color: inherit;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Theme select - sits outside any <form>, like Pagination's rows-per-page
+   select, so it needs its own inline label layout rather than the generic
+   form-label column stack. */
+.theme-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.theme-select select {
+  font-size: 0.75rem;
+  min-width: 0;
+  padding: 2px var(--space-2);
+}
+
+.sidebar-collapse-toggle {
+  align-self: flex-start;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.sidebar-collapse-toggle:hover {
+  color: var(--text-primary);
+}
+
+/* Collapsed to icons - text is hidden with the same clip technique
+   .visually-hidden uses (index.css), never unmounted, so the accessible
+   name of every link, the theme select's label, and the version badge all
+   stay exactly what they are expanded - only their visual presentation
+   changes. App.test.jsx's localStorage.clear() in beforeEach means every
+   test renders expanded by default; nothing here may change what's
+   QUERYABLE, only what's visible. */
+.app-shell-collapsed .nav-label,
+.app-shell-collapsed .sidebar-search-hint,
+.app-shell-collapsed .version-badge,
+.app-shell-collapsed .sidebar-collapse-toggle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.app-shell-collapsed .sidebar-brand,
+.app-shell-collapsed .theme-select {
+  justify-content: center;
+}
+
+.app-shell-collapsed .nav-links a {
+  justify-content: center;
+}
+
+.sidebar-scrim {
+  display: none;
+}
+
+/* Below 900px (the same breakpoint the widget grid and the ledger's own
+   responsive table already use) the sidebar becomes an off-canvas drawer:
+   the DOM never changes, only its position and the hamburger's visibility
+   do, so this costs nothing in jsdom (vitest runs with css: false - no
+   stylesheet is ever applied in tests) and nothing in App.test.jsx, which
+   renders at the default width regardless. */
+@media (max-width: 900px) {
+  .app-shell,
+  .app-shell-collapsed {
+    grid-template-columns: 1fr;
+    /* The sidebar is now an overlay, not a column, so the top-bar's own
+       hamburger becomes the chrome above the ledger's table instead - see
+       primitives.css's .table-scroll for what reads this. */
+    --table-scroll-reserve: 220px;
+  }
+
+  .sidebar-toggle {
+    display: flex;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 70;
+    width: var(--sidebar-width);
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-md);
+  }
+
+  .app-shell-drawer-open .sidebar {
+    transform: translateX(0);
+    /* A keyframe animation, not a transition on transform - the shared
+       prefers-reduced-motion block (motion.css) only zeroes `animation`,
+       so a transition here would silently escape it. */
+    animation: drawer-in 0.16s ease;
+  }
+
+  @keyframes drawer-in {
+    from {
+      transform: translateX(-100%);
+    }
+
+    to {
+      transform: translateX(0);
+    }
+  }
+
+  .app-shell-collapsed .sidebar {
+    width: var(--sidebar-width);
+  }
+
+  /* The drawer is always full text, never the collapsed icon rail - a
+     phone-width drawer has the room a persistent desktop rail doesn't. */
+  .app-shell-drawer-open .nav-label,
+  .app-shell-drawer-open .sidebar-search-hint,
+  .app-shell-drawer-open .version-badge,
+  .app-shell-drawer-open .sidebar-collapse-toggle {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: inherit;
+    margin: inherit;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+  }
+
+  .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 65;
+    background: rgb(0 0 0 / 40%);
+  }
+
+  .app-main {
+    padding-top: calc(var(--space-5) + 48px);
+  }
+}
+
+/* Footer */
+
+.footer {
+  margin-top: var(--space-7);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.footer .version-mismatch {
+  color: var(--warning);
+  font-weight: 500;
+}
+
+/* Content column - everything to the right of the sidebar. Its own
+   max-width keeps a wide-viewport page from stretching edge-to-edge, the
+   same job .app-shell's max-width used to do before the grid replaced it. */
+.app-main {
+  grid-column: 2;
+  max-width: 1120px;
+  width: 100%;
+  padding: var(--space-5) var(--space-4) var(--space-8);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Page wrapper - every page is one <section className="page">, the outer
+   container everything else (cards, tables, forms) lives inside. Layout
+   only: no border, shadow or background of its own, so the page background
+   (--surface-0) shows straight through it. This used to BE a .card, which
+   meant every real .card on the page was nested one level deeper than it
+   looked - the .card .card rule below (meant for an actual nested group)
+   was silently styling every page's TOP-level cards instead, rendering
+   them as flat grey panels rather than elevated white ones. Changing this
+   class is the entire fix: the .card/.card .card/.card .card .card tiering
+   below is unchanged and already produces the right result once a real
+   .card is genuinely the first one in its ancestor chain again. */
+.page {
+  text-align: left;
+}
+
+/* Page header (components/PageHeader.jsx, T4.1b) - every page's own h2,
+   plus an optional subtitle and actions slot. Generalised from what was
+   the Dashboard's own .dashboard-header - already exactly this shape, so
+   this replaces it rather than existing alongside a second, near-identical
+   pattern. */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.page-header h2 {
+  margin: 0;
+}
+
+.page-subtitle {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+}
+
+.page-header-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Two-column page layout (T4.5b, Finding 12) - a plain grid wrapping a
+   SUBSET of a page's own top-level cards: the ones genuinely independent
+   of each other and narrow enough to share a row (a form, a short summary
+   table, a small list). A wide data table (many budget rows, a Category
+   Totals grid with one column per month) stays OUTSIDE this wrapper,
+   full-width, exactly as before - squeezing it into a half-width column
+   would make it scroll or wrap illegibly for no benefit. Not a .card
+   itself (`.closest('.card')` in ~24 existing tests across these three
+   pages' own test files still finds the same nearest .card regardless of
+   this wrapper sitting between it and .page), and .page itself is
+   untouched, so the .card/.card .card/.card .card .card tiering above is
+   unaffected. Single column below the breakpoint, same as .widget-grid's
+   own collapse - intentionally a different (wider) breakpoint than
+   .widget-grid's 900px, since these are two-UP forms/tables rather than
+   four-across stat tiles and want more room per column before splitting. */
+.page-columns {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  column-gap: var(--space-5);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .page-columns {
+    grid-template-columns: 1fr;
+  }
+}

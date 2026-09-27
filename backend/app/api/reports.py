@@ -14,6 +14,7 @@ from ..schemas import (
     MonthlyReportResponse,
     MonthlySummaryResponse,
     ReportPeriodResponse,
+    TopMoverResponse,
     UncategorizedSummaryResponse,
 )
 from ..services.dashboard_metrics import dashboard_kpis, daily_activity
@@ -80,6 +81,9 @@ def get_monthly_report(
         budgets=[BudgetLineResponse.model_validate(t) for t in report["budgets"]],
         grid=CategoryGridResponse(periods=grid_periods, rows=grid_rows),
         uncategorized=UncategorizedSummaryResponse(**report["uncategorized"]),
+        top_movers=[TopMoverResponse(**mover) for mover in report["top_movers"]],
+        has_prior_period_data=report["has_prior_period_data"],
+        prior_summary=MonthlySummaryResponse(**report["prior_summary"]) if report["prior_summary"] else None,
     )
 
 

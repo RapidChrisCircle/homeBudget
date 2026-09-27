@@ -4,6 +4,7 @@ import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { ACCOUNT_TYPE_OPTIONS, accountTypeLabel, isLiabilityType } from '../utils/accountTypes.js'
@@ -474,7 +475,7 @@ export default function AccountsPage() {
 
   return (
     <section className="page">
-      <h2>Accounts</h2>
+      <PageHeader title="Accounts" />
 
       {actionError && (
         <p>
@@ -482,28 +483,33 @@ export default function AccountsPage() {
         </p>
       )}
 
-      <Card id="accounts-backup" title="Backup">
-        <p>
-          A complete, unfiltered snapshot of every table in the database &mdash; accounts,
-          categories, rules, budgets, transactions and more &mdash; as one JSON file. There is no
-          restore-from-backup action: recreating records from it is a manual process, and true
-          point-in-time recovery means restoring the underlying database directly.
-        </p>
-        <a href="/api/export/database" className="button-primary">Download backup (JSON)</a>
-      </Card>
+      {/* Finding 12 (T4.5b) - Backup and Add Account are independent of
+          each other and each other's own contents; the accounts table
+          below stays full-width, outside this wrapper. */}
+      <div className="page-columns">
+        <Card id="accounts-backup" title="Backup">
+          <p>
+            A complete, unfiltered snapshot of every table in the database &mdash; accounts,
+            categories, rules, budgets, transactions and more &mdash; as one JSON file. There is no
+            restore-from-backup action: recreating records from it is a manual process, and true
+            point-in-time recovery means restoring the underlying database directly.
+          </p>
+          <a href="/api/export/database" className="button-primary">Download backup (JSON)</a>
+        </Card>
 
-      <Card id="accounts-form" title="Add Account">
-        {editingId ? (
-          <p>Finish editing the account below to add another.</p>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            {renderFormFields()}
-            <button type="submit" className="button-primary" disabled={saving}>
-              Add Account
-            </button>
-          </form>
-        )}
-      </Card>
+        <Card id="accounts-form" title="Add Account">
+          {editingId ? (
+            <p>Finish editing the account below to add another.</p>
+          ) : (
+            <form onSubmit={handleSubmit}>
+              {renderFormFields()}
+              <button type="submit" className="button-primary" disabled={saving}>
+                Add Account
+              </button>
+            </form>
+          )}
+        </Card>
+      </div>
 
       <Card id="accounts-list" title="All Accounts">
         {loading && <LoadingState message="Loading accounts..." />}

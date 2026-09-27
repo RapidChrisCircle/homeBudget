@@ -132,6 +132,7 @@ describe('CategoriesPage', () => {
         budget_amount: '800',
         parent_id: null,
         rolls_over: false,
+        color: null,
       })
     })
   })
@@ -158,8 +159,63 @@ describe('CategoriesPage', () => {
         budget_amount: null,
         parent_id: null,
         rolls_over: false,
+        color: null,
       })
     })
+  })
+
+  it('sends the clicked swatch\'s token as the colour', async () => {
+    mockLoad({ categories: [] })
+    api.post.mockResolvedValue({ data: sampleCategory })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(screen.queryByText('Loading categories...')).not.toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Groceries' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Olive' }))
+    const addCategoryButtons = screen.getAllByRole('button', { name: 'Add Category' })
+    fireEvent.click(addCategoryButtons[addCategoryButtons.length - 1])
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/categories', expect.objectContaining({ color: 'category-3' }))
+    })
+  })
+
+  it('clicking the same swatch again clears the colour back to none', async () => {
+    mockLoad({ categories: [] })
+    api.post.mockResolvedValue({ data: sampleCategory })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(screen.queryByText('Loading categories...')).not.toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Groceries' } })
+    const swatch = screen.getByRole('button', { name: 'Olive' })
+    fireEvent.click(swatch)
+    expect(swatch).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(swatch)
+    expect(swatch).toHaveAttribute('aria-pressed', 'false')
+
+    const addCategoryButtons = screen.getAllByRole('button', { name: 'Add Category' })
+    fireEvent.click(addCategoryButtons[addCategoryButtons.length - 1])
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/categories', expect.objectContaining({ color: null }))
+    })
+  })
+
+  it('prefills the swatch selection when editing a category that already has a colour', async () => {
+    mockLoad({ categories: [{ ...sampleCategory, color: 'category-7' }] })
+
+    render(<CategoriesPage />)
+
+    await waitFor(() => expect(screen.queryByText('Loading categories...')).not.toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getByRole('button', { name: 'Blue' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('hides the budget field for non-expense kinds', async () => {
@@ -274,6 +330,7 @@ describe('CategoriesPage', () => {
         budget_amount: '250.00',
         parent_id: null,
         rolls_over: false,
+        color: null,
       })
     })
     expect(screen.queryByRole('button', { name: 'Save Changes' })).not.toBeInTheDocument()
@@ -890,6 +947,7 @@ describe('CategoriesPage', () => {
         budget_amount: '100',
         parent_id: null,
         rolls_over: true,
+        color: null,
       })
     })
   })

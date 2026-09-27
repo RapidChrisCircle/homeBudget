@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Card from '../components/Card.jsx'
+import DashboardNarrative from '../components/DashboardNarrative.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import OnboardingChecklist from '../components/OnboardingChecklist.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import { api } from '../services/api'
 import { WIDGET_TYPE_KEYS, WIDGET_TYPES, WIDGET_WIDTHS, widgetTypeLabel } from '../widgetRegistry.jsx'
 
@@ -62,7 +64,12 @@ export default function DashboardPage() {
   const fetchDashboardData = () => Promise.all([
     api.get('/dashboard/widgets'),
     api.get('/accounts'),
-    api.get('/reports/monthly?months=1'),
+    // months=2, not 1 - the Dashboard's narrative block (T4.2) needs the
+    // prior period alongside the current one (has_prior_period_data,
+    // prior_summary, top_movers all depend on it). No other consumer of
+    // `report` here reads more than one period's worth of report.grid, so
+    // this is safe to widen with no other change.
+    api.get('/reports/monthly?months=2'),
     api.get(`/trends?months=${CHART_MONTHS}`),
     // Same months window as the two charts above - one shared KPI window
     // for every stat_tile/net_worth_change widget on the page, see this
@@ -181,7 +188,7 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <section className="page">
-        <h2>Dashboard</h2>
+        <PageHeader title="Dashboard" />
         <LoadingState message="Loading dashboard..." />
       </section>
     )
@@ -190,7 +197,7 @@ export default function DashboardPage() {
   if (error) {
     return (
       <section className="page">
-        <h2>Dashboard</h2>
+        <PageHeader title="Dashboard" />
         <ErrorState label="Failed to load dashboard:" message={error} />
       </section>
     )
@@ -199,7 +206,7 @@ export default function DashboardPage() {
   if (transactionTotal === 0) {
     return (
       <section className="page">
-        <h2>Dashboard</h2>
+        <PageHeader title="Dashboard" />
         <OnboardingChecklist />
       </section>
     )
@@ -217,21 +224,23 @@ export default function DashboardPage() {
 
   return (
     <section className="page">
-      <div className="dashboard-header">
-        <h2>Dashboard</h2>
-        <div className="dashboard-header-actions">
-          <button type="button" onClick={() => setAddingWidget((prev) => !prev)}>
-            {addingWidget ? 'Cancel' : 'Add new widget'}
-          </button>
-          <button type="button" className={editing ? 'button-primary' : ''} onClick={() => setEditing((prev) => !prev)}>
-            {editing ? 'Done editing' : 'Edit dashboard'}
-          </button>
-        </div>
-      </div>
+      <PageHeader title="Dashboard">
+        <button type="button" onClick={() => setAddingWidget((prev) => !prev)}>
+          {addingWidget ? 'Cancel' : 'Add new widget'}
+        </button>
+        <button type="button" className={editing ? 'button-primary' : ''} onClick={() => setEditing((prev) => !prev)}>
+          {editing ? 'Done editing' : 'Edit dashboard'}
+        </button>
+      </PageHeader>
 
       {layoutError && <ErrorState label="Action failed:" message={layoutError} />}
 
       <OnboardingChecklist />
+
+      {/* Fixed, not a widget - a story the user can remove isn't the app
+          telling it. Above the grid so it leads: the numbers below are
+          support for what this already said in plain language. */}
+      <DashboardNarrative report={report} />
 
       {addingWidget && (
         <Card id="dashboard-add-widget" title="Add a Widget">

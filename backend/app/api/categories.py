@@ -70,6 +70,13 @@ def _validate_category_payload(db: Session, payload, category: Category | None =
     if payload.budget_amount is not None and payload.budget_amount < 0:
         raise HTTPException(status_code=422, detail="budget_amount must be a positive dollar value")
 
+    # A design token name (e.g. "category-3"), not a hex literal - see
+    # Category.color's own docstring. The column is a bounded VARCHAR(20)
+    # (enforced by Postgres, not SQLite), so this is caught here as a 422
+    # rather than surfacing as a raw database error.
+    if payload.color is not None and len(payload.color) > 20:
+        raise HTTPException(status_code=422, detail="color must be at most 20 characters")
+
     if payload.parent_id is not None:
 
         if category is not None and payload.parent_id == category.id:

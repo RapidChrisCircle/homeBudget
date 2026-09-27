@@ -7,6 +7,7 @@ import CategorySelect from '../components/CategorySelect.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import { api } from '../services/api'
 import { showToast } from '../services/toast'
 import { categoryPathLabel } from '../utils/categories.js'
@@ -416,7 +417,7 @@ export default function RulesPage() {
 
   return (
     <section className="page">
-      <h2>Rules</h2>
+      <PageHeader title="Rules" />
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 

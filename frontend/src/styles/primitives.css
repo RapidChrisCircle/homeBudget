@@ -1,0 +1,787 @@
+/* Shared UI primitives - card, button, form, table, badge, amount,
+   pagination, state messages, skeleton loading, the split-editor
+   modal, command palette, and toasts. Anything reused across more
+   than one page's own feature area lives here rather than in
+   features.css. Split out of App.css (T4.0), verbatim, no rule
+   changed. Imported second from App.jsx. */
+
+/* Cards - the app's one layout primitive, nested up to 3 deep. Each nesting
+   level gets a slightly different surface so the hierarchy is visible
+   without relying on shadows alone. */
+
+.card {
+  border: 1px solid var(--border);
+  /* --radius-lg, not -md - now that a top-level card is genuinely the
+     first elevated surface on the page (see .page above) rather than one
+     more level of box-in-a-box, a slightly softer corner reads as a
+     deliberate panel rather than a generic rectangle. */
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  text-align: left;
+  background: var(--surface-1);
+  box-shadow: var(--shadow-sm);
+  /* --space-6, not -5 - top-level cards get a little more breathing room
+     between them now that they float on the page background instead of
+     sitting inside a shared bordered box; nested cards keep the tighter
+     --space-4 below via .card .card, unaffected by this. */
+  margin-bottom: var(--space-6);
+}
+
+.card:last-child {
+  margin-bottom: 0;
+}
+
+.card .card {
+  background: var(--surface-2);
+  box-shadow: none;
+  margin-bottom: var(--space-4);
+}
+
+.card .card .card {
+  background: var(--surface-1);
+}
+
+.card > h2:first-child,
+.card > h3:first-child {
+  margin-bottom: var(--space-4);
+}
+
+/* Collapsible cards (components/Card.jsx) - the toggle button fills the
+   heading so the whole header row is clickable, not just the disclosure
+   icon. Reset to look like plain heading text; the generic button's own
+   hover/focus-visible rules elsewhere in this file still apply on top,
+   which is what gives the toggle its hover/focus feedback. */
+.card-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-toggle:hover {
+  color: var(--accent);
+}
+
+.card-toggle-icon {
+  font-size: 0.7em;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* A Card's content is unmounted when collapsed, not just hidden (see
+   Card.jsx), so there's no element to animate a height transition on -
+   this fades it in on mount instead, a cheap cue that something just
+   appeared rather than the content just snapping into place. Disabled
+   entirely under prefers-reduced-motion below, along with every other
+   animation in this file. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.card-body {
+  animation: fade-in 0.15s ease;
+}
+
+.card ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+}
+
+/* Buttons */
+
+button {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--text-muted);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button + button {
+  margin-left: var(--space-2);
+}
+
+/* Anchor-based download links (Backup, the ledger's CSV export) need the
+   same button SHAPE a native <button> gets for free from the bare
+   `button` selector above - .button-primary itself already applies to an
+   <a> as-is (a plain class selector), including its own :hover rule
+   (:not(:disabled) simply never disqualifies an anchor, which has no
+   disabled state to exclude), but the base padding/border/radius/no-
+   underline does not, since that lives on the element selector, not a
+   shared class. Scoped to just .button-primary, the only anchor-as-button
+   case that exists today - .button-ghost has its OWN smaller padding/
+   font-size declared below, and folding it into this same compound
+   selector would out-specificity that override for an anchor specifically. */
+a.button-primary {
+  display: inline-block;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  padding: var(--space-2) var(--space-4);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+
+.button-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.button-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.button-danger {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.button-danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+
+.button-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent);
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.85rem;
+}
+
+.button-ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+/* Forms - every form in this app follows the same structure:
+     <form><div><label>Field name<input/></label></div>...<button/></form>
+   so field spacing and the label/input stack are handled generically here,
+   with no markup changes needed on any individual page. A <label> in a
+   column flex container stacks its text and its input child automatically -
+   text nodes become anonymous flex items too. */
+
+form > div {
+  margin-bottom: var(--space-4);
+}
+
+form label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  min-width: 220px;
+  max-width: 100%;
+}
+
+input[type='checkbox'] {
+  min-width: 0;
+  width: 16px;
+  height: 16px;
+}
+
+/* CategoryQuickAdd - a category <select> plus an inline create form. The
+   outer wrapper and its own <label> sit outside any <form>, so they need
+   their own row layout rather than relying on the generic form rules above;
+   the create form itself IS a <form> and gets the standard column-label
+   treatment for free, just laid out as a row of fields instead of a stack. */
+.category-quick-add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.category-quick-add > label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.category-quick-add-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  width: 100%;
+  margin-top: var(--space-1);
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.category-quick-add-form > div {
+  margin-bottom: 0;
+}
+
+/* Toast notifications (ToastContainer, T3.4) - a transient SUCCESS
+   confirmation only, never an error (see services/toast.ts's own
+   docstring) - <ErrorState> remains the one place any error appears. */
+.toast-container {
+  position: fixed;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  z-index: 100;
+  max-width: 320px;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.85rem;
+  animation: toast-in 0.15s ease;
+}
+
+.toast-success {
+  border-left-color: var(--success);
+}
+
+.toast-info {
+  border-left-color: var(--accent);
+}
+
+.toast-dismiss {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0;
+  margin-left: auto;
+}
+
+/* Shared LineChart/BarChart hover+keyboard-focus tooltip (ChartTooltip.jsx).
+   position: relative is what makes the tooltip's own absolute positioning
+   (computed from the hovered point/bar's real screen rect, see that
+   component's docstring) relative to the chart rather than the page. */
+.chart-container {
+  position: relative;
+}
+
+.chart-tooltip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - var(--space-2)));
+  background: var(--surface-1);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  /* Purely informational - never the target of a click/hover itself, so it
+     can't shadow the point/bar underneath it or steal the mouseleave that
+     would otherwise hide it. */
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* Tables */
+
+.card table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-3);
+}
+
+/* white-space: nowrap by default - a table is mostly short fields (dates,
+   account names, types, figures), and without this the odd long value
+   (an account name, a category) wraps onto a second line, dragging every
+   short neighbouring cell in the row down with it and roughly doubling row
+   height for no reason. The few genuinely long free-text columns (ledger
+   narration, a rule's pattern, a recurring merchant name) opt back into
+   wrapping explicitly via .cell-wrap below, rather than every short column
+   needing its own nowrap rule. */
+.card table th,
+.card table td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+/* Explicit opt-out for the handful of columns that should wrap - free text
+   with no natural width, where nowrap would just push the table wide and
+   force horizontal scroll instead of using the vertical space every other
+   column already has. .ledger-narration is the original, longstanding
+   name for the one place this started (the main ledger); .cell-wrap is the
+   same rule under a generic name for every other page's own long-text
+   column (a rule's pattern, a recurring/forecast merchant name, Dashboard's
+   Recent Activity narration). */
+.ledger-narration,
+.cell-wrap {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Numeric columns (money, counts) - the header's own label right-aligns to
+   sit directly above the right-aligned figures the column actually holds
+   (see td .amount below), rather than a left-aligned label over right-
+   aligned numbers. Applied via the `numeric` prop on SortableHeader/
+   HeaderFilter, or the class by hand on a plain <th>/<td> that never
+   passes through either (a raw count like Imported/Skipped Duplicates). */
+.card table th.numeric,
+.card table td.numeric {
+  text-align: right;
+}
+
+.card table th.numeric .header-filter-heading {
+  justify-content: flex-end;
+}
+
+/* Column headers (<thead> th) only - a <tbody> th (scope="row", a few
+   key/value tables like Dashboard's Summary use one for the row label
+   instead of a plain td, purely for the accessible row-header semantics)
+   reads as an ordinary cell instead, not shrunk and upper-cased like a
+   column heading would be. */
+.card table thead th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.card table tbody th {
+  font-weight: 400;
+  color: inherit;
+}
+
+/* SortableHeader - a <button> filling a <th>, styled to read as a header
+   label rather than a button (no border/background of its own), with just
+   enough affordance on hover to signal it's interactive. The global
+   button:focus-visible rule still applies on top for keyboard users. */
+.sortable-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sortable-header:hover {
+  color: var(--text-primary);
+}
+
+.sortable-header-arrow {
+  font-size: 0.7em;
+}
+
+/* Table cells wide enough to scroll (rather than the whole table forcing
+   nowrap on every column, which was pushing every data-dense page into
+   horizontal scroll even for columns whose text would happily wrap).
+   Bounded height + overflow on both axes, not just overflow-x - this is
+   what makes it a genuine scrollPORT for `position: sticky` below to stick
+   against; overflow-x: auto alone never scrolls vertically, so `top: 0`
+   would otherwise resolve against a container that never moves.
+
+   --table-scroll-reserve (index.css) replaced a literal 220px here
+   (T4.1a) - that number hardcoded the old top-header's chrome height,
+   which the sidebar shell removed. It's overridden per breakpoint in
+   shell.css's 900px block, where the sidebar becomes a top bar and the
+   chrome above the table grows again. The max(320px, ...) floor is a
+   genuine fix, not just a rename: on a short viewport the old calc() alone
+   could collapse the scrollport toward nothing, leaving no room for a
+   sticky header to mean anything. */
+.table-scroll {
+  overflow: auto;
+  max-height: max(320px, calc(100svh - var(--table-scroll-reserve)));
+}
+
+/* Sticky column headers - stay in view while a long, paginated table (the
+   ledger at 200 rows/page is the case this exists for) scrolls underneath
+   them. The background has to be set explicitly, not left to inherit -
+   without an opaque background behind it a sticky header would let
+   scrolling rows show through it - and it has to match whichever card
+   surface actually contains the table, so it's set at each nesting level
+   the same way .card/.card .card/.card .card .card already tier surfaces
+   above, not just once. */
+.card table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-1);
+}
+
+.card .card table thead th {
+  background: var(--surface-2);
+}
+
+.card .card .card table thead th {
+  background: var(--surface-1);
+}
+
+/* The global `input { min-width: 220px }` above is sized for a form field,
+   not a table cell - inside a table it was forcing every row's Category
+   select (and any other table-cell input) wide regardless of the column's
+   actual content, which is what pushed the ledger into horizontal scroll
+   in the first place. */
+.card table select,
+.card table input {
+  min-width: 0;
+}
+
+/* A <select> sizes to its widest option regardless of min-width - the
+   ledger's category dropdown (every category name, some long) was the
+   worst offender, dominating the row width next to short date/account/
+   amount cells. Capped rather than left to size itself, in every table
+   cell that holds one. */
+.card table td select {
+  max-width: 220px;
+}
+
+/* Badges - the app's status/marker convention (auto-categorized, budget
+   overridden, over budget, recurring status) unified into one component. */
+
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.badge-neutral {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+.badge-info {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.badge-success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.badge-danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.badge-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+/* Amount - tabular numerals so a column of money actually lines up. */
+
+.amount {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.amount-negative {
+  color: var(--danger);
+}
+
+.amount-positive {
+  color: var(--success);
+}
+
+td .amount,
+th .amount {
+  display: block;
+  text-align: right;
+}
+
+/* Pagination */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Overrides the global column-stacking form label trick (App.css's `form
+   label` rule) - this label lives outside a form, in the pagination row,
+   and its text and select belong side by side, not stacked. */
+.pagination .page-size-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.pagination .page-size-select select {
+  min-width: 0;
+}
+
+/* State messages (loading / error / empty) */
+
+.state-message {
+  padding: var(--space-4) 0;
+  color: var(--text-secondary);
+}
+
+.state-message-error {
+  color: var(--danger);
+}
+
+.state-message-error strong {
+  color: var(--danger);
+}
+
+/* Skeleton loading (LoadingState's `rows` variant) - a shimmering
+   row-shaped bar per expected row, so a table's own shape holds its
+   place while data is still in flight instead of the page jumping from
+   one line of "Loading..." text to a full table the moment it resolves. */
+@keyframes skeleton-shimmer {
+  from {
+    background-position: -200px 0;
+  }
+  to {
+    background-position: 200px 0;
+  }
+}
+
+.skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.skeleton-row {
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-1) 37%, var(--surface-2) 63%);
+  background-size: 400px 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+/* Split editor modal (SplitEditor.jsx) - the app's only modal, so no
+   general-purpose Modal component exists yet; if a second one is ever
+   needed, extract .modal-overlay/.modal into one. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 13, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  z-index: 100;
+  animation: fade-in 0.15s ease;
+}
+
+.modal {
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  overflow-y: auto;
+  /* The most elevated surface in the app - a dialog sitting above
+     everything else, not just another card. */
+  box-shadow: var(--shadow-md);
+  animation: modal-in 0.15s ease;
+}
+
+.split-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.split-row input {
+  min-width: 120px;
+}
+
+.split-remainder {
+  font-weight: 600;
+  margin: var(--space-3) 0;
+}
+
+.split-remainder-error {
+  color: var(--danger);
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* Command palette (CommandPalette.jsx) - Ctrl+K/Cmd+K from anywhere. Its
+   own overlay rather than reusing .modal-overlay: a command palette is
+   conventionally anchored near the TOP of the viewport (align-items:
+   flex-start, with padding standing in for a fixed offset), not vertically
+   centered like a confirmation dialog - the difference is what makes it
+   read as "a search bar dropped in front of the page" rather than another
+   modal dialog. z-index above .modal-overlay's 100, since the palette must
+   still be reachable (and closeable) even while a modal is already open. */
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 13, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  z-index: 200;
+  animation: fade-in 0.15s ease;
+}
+
+.command-palette {
+  width: 100%;
+  max-width: 560px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  animation: modal-in 0.15s ease;
+}
+
+.command-palette-input {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: var(--space-4);
+  font-size: 1.05rem;
+}
+
+.command-palette-input:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
+.command-palette-empty {
+  padding: var(--space-4);
+  color: var(--text-muted);
+}
+
+.command-palette-results {
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+}
+
+.command-palette-group + .command-palette-group {
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.command-palette-group-label {
+  margin: 0;
+  padding: var(--space-1) var(--space-4);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.command-palette-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: var(--space-2) var(--space-4);
+}
+
+.command-palette-item.active,
+.command-palette-item:hover {
+  background: var(--surface-2);
+}
+

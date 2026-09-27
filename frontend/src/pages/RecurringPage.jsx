@@ -4,6 +4,7 @@ import Amount from '../components/Amount.jsx'
 import Badge from '../components/Badge.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { recurringLedgerLink } from '../utils/format.js'
@@ -124,7 +125,7 @@ export default function RecurringPage() {
   if (loading) {
     return (
       <section className="page">
-        <h2>Recurring</h2>
+        <PageHeader title="Recurring" />
         <LoadingState message="Loading recurring payments..." />
       </section>
     )
@@ -133,7 +134,7 @@ export default function RecurringPage() {
   if (error) {
     return (
       <section className="page">
-        <h2>Recurring</h2>
+        <PageHeader title="Recurring" />
         <ErrorState label="Failed to load recurring payments:" message={error} />
       </section>
     )
@@ -141,7 +142,7 @@ export default function RecurringPage() {
 
   return (
     <section className="page">
-      <h2>Recurring</h2>
+      <PageHeader title="Recurring" />
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 

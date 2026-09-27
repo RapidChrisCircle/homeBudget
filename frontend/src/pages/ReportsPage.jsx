@@ -6,6 +6,7 @@ import Card from '../components/Card.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { categoryPathLabel } from '../utils/categories.js'
@@ -104,7 +105,7 @@ export default function ReportsPage() {
   if (loading) {
     return (
       <section className="page">
-        <h2>Reports</h2>
+        <PageHeader title="Reports" />
         <LoadingState message="Loading report..." />
       </section>
     )
@@ -113,7 +114,7 @@ export default function ReportsPage() {
   if (error) {
     return (
       <section className="page">
-        <h2>Reports</h2>
+        <PageHeader title="Reports" />
         <ErrorState label="Failed to load report:" message={error} />
       </section>
     )
@@ -122,7 +123,7 @@ export default function ReportsPage() {
   if (periods.length === 0) {
     return (
       <section className="page">
-        <h2>Reports</h2>
+        <PageHeader title="Reports" />
         <EmptyState message="No transactions imported yet." />
       </section>
     )
@@ -132,7 +133,7 @@ export default function ReportsPage() {
 
   return (
     <section className="page">
-      <h2>Reports</h2>
+      <PageHeader title="Reports" />
 
       <p>
         Budgets apply to every month. Transfer categories are excluded from these totals &mdash; if
@@ -141,51 +142,57 @@ export default function ReportsPage() {
         be excluded.
       </p>
 
-      <Card id="reports-month" title="Month">
-        <label>
-          Select month
-          <select value={`${report.year}-${report.month}`} onChange={handlePeriodChange}>
-            {periods.map((period) => (
-              <option key={period.label} value={`${period.year}-${period.month}`}>
-                {period.label} ({period.transaction_count})
-              </option>
-            ))}
-          </select>
-        </label>
-      </Card>
+      {/* Finding 12 (T4.5b) - these three cards are independent of each
+          other and narrow enough to share a row at a wide viewport; the
+          two wide data tables below stay full-width, outside this
+          wrapper. */}
+      <div className="page-columns">
+        <Card id="reports-month" title="Month">
+          <label>
+            Select month
+            <select value={`${report.year}-${report.month}`} onChange={handlePeriodChange}>
+              {periods.map((period) => (
+                <option key={period.label} value={`${period.year}-${period.month}`}>
+                  {period.label} ({period.transaction_count})
+                </option>
+              ))}
+            </select>
+          </label>
+        </Card>
 
-      {/* id is fixed rather than derived from the title, since the title
-          text itself changes every month. */}
-      <Card id="reports-monthly-summary" title={<>Monthly Summary &mdash; {report.label}</>}>
-        <table>
-          <caption className="visually-hidden">Monthly summary</caption>
-          <tbody>
-            <tr>
-              <th scope="row">Total income</th>
-              <td><Amount value={summary.total_income} neutral /></td>
-            </tr>
-            <tr>
-              <th scope="row">Total spending</th>
-              <td><Amount value={summary.total_spending} neutral /></td>
-            </tr>
-            <tr>
-              <th scope="row">Net saved</th>
-              <td><Amount value={summary.net_saved} /></td>
-            </tr>
-          </tbody>
-        </table>
-      </Card>
+        {/* id is fixed rather than derived from the title, since the title
+            text itself changes every month. */}
+        <Card id="reports-monthly-summary" title={<>Monthly Summary &mdash; {report.label}</>}>
+          <table>
+            <caption className="visually-hidden">Monthly summary</caption>
+            <tbody>
+              <tr>
+                <th scope="row">Total income</th>
+                <td><Amount value={summary.total_income} neutral /></td>
+              </tr>
+              <tr>
+                <th scope="row">Total spending</th>
+                <td><Amount value={summary.total_spending} neutral /></td>
+              </tr>
+              <tr>
+                <th scope="row">Net saved</th>
+                <td><Amount value={summary.net_saved} /></td>
+              </tr>
+            </tbody>
+          </table>
+        </Card>
 
-      <Card id="reports-uncategorized" title="Uncategorized Review">
-        <p>
-          {uncategorized.uncategorized_count} of {uncategorized.transaction_count} transaction(s) this
-          month are uncategorized (net <Amount value={uncategorized.net_total} />). The summary above only
-          covers categorized, non-transfer transactions.
-        </p>
-        <Link to={uncategorizedLedgerLink(report.start_date, report.end_date)}>
-          Review uncategorized transactions
-        </Link>
-      </Card>
+        <Card id="reports-uncategorized" title="Uncategorized Review">
+          <p>
+            {uncategorized.uncategorized_count} of {uncategorized.transaction_count} transaction(s) this
+            month are uncategorized (net <Amount value={uncategorized.net_total} />). The summary above only
+            covers categorized, non-transfer transactions.
+          </p>
+          <Link to={uncategorizedLedgerLink(report.start_date, report.end_date)}>
+            Review uncategorized transactions
+          </Link>
+        </Card>
+      </div>
 
       <Card id="reports-budget-vs-actual" title="Budget vs Actual">
         {budgets.length === 0 && <p>No activity in this month.</p>}

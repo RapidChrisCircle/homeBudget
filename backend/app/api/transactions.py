@@ -269,6 +269,7 @@ def _validated_ledger_query(
     transaction_type: str | None,
     min_amount: Decimal | None,
     max_amount: Decimal | None,
+    import_batch_id: int | None,
     sort: str | None,
     direction: str,
 ):
@@ -343,6 +344,7 @@ def _validated_ledger_query(
         transaction_type=transaction_type,
         min_amount=min_amount,
         max_amount=max_amount,
+        import_batch_id=import_batch_id,
     )
 
     return build_transaction_query(db, filters, sort=sort, direction=direction)
@@ -363,6 +365,7 @@ def list_transactions(
     # services/ledger.py) - a negative bound is a client bug, not a query.
     min_amount: Decimal | None = Query(None, ge=0),
     max_amount: Decimal | None = Query(None, ge=0),
+    import_batch_id: int | None = None,
     sort: str | None = None,
     direction: str = "asc",
     page: int = Query(1, ge=1),
@@ -375,6 +378,7 @@ def list_transactions(
         account_id=account_id, account_group_id=account_group_id, category_id=category_id,
         uncategorized=uncategorized, kind=kind, date_from=date_from, date_to=date_to,
         search=search, transaction_type=transaction_type, min_amount=min_amount, max_amount=max_amount,
+        import_batch_id=import_batch_id,
         sort=sort, direction=direction,
     )
     items, total = paginate(query, page=page, page_size=page_size, options=LIST_LOADERS)
@@ -409,6 +413,7 @@ def export_transactions(
     transaction_type: str | None = None,
     min_amount: Decimal | None = Query(None, ge=0),
     max_amount: Decimal | None = Query(None, ge=0),
+    import_batch_id: int | None = None,
     sort: str | None = None,
     direction: str = "asc",
     db: Session = Depends(get_db)
@@ -431,6 +436,7 @@ def export_transactions(
         account_id=account_id, account_group_id=account_group_id, category_id=category_id,
         uncategorized=uncategorized, kind=kind, date_from=date_from, date_to=date_to,
         search=search, transaction_type=transaction_type, min_amount=min_amount, max_amount=max_amount,
+        import_batch_id=import_batch_id,
         sort=sort, direction=direction,
     )
 
@@ -480,6 +486,7 @@ def list_transaction_groups(
     transaction_type: str | None = None,
     min_amount: Decimal | None = Query(None, ge=0),
     max_amount: Decimal | None = Query(None, ge=0),
+    import_batch_id: int | None = None,
     include_categorized: bool = False,
     db: Session = Depends(get_db)
 ):
@@ -546,6 +553,7 @@ def list_transaction_groups(
         transaction_type=transaction_type,
         min_amount=min_amount,
         max_amount=max_amount,
+        import_batch_id=import_batch_id,
     )
 
     total_in, total_out, net_total = transaction_group_totals(db, filters, include_categorized=include_categorized)

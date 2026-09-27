@@ -5,6 +5,7 @@ import Badge from '../components/Badge.jsx'
 import Card from '../components/Card.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { useTableSort } from '../utils/tableSort.js'
@@ -186,7 +187,7 @@ export default function GoalsPage() {
 
   return (
     <section className="page">
-      <h2>Goals</h2>
+      <PageHeader title="Goals" />
 
       {actionError && <ErrorState label="Action failed:" message={actionError} />}
 

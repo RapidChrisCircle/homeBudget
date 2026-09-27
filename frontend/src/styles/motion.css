@@ -1,0 +1,23 @@
+/* Motion - the ONE place every animation in the app is turned off for
+   prefers-reduced-motion. Imported LAST from App.jsx so this always
+   wins by source order, not by remembering to append here - see the
+   block's own comment for why. A new animation anywhere in the app
+   is added to the selector list below, never a second block. */
+
+/* Every animation in this file, turned off in one place - a card
+   appearing, a filter popover opening, a modal entering. Not chasing
+   accessibility conformance for its own sake here, but this one costs four
+   lines and directly serves people who've told their OS motion makes them
+   unwell, so it stays. */
+@media (prefers-reduced-motion: reduce) {
+  .card-body,
+  .header-filter-popover,
+  .modal-overlay,
+  .modal,
+  .skeleton-row,
+  .toast,
+  .app-shell-drawer-open .sidebar {
+    animation: none;
+  }
+}
+

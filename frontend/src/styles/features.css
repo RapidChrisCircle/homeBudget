@@ -1,0 +1,967 @@
+/* Page/feature-specific styling - the ledger toolbar, filter bar and
+   totals strip, HeaderFilter's popover, import upload, forecast
+   scenarios, rules v2, onboarding, dashboard widgets and the
+   individual widget types. Split out of App.css (T4.0), verbatim, no
+   rule changed. Imported third from App.jsx. */
+
+/* Import upload control (TransactionsPage) - wraps the native
+   <input type="file">, which is otherwise raw unstyled browser chrome
+   sitting directly in a card. The whole box is the <label>, so clicking
+   anywhere in it opens the file picker, not just the browser's own small
+   "Choose File" button inside it. */
+.import-upload-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.import-upload-control:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+/* Wipe all sits with the history table it acts on, not with the upload
+   control above - a destructive, whole-history action reads differently
+   next to "choose a file" than it does next to what it's about to erase. */
+.import-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.import-history-header h4 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* AddTransactionForm's Money out/Money in choice - a plain radio pair, not
+   the generic column-stacking `form label` rule (that's built for a single
+   label+input, not a legend plus two side-by-side options). */
+.transaction-direction-field {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.transaction-direction-legend {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.transaction-direction-field label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+/* Forecast scenarios (ForecastPage) - a labelled group of related controls,
+   the same "span styled as a legend" idiom as .transaction-direction-legend
+   above rather than a native <fieldset>/<legend>, whose default styling this
+   app doesn't otherwise theme anywhere. */
+.forecast-scenario-group {
+  margin-bottom: var(--space-4);
+}
+
+.forecast-scenario-legend {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.forecast-scenario-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.9rem;
+  margin-bottom: var(--space-1);
+}
+
+.forecast-scenario-adjustment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.forecast-scenario-adjustment input[type="number"] {
+  width: 6rem;
+}
+
+.forecast-scenario-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Rules v2 (RulesPage) - the repeatable "also match" pattern list, the same
+   labelled-group idiom as .forecast-scenario-legend above. */
+.rule-pattern-legend {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.rule-pattern-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+/* Guided first-run onboarding (OnboardingChecklist, T3.3) - a plain <ol>
+   rather than a table, since each step is a paragraph of copy plus a link,
+   not tabular data. */
+.onboarding-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.onboarding-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.onboarding-step-marker {
+  font-size: 1.1rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.onboarding-step-done .onboarding-step-marker {
+  color: var(--success);
+}
+
+.onboarding-step-done strong {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.onboarding-checklist p {
+  margin: var(--space-1) 0;
+  color: var(--text-secondary);
+}
+
+/* Ledger toolbar (TransactionsPage) - the DATA actions: bulk-assign
+   CategoryQuickAdd, Set category, Apply rules now. Everything here changes
+   the ledger's data, which is what separates it from .ledger-filter-bar
+   above (which only changes what's SHOWN) - two rows with different jobs,
+   not one ragged one, with a rule between them making the split visible
+   rather than just implied by grouping. */
+.ledger-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+/* Quick filter presets (T4.3b) - shortcuts onto the chips' own filter
+   state, sitting above the chip row itself since they set several fields
+   as one action rather than narrowing one at a time. Plain buttons, not
+   chips - a preset has no "active" state of its own to show (its effect
+   shows up as the chips below lighting up), and it isn't toggled off
+   again the way a chip is. */
+.ledger-filter-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* Ledger filter bar (TransactionsPage) - EVERY filter, as a row of chips,
+   identical whether or not Group by merchant is on. Filters used to be
+   split between column headers (ungrouped) and an inline copy of the same
+   popovers (grouped, whose table has none of those columns), so toggling
+   the view rearranged the toolbar under the reader. One row, one home.
+   Group by merchant sits here rather than in .ledger-toolbar because it
+   reshapes what's SHOWN, not the data - the same split that separates
+   these two rows. */
+.ledger-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Names the row for both eyes and screen readers - the chips are a labelled
+   group (aria-labelledby), so "Filters" is read once rather than every chip
+   having to repeat the word. */
+.ledger-filter-bar-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.ledger-filter-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Pushed to the far end, so the chips grow leftward into free space and
+   these two keep a fixed home instead of drifting with the chip count. */
+.ledger-filter-bar-end {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+.ledger-view-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+/* Ledger totals strip (TransactionsPage) - money in/out/net over the WHOLE
+   filtered set, identical above both the plain and the grouped-by-merchant
+   table (services/ledger.ledger_totals). Its own row, between the toolbar
+   and the table, so it reads as "here is what the view above adds up to"
+   rather than crowding either the filter chips or the data-action buttons. */
+.ledger-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  padding: var(--space-3) 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.ledger-totals .amount {
+  font-weight: 600;
+}
+
+.pay-period-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+/* Grouped-by-merchant Set-category cell (TransactionsPage) - a plain select
+   plus a compact Set button, kept on one line. Replaces what used to be a
+   full CategoryQuickAdd per row (its own visible label, select, "+ New
+   category" toggle AND a separate Set button stacked in one cell) - at
+   ~140px tall with white-space: nowrap unable to wrap that label anymore,
+   it was clipping at the card edge. */
+.group-set-category {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Ledger row meta (TransactionsPage) - the import filename, the auto badge,
+   and the Make rule / Delete actions, all folded under the Category select
+   instead of their own columns. Low-frequency and text-heavy, they were
+   what pushed the table into horizontal scroll on every viewport. */
+.ledger-row-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: 0.75rem;
+}
+
+.ledger-row-meta .button-ghost,
+.ledger-row-meta .button-danger {
+  font-size: 0.75rem;
+  padding: 2px var(--space-2);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Card-per-transaction below ~700px (Finding 17) - the ledger's own two
+   tables (plain and grouped-by-merchant) opt in via .responsive-table.
+   Standard accessible responsive-table technique: the <thead> is hidden the
+   same way a visually-hidden <caption> already is elsewhere in this app
+   (clip, not display:none, so a screen reader in table-navigation mode
+   still has real column headers - it just isn't the SIGHTED presentation
+   any more), and each <td> gets its own column label back via a
+   `data-label` attribute + ::before, since visual position no longer
+   conveys "which column is this" once every row stacks into its own card.
+   A <td> with no data-label (a row checkbox, the Details toggle) simply has
+   no label prefix - both are self-explanatory without one. */
+@media (max-width: 700px) {
+  .responsive-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .responsive-table,
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .responsive-table tbody tr {
+    margin-bottom: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+  }
+
+  /* A detail/expander row (colSpan across every column) is already a single
+     full-width block once its own <td> is display:block - excluded from
+     the card border/margin above via :not(), since it visually belongs to
+     the card of the row it expands, not a card of its own. */
+  .responsive-table tbody tr.ledger-detail-row {
+    margin-bottom: var(--space-2);
+    border: none;
+    padding: 0 var(--space-2);
+  }
+
+  .responsive-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-1) var(--space-2);
+    border-bottom: none;
+    white-space: normal;
+  }
+
+  .responsive-table td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+}
+
+/* HeaderFilter - the Excel-style column filter popover. `position: relative`
+   on the cell is the anchor `.header-filter-popover`'s `position: absolute`
+   sits against, so it drops directly below the header it belongs to
+   without pushing the rest of the row down. */
+.header-filter-cell {
+  position: relative;
+}
+
+/* The as="div" flavour - the ledger toolbar's filter chips. Same popover,
+   anchored to a standalone pill instead of a <thead> cell. Holds the chip
+   button and, once active, its sibling clear button - hence the gap. */
+.header-filter-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* T4.3b - a small, separate target beside the chip, not inside it (see
+   HeaderFilter.jsx's own comment on why it can't nest). Round rather than
+   pill-shaped, so it doesn't read as a second chip. */
+.header-filter-chip-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.header-filter-chip-clear:hover {
+  background: var(--surface-2);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+/* The whole chip is the button, not a caret beside a label: a filter is
+   reached by clicking the word "Account", which is where anyone aims. */
+.header-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 22rem;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-1);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.header-filter-chip:hover {
+  background: var(--surface-2);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+/* An active chip carries its value, so it needs to read as filled-in
+   rather than merely available - the accent border and tint do that at a
+   glance across a row of six, where the <th> flavour's corner dot could
+   only say "something is set". */
+.header-filter-chip-active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--text-primary);
+}
+
+.header-filter-chip[aria-expanded='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.header-filter-chip-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* The value is the part that can be long (a narration fragment, a category
+   path) - it alone truncates, so a chip never grows past its max-width and
+   the label stays readable. */
+.header-filter-chip-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.header-filter-chip-caret {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.header-filter-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* A real button - not text. At the old 0.7em/no-border/no-background size
+   this read as a stray character next to the header label rather than a
+   clickable control, and it's the whole entry point to the header
+   filtering feature. Sized and bordered like the app's own small
+   buttons (.button-ghost), with a resting shape visible before any hover. */
+.header-filter-toggle {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  font-size: 0.7rem;
+  line-height: 1;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.header-filter-toggle:hover {
+  background: var(--surface-2);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+/* Open state gets the same treatment a pressed/active control gets
+   elsewhere (.nav-links a.active) - filled with the accent rather than
+   just a border tweak, so it's obvious which header's popover is open. */
+.header-filter-toggle[aria-expanded='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* A small dot rather than text - the column header is already narrow, and
+   the dot reads at a glance without competing with the label for space. */
+.header-filter-marker {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1.5px solid var(--surface-1);
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.header-filter-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  margin-top: var(--space-1);
+  padding: var(--space-3);
+  min-width: 220px;
+  animation: popover-in 0.12s ease;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  /* --shadow-md, not -sm - a popover floats above the card it's anchored
+     to, so it reads as more elevated than the card's own resting shadow. */
+  box-shadow: var(--shadow-md);
+  /* Column headers are upper-cased/letter-spaced/small (see thead th
+     above) - reset all three so the popover's own fields and buttons
+     read like the rest of the app's forms, not like a header. */
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+.header-filter-popover label {
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+.header-filter-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.card table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+/* Ledger row expander (TransactionsPage) - the detail row a row's own
+   "Details" toggle reveals, holding the low-frequency filename/note/
+   Split/Make rule/Delete controls that used to live in every row
+   unconditionally. Distinguished from an ordinary row (and immune to the
+   hover rule above, which would otherwise make it flicker as the mouse
+   crosses into the controls it contains) since it isn't ledger data. */
+.ledger-detail-row {
+  background: var(--surface-2);
+}
+
+.ledger-detail-row:hover {
+  background: var(--surface-2);
+}
+
+.ledger-detail-row td {
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.card table tfoot td {
+  font-weight: 600;
+  border-bottom: none;
+  border-top: 2px solid var(--border-strong);
+}
+
+/* Split summary (TransactionsPage's ledger, in place of the plain category
+   select for a transaction that has splits). */
+.split-summary ul {
+  margin: var(--space-1) 0;
+  padding-left: var(--space-4);
+  font-size: 0.8rem;
+}
+
+/* T4.5a - the per-split equivalent of .ledger-category-select's border
+   tint. A split has no <select> of its own to tint the edge of, so this is
+   a small solid dot instead; omitted entirely (not rendered) rather than
+   shown grey when that split's category has no colour chosen. */
+.split-color-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: var(--space-1);
+}
+
+/* Inline note input in the ledger row meta - compact, and grows to fill
+   whatever space is left in that flex-wrap row rather than claiming a
+   fixed width regardless of how much else is already on the row. */
+.ledger-note-input {
+  font-size: 0.75rem;
+  min-width: 100px;
+  flex: 1 1 140px;
+}
+
+/* Dashboard widgets (components/widgets/) - the customisable widget grid's
+   own row of cards. */
+
+/* Edit-mode toolbar shown above a widget's own content (inside its Card
+   body for a normal widget, above the bare tile for a stat_tile/
+   net_worth_change) - move up/down and remove are real, keyboard- and
+   screen-reader-operable buttons, matching /rules' own move controls. */
+.widget-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+.widget-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-5);
+}
+
+/* One widget per its own `width` config - quarter/half/full of the grid.
+   Below the grid's own breakpoint every widget is full-width regardless,
+   the same collapse-to-one-column rule a KPI row and a calendar grid both
+   need on a narrow screen. */
+.widget-quarter { grid-column: span 1; }
+.widget-half { grid-column: span 2; }
+.widget-full { grid-column: span 4; }
+
+@media (max-width: 900px) {
+  .widget-grid {
+    grid-template-columns: 1fr;
+  }
+  .widget-quarter,
+  .widget-half,
+  .widget-full {
+    grid-column: span 1;
+  }
+}
+
+/* StatTile - a single headline figure over a period (dataviz skill's
+   "stat tile" form). Nested-surface background, matching how .card .card
+   already reads as a surface one step up from its parent card. */
+.stat-tile {
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  text-align: left;
+}
+
+.stat-tile-clickable {
+  width: 100%;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.stat-tile-label {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.stat-tile-period {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* Proportional numerals, not tabular - a large standalone figure reads
+   better without every digit forced to the same width (see StatTile.jsx's
+   own docstring on why this deliberately does not reuse <Amount>). */
+.stat-tile-value {
+  margin: var(--space-1) 0 0;
+  font-size: 1.75rem;
+  font-weight: 600;
+  font-variant-numeric: normal;
+}
+
+/* Colored by MEANING (which kind of figure this is), not by the value's
+   own arithmetic sign - every StatTile value is already a positive
+   magnitude. Reused as-is by NetWorthChange and ComparisonSparkline's own
+   delta caption, where the same two tones mean "up is good" / "spending
+   more is bad" instead of "income" / "expense" literally. */
+.stat-tile-income {
+  color: var(--success);
+}
+
+.stat-tile-expense {
+  color: var(--danger);
+}
+
+/* TransactionCalendar - a diverging heatmap grid (see the component's own
+   docstring on why diverging, not sequential). */
+
+.tx-calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: var(--space-2);
+  font-size: 0.85rem;
+}
+
+.tx-calendar-month {
+  font-weight: 600;
+}
+
+.tx-calendar-grid {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.tx-calendar-grid th {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  padding-bottom: var(--space-1);
+}
+
+.tx-calendar-grid td {
+  text-align: center;
+  padding: 2px;
+  vertical-align: bottom;
+}
+
+.tx-calendar-day,
+.tx-calendar-cell-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 44px;
+  border-radius: var(--radius-sm);
+}
+
+.tx-calendar-day {
+  width: 100%;
+}
+
+/* A <button>, reset to look like a plain grid cell - same "look like the
+   inert version, keep the button's own hover/focus-visible for free" idiom
+   .card-toggle already establishes. */
+.tx-calendar-day-clickable {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tx-calendar-day-number {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.tx-calendar-bar {
+  width: 60%;
+  min-height: 0;
+  border-radius: 2px 2px 0 0;
+  margin-top: 2px;
+}
+
+.tx-calendar-bar-in {
+  background: var(--success);
+}
+
+.tx-calendar-bar-out {
+  background: var(--danger);
+}
+
+/* ComparisonSparkline - the delta caption above its chart. */
+.comparison-sparkline-delta {
+  margin: 0 0 var(--space-2);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+
+/* Ledger triage queue (TriageQueuePage, T4.4) - a one-at-a-time,
+   keyboard-driven review of uncategorised merchants. The category list
+   below mirrors .command-palette-item's own look deliberately, since it's
+   the identical combobox interaction pattern reused rather than
+   reinvented. */
+.triage-queue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 32rem;
+  outline: none;
+}
+
+.triage-progress {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.triage-current {
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.triage-current h3 {
+  margin: 0 0 var(--space-2);
+}
+
+.triage-current p {
+  margin: var(--space-1) 0;
+}
+
+.triage-assign {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.triage-category-list {
+  max-height: 12rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.triage-category-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: var(--space-2) var(--space-3);
+}
+
+.triage-category-option.active,
+.triage-category-option:hover {
+  background: var(--surface-2);
+}
+
+.triage-category-empty {
+  padding: var(--space-3);
+  color: var(--text-muted);
+}
+
+.triage-also-rule {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.9rem;
+}
+
+.triage-controls {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.triage-controls kbd,
+p kbd {
+  padding: 1px var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: inherit;
+  font-size: 0.85em;
+}
+
+/* Category colour picker (CategoriesPage, T4.5a) - the same "span styled
+   as a legend" idiom as .transaction-direction-legend and
+   .forecast-scenario-legend above, not a native <fieldset>/<legend> this
+   app doesn't otherwise theme. */
+.category-color-legend {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.category-color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.category-color-swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.category-color-swatch:hover {
+  border-color: var(--border-strong);
+}
+
+.category-color-swatch.active {
+  border-color: var(--text-primary);
+}
+
+/* The ledger's per-row category pill (T4.5a, Finding 13) - the control
+   stays a <select> (dozens of tests key off its accessible name), tinted
+   from the transaction's own category colour. No colour set, an archived
+   category (absent from the lookup list, so its colour can't be resolved),
+   and a split row (no select at all) all fall back to the plain untinted
+   select rather than a guessed colour - see TransactionsPage.jsx's
+   categoryPillStyle for exactly which of those three applies. The tint is
+   a light color-mix() of the category colour into the card's own surface,
+   not a hand-authored background per swatch per theme - it adapts to
+   either theme automatically with zero extra tokens. */
+.ledger-category-select {
+  border-left-width: 3px;
+  border-left-style: solid;
+}

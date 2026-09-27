@@ -11,6 +11,48 @@ def test_create_category(client):
     assert response.json()["name"] == "Groceries"
 
 
+def test_create_category_defaults_to_no_color(client):
+
+    response = client.post("/api/categories", json={"name": "Groceries"})
+
+    assert response.json()["color"] is None
+
+
+def test_create_category_with_color(client):
+
+    response = client.post("/api/categories", json={"name": "Groceries", "color": "category-3"})
+
+    assert response.status_code == 201
+    assert response.json()["color"] == "category-3"
+
+
+def test_update_category_color(client):
+
+    category_id = client.post("/api/categories", json={"name": "Groceries"}).json()["id"]
+
+    response = client.put(f"/api/categories/{category_id}", json={"name": "Groceries", "color": "category-7"})
+
+    assert response.status_code == 200
+    assert response.json()["color"] == "category-7"
+
+
+def test_update_category_can_clear_a_color_back_to_none(client):
+
+    category_id = client.post("/api/categories", json={"name": "Groceries", "color": "category-3"}).json()["id"]
+
+    response = client.put(f"/api/categories/{category_id}", json={"name": "Groceries", "color": None})
+
+    assert response.status_code == 200
+    assert response.json()["color"] is None
+
+
+def test_create_category_rejects_a_color_over_20_characters(client):
+
+    response = client.post("/api/categories", json={"name": "Groceries", "color": "x" * 21})
+
+    assert response.status_code == 422
+
+
 def test_create_category_duplicate_name_rejected(client):
 
     client.post("/api/categories", json={"name": "Groceries"})

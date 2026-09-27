@@ -55,7 +55,7 @@ const sampleReport = {
       transaction_count: 4,
     },
   ],
-  grid: { periods: [], rows: [] },
+  grid: { periods: [{ year: 2026, month: 6, label: '2026-06' }, { year: 2026, month: 7, label: '2026-07' }], rows: [] },
   uncategorized: {
     transaction_count: 412,
     uncategorized_count: 17,
@@ -63,6 +63,14 @@ const sampleReport = {
     total_out: '-845.10',
     net_total: '-845.10',
   },
+  // T4.2 - the default fixture deliberately has NO prior-period data, so
+  // every one of this file's other 40-odd tests (none of which care about
+  // the narrative block specifically) exercise the same "earliest month"
+  // wording every time, rather than a percentage that would need updating
+  // if sampleReport's own numbers ever change.
+  top_movers: [],
+  has_prior_period_data: false,
+  prior_summary: null,
 }
 
 const sampleTrends = {
@@ -258,6 +266,44 @@ describe('DashboardPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument()
     })
+  })
+
+  it('requests months=2 from /reports/monthly, not months=1 - the narrative needs the prior period', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/reports/monthly?months=2'))
+    })
+  })
+
+  it('renders the narrative block above the widget grid', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+
+    const narrative = document.querySelector('.dashboard-narrative')
+    expect(narrative).toBeInTheDocument()
+    expect(narrative).toHaveTextContent("2026-07 — you've spent 3200.00.")
+  })
+
+  it('the narrative includes a real month-over-month comparison when the report has prior-period data', async () => {
+    mockLoad({
+      report: {
+        ...sampleReport,
+        has_prior_period_data: true,
+        prior_summary: { total_income: '4800.00', total_spending: '2000.00', net_saved: '2800.00' },
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+
+    expect(document.querySelector('.dashboard-narrative')).toHaveTextContent('60.0% more than 2026-06')
   })
 
   it('lists each account with its balance and links to its detail page', async () => {

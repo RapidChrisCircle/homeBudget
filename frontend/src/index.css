@@ -73,6 +73,29 @@
   --series-5: #e87ba4; /* magenta */
   --series-6: #008300; /* green */
   --series-7: #4a3aa7; /* violet */
+  
+  /* Category colours (T4.5a) - a per-category CHOOSER, not a cycler like
+     --series-* above: a household can easily have 30 categories, far past
+     what a cycled palette could keep distinct, so a category picks ONE of
+     these by name rather than being assigned one automatically. Deliberately
+     a separate set from --series-1..7 - series identity and category colour
+     are different jobs, the same reasoning that already keeps this apart from
+     --danger/--success/--warning above. Hand-authored as an evenly-spaced HSL
+     hue wheel (36 degrees apart) rather than picked hex-by-hex, since the
+     dataviz skill's automated contrast/colourblind validation used for
+     --series-* wasn't available in this environment - a candidate for a real
+     validation pass later, recorded rather than silently skipped.
+  */
+  --category-1: hsl(0 60% 42%); /* red */
+  --category-2: hsl(36 60% 42%); /* orange */
+  --category-3: hsl(72 60% 42%); /* olive */
+  --category-4: hsl(108 60% 42%); /* green */
+  --category-5: hsl(144 60% 42%); /* teal */
+  --category-6: hsl(180 60% 42%); /* cyan */
+  --category-7: hsl(216 60% 42%); /* blue */
+  --category-8: hsl(252 60% 42%); /* indigo */
+  --category-9: hsl(288 60% 42%); /* purple */
+  --category-10: hsl(324 60% 42%); /* magenta */
 
   /* Spacing - 4px base scale, used throughout App.css rather than ad-hoc
      pixel values so padding/gaps stay consistent across every page. */
@@ -88,6 +111,18 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
+
+  /* Structural layout tokens (T4.1a) - single declaration, like the spacing
+     and radius scales above, not repeated across the theme blocks below:
+     these are sizes, not colors, so there's nothing to keep in sync per
+     theme. --table-scroll-reserve is the chrome height ABOVE the ledger's
+     scrollable table (used by .table-scroll in primitives.css) - a single
+     named knob instead of a literal buried in a max-height calc(), and
+     overridable per breakpoint the same way shell.css already overrides
+     --sidebar-width there. */
+  --sidebar-width: 220px;
+  --sidebar-width-collapsed: 64px;
+  --table-scroll-reserve: 160px;
 
   /* Legacy aliases - a few call sites may still read these directly; new
      code should use the tokens above. */
@@ -151,6 +186,29 @@
     --series-5: #d55181;
     --series-6: #008300;
     --series-7: #9085e9;
+    
+    /* Category colours (T4.5a) - a per-category CHOOSER, not a cycler like
+       --series-* above: a household can easily have 30 categories, far past
+       what a cycled palette could keep distinct, so a category picks ONE of
+       these by name rather than being assigned one automatically. Deliberately
+       a separate set from --series-1..7 - series identity and category colour
+       are different jobs, the same reasoning that already keeps this apart from
+       --danger/--success/--warning above. Hand-authored as an evenly-spaced HSL
+       hue wheel (36 degrees apart) rather than picked hex-by-hex, since the
+       dataviz skill's automated contrast/colourblind validation used for
+       --series-* wasn't available in this environment - a candidate for a real
+       validation pass later, recorded rather than silently skipped.
+    */
+    --category-1: hsl(0 55% 62%); /* red */
+    --category-2: hsl(36 55% 62%); /* orange */
+    --category-3: hsl(72 55% 62%); /* olive */
+    --category-4: hsl(108 55% 62%); /* green */
+    --category-5: hsl(144 55% 62%); /* teal */
+    --category-6: hsl(180 55% 62%); /* cyan */
+    --category-7: hsl(216 55% 62%); /* blue */
+    --category-8: hsl(252 55% 62%); /* indigo */
+    --category-9: hsl(288 55% 62%); /* purple */
+    --category-10: hsl(324 55% 62%); /* magenta */
   }
 }
 
@@ -196,6 +254,29 @@
   --series-5: #e87ba4;
   --series-6: #008300;
   --series-7: #4a3aa7;
+  
+  /* Category colours (T4.5a) - a per-category CHOOSER, not a cycler like
+     --series-* above: a household can easily have 30 categories, far past
+     what a cycled palette could keep distinct, so a category picks ONE of
+     these by name rather than being assigned one automatically. Deliberately
+     a separate set from --series-1..7 - series identity and category colour
+     are different jobs, the same reasoning that already keeps this apart from
+     --danger/--success/--warning above. Hand-authored as an evenly-spaced HSL
+     hue wheel (36 degrees apart) rather than picked hex-by-hex, since the
+     dataviz skill's automated contrast/colourblind validation used for
+     --series-* wasn't available in this environment - a candidate for a real
+     validation pass later, recorded rather than silently skipped.
+  */
+  --category-1: hsl(0 60% 42%); /* red */
+  --category-2: hsl(36 60% 42%); /* orange */
+  --category-3: hsl(72 60% 42%); /* olive */
+  --category-4: hsl(108 60% 42%); /* green */
+  --category-5: hsl(144 60% 42%); /* teal */
+  --category-6: hsl(180 60% 42%); /* cyan */
+  --category-7: hsl(216 60% 42%); /* blue */
+  --category-8: hsl(252 60% 42%); /* indigo */
+  --category-9: hsl(288 60% 42%); /* purple */
+  --category-10: hsl(324 60% 42%); /* magenta */
 }
 
 :root[data-theme='dark'] {
@@ -233,6 +314,29 @@
   --series-5: #d55181;
   --series-6: #008300;
   --series-7: #9085e9;
+  
+  /* Category colours (T4.5a) - a per-category CHOOSER, not a cycler like
+     --series-* above: a household can easily have 30 categories, far past
+     what a cycled palette could keep distinct, so a category picks ONE of
+     these by name rather than being assigned one automatically. Deliberately
+     a separate set from --series-1..7 - series identity and category colour
+     are different jobs, the same reasoning that already keeps this apart from
+     --danger/--success/--warning above. Hand-authored as an evenly-spaced HSL
+     hue wheel (36 degrees apart) rather than picked hex-by-hex, since the
+     dataviz skill's automated contrast/colourblind validation used for
+     --series-* wasn't available in this environment - a candidate for a real
+     validation pass later, recorded rather than silently skipped.
+  */
+  --category-1: hsl(0 55% 62%); /* red */
+  --category-2: hsl(36 55% 62%); /* orange */
+  --category-3: hsl(72 55% 62%); /* olive */
+  --category-4: hsl(108 55% 62%); /* green */
+  --category-5: hsl(144 55% 62%); /* teal */
+  --category-6: hsl(180 55% 62%); /* cyan */
+  --category-7: hsl(216 55% 62%); /* blue */
+  --category-8: hsl(252 55% 62%); /* indigo */
+  --category-9: hsl(288 55% 62%); /* purple */
+  --category-10: hsl(324 55% 62%); /* magenta */
 }
 
 * {

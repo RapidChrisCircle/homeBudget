@@ -44,6 +44,9 @@ export const EMPTY_FILTERS = {
   transaction_type: '',
   min_amount: '',
   max_amount: '',
+  // Backs the Import chip (T4.3b) - an exact import batch id, the same
+  // "one field, one param" shape as transaction_type. '' means "any".
+  import_batch_id: '',
 }
 
 export function filtersFromSearchParams(searchParams) {
@@ -63,6 +66,7 @@ export function filtersFromSearchParams(searchParams) {
     transaction_type: searchParams.get('transaction_type') || '',
     min_amount: searchParams.get('min_amount') || '',
     max_amount: searchParams.get('max_amount') || '',
+    import_batch_id: searchParams.get('import_batch_id') || '',
   }
 }
 
@@ -98,6 +102,7 @@ export function searchParamsFromFilters(filters, pageSize) {
   if (filters.transaction_type) params.set('transaction_type', filters.transaction_type)
   if (filters.min_amount) params.set('min_amount', filters.min_amount)
   if (filters.max_amount) params.set('max_amount', filters.max_amount)
+  if (filters.import_batch_id) params.set('import_batch_id', filters.import_batch_id)
 
   if (pageSize && pageSize !== DEFAULT_PAGE_SIZE) params.set('page_size', String(pageSize))
 
@@ -118,6 +123,7 @@ export function searchParamsFromFilters(filters, pageSize) {
 const GROUPS_FILTER_KEYS = [
   'account_id', 'account_group_id', 'category_id', 'uncategorized', 'kind',
   'date_from', 'date_to', 'search', 'transaction_type', 'min_amount', 'max_amount',
+  'import_batch_id',
 ]
 
 export function groupsQueryFromSearchParams(searchParams) {
@@ -193,6 +199,7 @@ export const LEDGER_FILTER_GROUPS = [
   ['min_amount', 'max_amount'],
   ['category'],
   ['transaction_type'],
+  ['import_batch_id'],
 ]
 
 export function activeFilterCount(filters) {
@@ -209,7 +216,7 @@ export function activeFilterCount(filters) {
 // than this module fetching anything of its own. An id with no match (an
 // account since deleted, a stale URL) falls back to showing the raw value
 // rather than an empty chip that reads as "no filter".
-export function describeFilters(filters, { accounts = [], accountGroups = [], categories = [] } = {}) {
+export function describeFilters(filters, { accounts = [], accountGroups = [], categories = [], batches = [] } = {}) {
   const range = (from, to, format) => {
     if (from && to) return `${format(from)} – ${format(to)}`
     if (from) return `From ${format(from)}`
@@ -239,6 +246,12 @@ export function describeFilters(filters, { accounts = [], accountGroups = [], ca
     return category ? categoryPathLabel(category) : filters.category
   }
 
+  const importLabel = () => {
+    if (!filters.import_batch_id) return null
+    const batch = batches.find((b) => String(b.id) === String(filters.import_batch_id))
+    return batch ? batch.filename : filters.import_batch_id
+  }
+
   return {
     date: range(filters.date_from, filters.date_to, formatDate),
     account: accountLabel(),
@@ -246,5 +259,6 @@ export function describeFilters(filters, { accounts = [], accountGroups = [], ca
     amount: range(filters.min_amount, filters.max_amount, formatAmount),
     category: categoryLabel(),
     transaction_type: filters.transaction_type || null,
+    import: importLabel(),
   }
 }

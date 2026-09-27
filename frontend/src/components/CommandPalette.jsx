@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { pages } from '../pageRegistry.jsx'
 import { api } from '../services/api'
+import { subscribeToPaletteOpen } from '../services/commandPalette.ts'
 
 const MAX_RESULTS_PER_GROUP = 6
 // Matches HeaderFilter's own reasoning for not filtering per keystroke -
@@ -53,6 +54,14 @@ export default function CommandPalette() {
 
     document.addEventListener('keydown', handleGlobalKeyDown)
     return () => document.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [])
+
+  // The sidebar's own search trigger button (T4.1a) opens the palette this
+  // way instead of dispatching a synthetic Ctrl+K - see
+  // services/commandPalette.ts for why `open` itself stays local to this
+  // component rather than moving up into App.jsx.
+  useEffect(() => {
+    return subscribeToPaletteOpen(() => setOpen(true))
   }, [])
 
   useEffect(() => {

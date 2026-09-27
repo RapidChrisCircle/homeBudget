@@ -319,6 +319,19 @@ class Category(Base):
         server_default=false()
     )
 
+    # A DESIGN TOKEN NAME (e.g. "category-3"), not a hex literal - so a
+    # category's colour resolves per theme the same way every other colour
+    # in the app does (see frontend/src/index.css's --category-* family,
+    # T4.5a), rather than baking in one fixed light-mode hex that would
+    # look wrong - or invisible - in dark mode. NULL means "no colour
+    # chosen", distinct from a default: "no data is not zero" applies here
+    # exactly as it does to budget_amount above - a category with no
+    # colour set renders as a neutral pill, never a guessed one.
+    color = Column(
+        String(20),
+        nullable=True
+    )
+
     parent_id = Column(
         Integer,
         ForeignKey("categories.id", ondelete="SET NULL"),
