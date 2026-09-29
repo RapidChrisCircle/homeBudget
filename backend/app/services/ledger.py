@@ -51,6 +51,16 @@ Filter semantics, in one place so the API and any future caller agree:
   it has no CSV row behind it - there is nothing to reconcile there, since
   filtering TO a batch id a manual transaction can never carry simply
   excludes it, which is the correct behaviour without any special case.
+- transaction_ids (T5.1) is an exact IN match against Transaction.id -
+  the precision filter nothing else here can express: "these two specific
+  rows", not "rows matching some shared attribute". Exists so a caller that
+  already knows exactly which transactions it means (Transfer Matching's
+  own call-to-action links, T5.2; a precise alert link) can put the ledger
+  on exactly those rows rather than approximating with date/amount bounds
+  that could also catch an unrelated same-day, same-amount sibling. Always
+  rendered as its own filter chip, never applied silently - a ledger
+  showing two rows with no visible reason why would be worse than no
+  filter at all.
 
 Ordering defaults to transaction_date DESC, id DESC - already deterministic
 before pagination existed, which is exactly what pagination needs: a
@@ -169,6 +179,7 @@ class TransactionFilters:
     min_amount: Decimal | None = None
     max_amount: Decimal | None = None
     import_batch_id: int | None = None
+    transaction_ids: list[int] | None = None
 
 
 def build_transaction_query(
@@ -221,6 +232,9 @@ def build_transaction_query(
 
     if filters.import_batch_id is not None:
         query = query.filter(Transaction.import_batch_id == filters.import_batch_id)
+
+    if filters.transaction_ids is not None:
+        query = query.filter(Transaction.id.in_(filters.transaction_ids))
 
     if sort not in _SORT_EXPRESSIONS:
         return query.order_by(Transaction.transaction_date.desc(), Transaction.id.desc())

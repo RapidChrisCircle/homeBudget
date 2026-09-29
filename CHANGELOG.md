@@ -4,6 +4,70 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
+## [0.45.0] - 2026-09-29
+
+Roadmap item T5.4 (`ROADMAP.md`), Finding 23 - the inverse of the original Finding 3: pay-period budgeting was fortnightly-only, and this household is paid monthly, on the last business day.
+
+### Added
+
+- **`PaySchedule.frequency`** (`"fortnightly"` or `"monthly"`, migration `f39a2c7d1e84`), with `anchor_date` made **nullable** - a monthly schedule has no anchor to store at all, since every period boundary is derivable straight from the calendar.
+- **`services/pay_periods.last_business_day(year, month)`** - Mon-Fri only, no public-holiday calendar. Deliberate: QLD public holidays essentially never fall on the last weekday of a month, so a holiday calendar would change the computed payday in approximately no real month, for the cost of a new dependency or ~100 lines needing yearly upkeep.
+- **`services/pay_periods.next_payday(reference)`** and a generalised `pace(monthly_amount, frequency)` (`fortnightly_pace` kept as a thin alias so its existing tests are untouched) - `PERIODS_PER_YEAR = {"fortnightly": 26, "monthly": 12}`.
+- **`GET /pay-periods` gains `frequency`, `payday`, `days_until_next_payday`** on top of the existing period shape - truthful for either frequency, so any API caller (not just this app's own frontend) can ask "when do I get paid next".
+- **On `/categories`**: a pay-frequency selector on setup, with the payday date field shown only for fortnightly. **Fortnightly behaviour is completely unchanged** - the existing Pay Period Budgeting card, including its Previous/Next controls, renders exactly as before. **Monthly is folded into Monthly Budgets** rather than shown as a duplicate table: under a calendar-month schedule the per-category pacing table would be identical to Monthly Budgets' own numbers, so Pay Period Budgeting instead shows a short note and a "Change pay schedule" control, and Monthly Budgets itself gains one line stating the next payday and how many days away it is.
+
+### Verification
+
+20 new backend tests (`test_pay_periods.py` - `last_business_day` on a weekday/Saturday/Sunday, `next_payday` including a real year-boundary crossing, the generalised `pace()`, schedule get/set/upsert/switch, monthly-window category totals, and the full API surface for both frequencies including validation) plus 1 new export test. 5 new frontend tests (`CategoriesPage.test.jsx` - a monthly submission with no anchor, the compact monthly message with no duplicate table, switching the "Change pay schedule" form back to fortnightly, and the payday line appearing on Monthly Budgets for monthly but not fortnightly). Full suites (797 backend, 848 frontend) green, lint and build clean.
+
+**This completes Tier 5 — Alerts, transfer follow-through, monthly pay.** All four tasks (T5.1, T5.2, T5.3, T5.4) are shipped, versions 0.42.0 through 0.45.0.
+
+## [0.44.0] - 2026-09-28
+
+Roadmap item T5.3 (`ROADMAP.md`), Findings 20 and 21 - the Alerts page was one flat, ungrouped table with a single one-at-a-time Dismiss button, and nothing on it explained what any alert meant or how to resolve it.
+
+### Added
+
+- **Grouped alerts feed** - `AlertsPage.jsx` now groups alerts into one section per kind, in the same order `collect_alerts()` already returns them. Each section carries a one-sentence explanation of what that kind means and how to resolve it (once per kind, not once per row - the thing that makes an explanation affordable at hundreds of alerts) and its own **Dismiss these N** button. A card-level **Dismiss all** clears the whole feed, behind a confirm.
+- **`POST /alerts/dismissals/all`** (optional `{"kind": "..."}`), backed by a new `services/alerts.dismiss_all_alerts()` - routes each currently-outstanding alert through its own dismissal mechanism (the generic `AlertDismissal` table, or the existing `RecurringDismissal` one), since a client-side loop over one generic endpoint cannot correctly split a mixed feed. Dedupes the shared write when a `missed_recurring` and a `price_change` alert for the same series would otherwise both try to insert the identical `RecurringDismissal` row, while still counting both toward the reported total.
+- **A live nav badge** - a new `services/alertsCount.ts` (the same module-level pub-sub shape `services/toast.ts`/`services/commandPalette.ts` already use), read by `App.jsx` via `useSyncExternalStore` in place of its own local state. `AlertsPage` pushes the fresh count here after every dismissal, so "Dismiss all" no longer leaves the badge showing a stale number until a reload.
+
+### Verification
+
+7 new backend tests (`test_alerts.py` - clearing every kind, scoping to one kind, not retroactively dismissing a later alert, the shared-series dedup, idempotency, and both at the API layer). 10 new frontend tests (`alertsCount.test.js` x4, `AlertsPage.test.jsx` x6/net - grouping, the explanation text, a scoped group dismiss, Dismiss all both declined and confirmed, the disabled state with nothing to dismiss, and the badge updating after a dismissal) - one existing positional test (`rows[1]`/`rows[2]`) was rewritten to scope by section instead, since group headers change what index a given alert's row sits at; every other existing test passed unmodified, including `App.test.jsx`'s full 11, which needed zero changes for the badge move onto the shared store. Full suites (777 backend, 843 frontend) green, lint and build clean.
+
+## [0.43.0] - 2026-09-28
+
+Roadmap item T5.2 (`ROADMAP.md`), Finding 22 - the Transfer Matching card diagnosed a problem but never said what to do about it, and had zero interactive elements to act on.
+
+### Added
+
+- **Per-leg category breakdown** on `TransferMatch` (`services/transfer_matching.py`) and `GET /api/transfers` - `leg_a_category_name`/`leg_a_is_transfer` and the same for leg B, alongside the existing combined `both_categorized_as_transfer`. The API can now say WHICH leg of a mismatched pair is the problem, not just that one of them is.
+- **"View in ledger" on every row** of `TransferMatchingCard.jsx` - a mismatched pair links to both legs at once (`?transaction_ids=<a>&transaction_ids=<b>`), an unmatched leg to itself, built on T5.1's new filter. A new `utils/format.transactionIdsLedgerLink()` helper, alongside the existing `uncategorizedLedgerLink`/`recurringLedgerLink`.
+- **A badge naming the offending leg's actual category** on a mismatched pair, and a plain-language statement of the fix in both sections - a mismatched pair's fix (give the flagged leg a Transfer-kind category, or leave it if it isn't really one), and an unmatched leg's three distinct causes and their different fixes (not yet imported / not really a transfer / excluded from matching).
+- The `unmatched_transfer` alert's link moved from unfiltered `/transactions` to the same precise `?transaction_ids=<id>` scope.
+
+### Changed
+
+- `README.md`'s Transfer matching section now documents the workflow it previously left unstated three times over ("changes nothing on its own").
+
+### Verification
+
+3 new backend tests (`test_transfer_matching.py`) plus one existing alert test extended with the new link assertion. 5 new frontend tests (`format.test.js` x2, `TransferMatchingCard.test.jsx` x3, which also needed wrapping in `MemoryRouter` now that its rows contain real links). "Surface it, don't guess" holds: nothing here recategorizes a transaction automatically, only a link that the household follows and acts on itself. Full suites (770 backend, 833 frontend) green, lint and build clean.
+
+## [0.42.0] - 2026-09-28
+
+Roadmap item T5.1 (`ROADMAP.md`) - the precision primitive Tier 5's remaining tasks (Transfer Matching's call to action, precise alert links) both build on.
+
+### Added
+
+- **`transaction_ids` ledger filter** - an exact `Transaction.id IN (...)` match, threaded through the same three endpoints `import_batch_id` (T4.3a) touched: `GET /transactions`, `GET /transactions/export`, `GET /transactions/groups`. Accepted as repeated query params (`?transaction_ids=1&transaction_ids=2`), matching how the backend already expects a list-typed query parameter.
+- **A new "Transactions" filter chip** on the ledger, the 8th - the one filter with no field to type into. Its popover carries an explanation and a Clear button instead: this filter exists for a caller that already knows exactly which rows it means (a future Transfer Matching link, a precise alert link), never for a person typing ids by hand. Shown as a count ("2 transactions"), never the raw ids. Rendered as a real, visible, clearable chip rather than applied silently - a ledger showing two rows with no visible reason why would be worse than no filter at all.
+
+### Verification
+
+9 new backend tests (`test_ledger.py` x3, `test_transactions.py` x2, `test_transaction_groups.py` x1 - covering the filter alone, combined with another filter, an empty list matching nothing, and both endpoints), 6 new frontend tests (`ledgerFilterParams.test.js` x4, `TransactionsPage.test.jsx` x2), plus the existing "identical filter set before/after Group by merchant" assertion extended from seven names to eight, its intent unchanged. Full suites (767 backend, 828 frontend) green, lint and build clean.
+
 ## [0.41.0] - 2026-09-27
 
 Roadmap item T4.1b (`ROADMAP.md`), the last of Tier 4 - no page had a page-header convention; every page was a bare `<h2>` repeated across each of its own loading/error/empty/happy branches.

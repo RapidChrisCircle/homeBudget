@@ -147,6 +147,17 @@ describe('groupsQueryFromSearchParams', () => {
     expect(query).toContain('import_batch_id=4')
   })
 
+  it('carries every transaction_ids occurrence through to the groups query, not just the first', () => {
+    const params = new URLSearchParams()
+    params.append('transaction_ids', '5')
+    params.append('transaction_ids', '9')
+
+    const query = groupsQueryFromSearchParams(params)
+
+    expect(query).toContain('transaction_ids=5')
+    expect(query).toContain('transaction_ids=9')
+  })
+
   it('still omits page and page_size - groups are not paginated', () => {
     const query = groupsQueryFromSearchParams(new URLSearchParams({ page: '2', page_size: '50', search: 'coffee' }))
 
@@ -232,6 +243,17 @@ describe('sortFromSearchParams / nextSortParams', () => {
     expect(filtersFromSearchParams(params).import_batch_id).toBe('4')
   })
 
+  it('searchParamsFromFilters round-trips transaction_ids as repeated params, not one comma-joined value', () => {
+    const params = searchParamsFromFilters({ ...EMPTY_FILTERS, transaction_ids: '5,9' })
+
+    expect(params.getAll('transaction_ids')).toEqual(['5', '9'])
+    expect(filtersFromSearchParams(params).transaction_ids).toBe('5,9')
+  })
+
+  it('activeFilterCount counts transaction_ids as one filter regardless of how many ids', () => {
+    expect(activeFilterCount({ ...EMPTY_FILTERS, transaction_ids: '5,9,12' })).toBe(1)
+  })
+
   it('describeFilters resolves ids to the names the chips show', () => {
     const labels = describeFilters(
       { ...EMPTY_FILTERS, account: '3', category: '7' },
@@ -287,5 +309,10 @@ describe('sortFromSearchParams / nextSortParams', () => {
     const labels = describeFilters(EMPTY_FILTERS)
 
     expect(Object.values(labels).every((value) => value === null)).toBe(true)
+  })
+
+  it('describeFilters shows a transaction count, never the raw ids', () => {
+    expect(describeFilters({ ...EMPTY_FILTERS, transaction_ids: '5' }).transaction_ids).toBe('1 transaction')
+    expect(describeFilters({ ...EMPTY_FILTERS, transaction_ids: '5,9' }).transaction_ids).toBe('2 transactions')
   })
 })

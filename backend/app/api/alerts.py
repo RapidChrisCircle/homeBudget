@@ -3,8 +3,14 @@ from sqlalchemy.orm import Session
 
 from ..deps import get_db
 from ..models import AlertDismissal
-from ..schemas import AlertDismissalCreate, AlertDismissalResponse, AlertsResponse
-from ..services.alerts import collect_alerts, dismiss_alert
+from ..schemas import (
+    AlertDismissalCreate,
+    AlertDismissalResponse,
+    AlertsResponse,
+    DismissAllAlertsRequest,
+    DismissAllAlertsResponse,
+)
+from ..services.alerts import collect_alerts, dismiss_alert, dismiss_all_alerts
 
 router = APIRouter()
 
@@ -41,3 +47,18 @@ def delete_alert_dismissal(dismissal_id: int, db: Session = Depends(get_db)):
 
     db.delete(dismissal)
     db.commit()
+
+
+@router.post("/alerts/dismissals/all", response_model=DismissAllAlertsResponse)
+def create_all_alert_dismissals(payload: DismissAllAlertsRequest, db: Session = Depends(get_db)):
+    """Dismisses every CURRENTLY OUTSTANDING alert (T5.3) - the card-level
+    'Dismiss all' and each section's own 'Dismiss these N' - optionally
+    scoped to one kind. See services/alerts.dismiss_all_alerts's own
+    docstring for why this has to live server-side rather than the client
+    looping a list of keys through the existing single-dismiss endpoints:
+    a mixed feed has two different dismissal mechanisms, and only this
+    module knows which alert uses which.
+    """
+
+    dismissed_count = dismiss_all_alerts(db, kind=payload.kind)
+    return DismissAllAlertsResponse(dismissed_count=dismissed_count)

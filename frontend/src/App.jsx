@@ -15,6 +15,7 @@ import DashboardPage from './pages/DashboardPage.jsx'
 import { PAGE_GROUP_ORDER, pages } from './pageRegistry.jsx'
 import { HomeIcon, MenuIcon, SearchIcon } from './navIcons.jsx'
 import { api, getMultipleBuildsDetected, subscribeToBuildIdentity } from './services/api'
+import { getAlertsCount, setAlertsCount, subscribeToAlertsCount } from './services/alertsCount.ts'
 import { openCommandPalette } from './services/commandPalette.ts'
 import { readStoredCollapsed, storeCollapsed } from './sidebar.js'
 import { useTheme } from './useTheme.js'
@@ -87,13 +88,14 @@ function App() {
   // useSyncExternalStore is what makes a change there re-render here.
   const multipleBuildsDetected = useSyncExternalStore(subscribeToBuildIdentity, getMultipleBuildsDetected)
 
-  // Fetched once on mount, the same way apiVersion is - not re-fetched on
-  // navigation or after dismissing an alert on /alerts itself, so the count
-  // can go briefly stale right after a dismissal. A background poll or a
-  // shared store would fix that, but neither exists anywhere else in this
-  // app (every widget already reads its own data live rather than sharing
-  // state), so this doesn't introduce one just for a nav badge.
-  const [alertsCount, setAlertsCount] = useState(null)
+  // T5.3 - a shared module-level store (services/alertsCount.ts), not
+  // local useState: AlertsPage pushes the fresh count here after every
+  // dismissal (single, per-group, or "Dismiss all"), so the badge can
+  // never go stale the way it used to when this was fetched once on mount
+  // and never again. useSyncExternalStore is what makes a change made
+  // elsewhere re-render here, the same reason multipleBuildsDetected above
+  // uses it for services/api.ts's own build-identity store.
+  const alertsCount = useSyncExternalStore(subscribeToAlertsCount, getAlertsCount)
 
   // Sidebar collapse-to-icons (T4.1a, Finding 18) - persisted the same
   // try/catch-guarded way theme.js persists the theme mode. Read once on
@@ -119,6 +121,8 @@ function App() {
   useEffect(() => {
     let cancelled = false
 
+    // The initial population of the shared store above - AlertsPage takes
+    // over keeping it fresh after this, via the same setAlertsCount setter.
     api.get('/alerts')
       .then((response) => {
         if (!cancelled) {

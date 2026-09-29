@@ -955,12 +955,19 @@ class BudgetCopyResponse(BaseModel):
 class PayScheduleResponse(BaseModel):
 
     configured: bool
+    # "fortnightly" or "monthly" (models.PAY_FREQUENCIES) once configured;
+    # None when configured is False - there is no schedule to name yet.
+    frequency: Optional[str] = None
     anchor_date: Optional[date]
 
 
 class PayScheduleUpdate(BaseModel):
 
-    anchor_date: date
+    frequency: str
+    # Required for "fortnightly", ignored (never persisted) for "monthly" -
+    # see PaySchedule.anchor_date's own docstring in models.py for why a
+    # monthly schedule has no anchor to store at all.
+    anchor_date: Optional[date] = None
 
 
 class PayPeriodCategoryResponse(BaseModel):
@@ -987,9 +994,20 @@ class PayPeriodSummaryResponse(BaseModel):
 class PayPeriodResponse(BaseModel):
 
     configured: bool
+    frequency: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     label: Optional[str] = None
+    # The next monthly payday (last business day of a calendar month) on or
+    # after the reference date, for EITHER frequency - for "fortnightly"
+    # this is the next period's own start, since a period always begins on
+    # a payday by construction; for "monthly" it's services.pay_periods.
+    # next_payday(). Lets a caller that isn't this app's own frontend (which
+    # instead folds a monthly schedule straight into Monthly Budgets) still
+    # get a truthful answer to "when do I get paid next" from this one
+    # endpoint.
+    payday: Optional[date] = None
+    days_until_next_payday: Optional[int] = None
     categories: list[PayPeriodCategoryResponse] = []
     summary: Optional[PayPeriodSummaryResponse] = None
 
@@ -1000,10 +1018,17 @@ class TransferMatchResponse(BaseModel):
     leg_a_account_id: int
     leg_a_account_name: str
     leg_a_date: date
+    # Per-leg breakdown (T5.2) - both_categorized_as_transfer below is only
+    # their AND, enough to flag a pair but not enough to say which side
+    # needs fixing. None means uncategorized, not "Transfer".
+    leg_a_category_name: Optional[str]
+    leg_a_is_transfer: bool
     leg_b_id: int
     leg_b_account_id: int
     leg_b_account_name: str
     leg_b_date: date
+    leg_b_category_name: Optional[str]
+    leg_b_is_transfer: bool
     amount: Decimal
     both_categorized_as_transfer: bool
 
@@ -1057,6 +1082,19 @@ class AlertDismissalResponse(BaseModel):
     alert_key: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# kind is optional (T5.3) - omit it to dismiss every currently outstanding
+# alert, or pass one (e.g. "over_budget") to dismiss just that group, the
+# per-section "Dismiss these N" action.
+class DismissAllAlertsRequest(BaseModel):
+
+    kind: Optional[str] = None
+
+
+class DismissAllAlertsResponse(BaseModel):
+
+    dismissed_count: int
 
 
 class ForecastPeriodResponse(BaseModel):

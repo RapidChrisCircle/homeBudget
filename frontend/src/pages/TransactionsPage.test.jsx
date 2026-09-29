@@ -668,6 +668,7 @@ describe('TransactionsPage', () => {
       'Filter by Date',
       'Filter by Import batch',
       'Filter by Narration',
+      'Filter by Transactions',
       'Filter by Type',
     ])
 
@@ -675,6 +676,34 @@ describe('TransactionsPage', () => {
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/transactions/groups')))
     expect(filterNames()).toEqual(ungrouped)
+  })
+
+  it('shows a transaction count on the Transactions chip when the ledger arrives pre-scoped to specific ids', async () => {
+    mockLoad()
+
+    renderPage('/transactions?transaction_ids=5&transaction_ids=9')
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(api.get).toHaveBeenCalledWith(expect.stringContaining('transaction_ids=5'))
+    expect(api.get).toHaveBeenCalledWith(expect.stringContaining('transaction_ids=9'))
+    expect(screen.getByRole('button', { name: 'Filter by Transactions' })).toHaveTextContent('2 transactions')
+  })
+
+  it('clearing the Transactions chip removes the id scope and refetches the full ledger', async () => {
+    mockLoad()
+
+    renderPage('/transactions?transaction_ids=5')
+
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by Transactions' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.not.stringContaining('transaction_ids'))
+    })
+    expect(screen.getByRole('button', { name: 'Filter by Transactions' })).not.toHaveClass('header-filter-chip-active')
   })
 
   it('the Uncategorised preset applies the same filter the Category chip\'s own option does', async () => {

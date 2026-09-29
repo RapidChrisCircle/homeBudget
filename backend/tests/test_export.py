@@ -233,8 +233,17 @@ def test_export_database_on_an_empty_database_has_empty_lists(client):
 
 def test_export_database_includes_the_pay_schedule_when_configured(client):
 
-    client.put("/api/pay-schedule", json={"anchor_date": "2026-01-02"})
+    client.put("/api/pay-schedule", json={"frequency": "fortnightly", "anchor_date": "2026-01-02"})
 
     body = json.loads(client.get("/api/export/database").text)
 
-    assert body["pay_schedule"] == {"anchor_date": "2026-01-02"}
+    assert body["pay_schedule"] == {"frequency": "fortnightly", "anchor_date": "2026-01-02"}
+
+
+def test_export_database_includes_a_monthly_pay_schedule_with_no_anchor(client):
+
+    client.put("/api/pay-schedule", json={"frequency": "monthly"})
+
+    body = json.loads(client.get("/api/export/database").text)
+
+    assert body["pay_schedule"] == {"frequency": "monthly", "anchor_date": None}

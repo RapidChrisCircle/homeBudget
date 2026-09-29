@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.models import Account, Category, ImportBatch, RecurringDismissal, Transaction
-from app.services.alerts import collect_alerts, dismiss_alert
+from app.services.alerts import collect_alerts, dismiss_alert, dismiss_all_alerts
 
 
 def make_account(db_session, name="Joint Everyday", account_number="1111"):
@@ -172,6 +172,8 @@ def test_unmatched_transfer_alert_appears_and_can_be_dismissed(db_session):
     assert len(transfer_alerts) == 1
     assert transfer_alerts[0].key == f"unmatched_transfer:{lonely.id}"
     assert transfer_alerts[0].dismiss_kind == "generic"
+    # T5.2 - the exact transaction, not the whole ledger unfiltered.
+    assert transfer_alerts[0].link == f"/transactions?transaction_ids={lonely.id}"
 
     dismiss_alert(db_session, transfer_alerts[0].key)
 
@@ -229,6 +231,112 @@ def test_price_change_produces_a_price_change_alert(db_session):
     assert len(changed) == 1
     assert changed[0].amount == Decimal("18.99")
     assert changed[0].dismiss_kind == "recurring"
+
+
+# --- dismiss_all_alerts ----------------------------------------------------------
+
+def test_dismiss_all_alerts_clears_every_kind(db_session):
+
+    category = make_category(db_session, budget_amount=Decimal("100.00"))
+    make_transaction(db_session, date(2026, 7, 5), category_id=category.id, debit=Decimal("-150.00"))
+
+    everyday = make_account(db_session, "Everyday", "2222")
+    transfer_category = make_category(db_session, "Card Payment", kind="transfer")
+    make_transaction(
+        db_session, date(2026, 7, 6), narration="Lonely Transfer", debit=Decimal("-300.00"),
+        category_id=transfer_category.id, account_id=everyday.id,
+    )
+
+    recurring_account = make_account(db_session, "Recurring Account", "3333")
+    dates = monthly_dates(date(2026, 1, 15), 4)
+    seed_recurring_series(db_session, dates, [15.99] * 4, account_id=recurring_account.id)
+    make_transaction(
+        db_session, date(2026, 7, 20), narration="UNRELATED SHOP", debit=Decimal("-20.00"),
+        account_id=recurring_account.id,
+    )
+    db_session.commit()
+
+    before = collect_alerts(db_session)
+    assert len(before) >= 3  # over_budget, unmatched_transfer, missed_recurring at least
+
+    dismissed_count = dismiss_all_alerts(db_session)
+
+    assert dismissed_count == len(before)
+    assert collect_alerts(db_session) == []
+
+
+def test_dismiss_all_alerts_scoped_to_one_kind_leaves_others(db_session):
+
+    category = make_category(db_session, budget_amount=Decimal("100.00"))
+    make_transaction(db_session, date(2026, 7, 5), category_id=category.id, debit=Decimal("-150.00"))
+
+    everyday = make_account(db_session)
+    transfer_category = make_category(db_session, "Card Payment", kind="transfer")
+    make_transaction(
+        db_session, date(2026, 7, 6), narration="Lonely Transfer", debit=Decimal("-300.00"),
+        category_id=transfer_category.id, account_id=everyday.id,
+    )
+    db_session.commit()
+
+    dismissed_count = dismiss_all_alerts(db_session, kind="over_budget")
+
+    assert dismissed_count == 1
+    remaining_kinds = {a.kind for a in collect_alerts(db_session)}
+    assert remaining_kinds == {"unmatched_transfer"}
+
+
+def test_dismiss_all_alerts_does_not_retroactively_dismiss_a_later_alert(db_session):
+
+    category = make_category(db_session, budget_amount=Decimal("100.00"))
+    make_transaction(db_session, date(2026, 7, 5), category_id=category.id, debit=Decimal("-150.00"))
+    db_session.commit()
+
+    dismiss_all_alerts(db_session)
+    assert collect_alerts(db_session) == []
+
+    # A DIFFERENT category goes over budget after the dismiss-all ran.
+    another_category = make_category(db_session, name="Fuel", budget_amount=Decimal("50.00"))
+    make_transaction(db_session, date(2026, 7, 10), category_id=another_category.id, debit=Decimal("-80.00"))
+    db_session.commit()
+
+    alerts_after = collect_alerts(db_session)
+    assert len(alerts_after) == 1
+    assert alerts_after[0].kind == "over_budget"
+
+
+def test_dismiss_all_alerts_counts_a_series_sharing_missed_and_price_change_only_once_in_the_write(db_session):
+
+    account_id = make_account(db_session).id
+    # 4 occurrences at a rising price, then a long gap - both amount_changed
+    # AND overdue/ended can be true for the same series at once.
+    dates = monthly_dates(date(2026, 1, 15), 4)
+    amounts = [15.99, 15.99, 15.99, 18.99]
+    seed_recurring_series(db_session, dates, amounts, account_id=account_id)
+    make_transaction(db_session, date(2026, 7, 20), narration="UNRELATED SHOP", debit=Decimal("-20.00"), account_id=account_id)
+    db_session.commit()
+
+    before = collect_alerts(db_session)
+    kinds = {a.kind for a in before}
+    assert {"missed_recurring", "price_change"} <= kinds
+
+    dismissed_count = dismiss_all_alerts(db_session)
+
+    # Both alerts counted, even though they share one underlying dismissal.
+    assert dismissed_count == len(before)
+    assert db_session.query(RecurringDismissal).count() == 1
+    assert collect_alerts(db_session) == []
+
+
+def test_dismiss_all_alerts_is_idempotent(db_session):
+
+    category = make_category(db_session, budget_amount=Decimal("100.00"))
+    make_transaction(db_session, date(2026, 7, 5), category_id=category.id, debit=Decimal("-150.00"))
+    db_session.commit()
+
+    dismiss_all_alerts(db_session)
+    second_call_count = dismiss_all_alerts(db_session)
+
+    assert second_call_count == 0
 
 
 # --- API -------------------------------------------------------------------------
@@ -305,3 +413,42 @@ def test_post_alert_dismissal_is_idempotent_via_the_api(client, db_session):
     assert first.status_code == 201
     assert second.status_code == 201
     assert first.json()["id"] == second.json()["id"]
+
+
+def test_post_alert_dismissals_all_clears_the_whole_feed(client, db_session):
+
+    category = make_category(db_session, budget_amount=Decimal("100.00"))
+    make_transaction(db_session, date(2026, 7, 5), debit=Decimal("-150.00"),
+                      category_id=category.id, account_id=make_account(db_session).id)
+    db_session.commit()
+
+    before_count = client.get("/api/alerts").json()["count"]
+    assert before_count > 0
+
+    response = client.post("/api/alerts/dismissals/all", json={})
+
+    assert response.status_code == 200
+    assert response.json()["dismissed_count"] == before_count
+    assert client.get("/api/alerts").json()["count"] == 0
+
+
+def test_post_alert_dismissals_all_scoped_to_a_kind(client, db_session):
+
+    category = make_category(db_session, budget_amount=Decimal("100.00"))
+    make_transaction(db_session, date(2026, 7, 5), debit=Decimal("-150.00"),
+                      category_id=category.id, account_id=make_account(db_session).id)
+
+    everyday = make_account(db_session, "Everyday", "2222")
+    transfer_category = make_category(db_session, "Card Payment", kind="transfer")
+    make_transaction(
+        db_session, date(2026, 7, 6), narration="Lonely Transfer", debit=Decimal("-300.00"),
+        category_id=transfer_category.id, account_id=everyday.id,
+    )
+    db_session.commit()
+
+    response = client.post("/api/alerts/dismissals/all", json={"kind": "over_budget"})
+
+    assert response.status_code == 200
+    assert response.json()["dismissed_count"] == 1
+    remaining_kinds = {a["kind"] for a in client.get("/api/alerts").json()["alerts"]}
+    assert remaining_kinds == {"unmatched_transfer"}

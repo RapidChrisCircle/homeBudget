@@ -52,6 +52,16 @@ class TransferMatch:
     # by leg_a/leg_b being opposite signs by construction.
     amount: Decimal
     both_categorized_as_transfer: bool
+    # Per-leg breakdown (T5.1/T5.2) - both_categorized_as_transfer above is
+    # only their AND, which is enough to flag a pair but not enough to say
+    # anything useful about it: a caller that wants to tell the household
+    # WHICH leg needs fixing (Transfer Matching's own call-to-action card)
+    # needs the two sides told apart. None for a category name means
+    # uncategorized, same as everywhere else in this app - not "Transfer".
+    leg_a_category_name: str | None
+    leg_a_is_transfer: bool
+    leg_b_category_name: str | None
+    leg_b_is_transfer: bool
 
 
 def _signed_amount(transaction: Transaction) -> Decimal | None:
@@ -135,6 +145,10 @@ def transfer_candidates(db: Session, window_days: int = TRANSFER_WINDOW_DAYS) ->
             if best is not None:
 
                 claimed_credit_ids.add(best.id)
+
+                debit_is_transfer = debit.category is not None and debit.category.kind == "transfer"
+                credit_is_transfer = best.category is not None and best.category.kind == "transfer"
+
                 matches.append(TransferMatch(
                     leg_a_id=debit.id,
                     leg_a_account_id=debit.account_id,
@@ -143,10 +157,11 @@ def transfer_candidates(db: Session, window_days: int = TRANSFER_WINDOW_DAYS) ->
                     leg_b_account_id=best.account_id,
                     leg_b_date=best.transaction_date,
                     amount=abs(_signed_amount(debit)),
-                    both_categorized_as_transfer=(
-                        debit.category is not None and debit.category.kind == "transfer"
-                        and best.category is not None and best.category.kind == "transfer"
-                    ),
+                    both_categorized_as_transfer=debit_is_transfer and credit_is_transfer,
+                    leg_a_category_name=debit.category.name if debit.category is not None else None,
+                    leg_a_is_transfer=debit_is_transfer,
+                    leg_b_category_name=best.category.name if best.category is not None else None,
+                    leg_b_is_transfer=credit_is_transfer,
                 ))
 
     return matches

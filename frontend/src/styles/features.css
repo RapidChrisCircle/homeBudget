@@ -965,3 +965,19 @@ p kbd {
   border-left-width: 3px;
   border-left-style: solid;
 }
+
+/* Alerts grouping (AlertsPage, T5.3) - one section per kind, each with its
+   own explanation, its own "Dismiss these N", and its own table. A border
+   between sections rather than each section being its own nested .card -
+   they're all still one "Needs Attention" card, just organised, the same
+   "one card, several logical groups" shape command-palette-group already
+   uses for its own sections. */
+.alerts-group + .alerts-group {
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+}
+
+.alerts-group h4 {
+  margin: 0 0 var(--space-2);
+}

@@ -123,3 +123,16 @@ export function uncategorizedLedgerLink(startDate, exclusiveEndDate) {
 export function recurringLedgerLink(accountId, merchant) {
   return `/transactions?account_id=${accountId}&search=${encodeURIComponent(merchant)}`
 }
+
+// The ledger URL for a caller that already knows exactly which transaction
+// ids it means (Transfer Matching's own call-to-action, T5.2) - built on
+// the ledger's `transaction_ids` filter (T5.1), the one filter the backend
+// accepts as REPEATED query params rather than a single value, hence
+// URLSearchParams.append rather than a comma-joined string.
+export function transactionIdsLedgerLink(ids) {
+  const params = new URLSearchParams()
+  for (const id of ids) {
+    params.append('transaction_ids', id)
+  }
+  return `/transactions?${params.toString()}`
+}

@@ -142,7 +142,7 @@ def database_snapshot(db: Session) -> dict:
     )
     from .goals import goal_progress
     from .ledger import account_balances
-    from .pay_periods import get_anchor
+    from .pay_periods import get_schedule
 
     balances = account_balances(db)
 
@@ -180,7 +180,7 @@ def database_snapshot(db: Session) -> dict:
     ]
 
     category_budgets = db.query(CategoryBudget).order_by(CategoryBudget.id).all()
-    pay_anchor = get_anchor(db)
+    pay_schedule = get_schedule(db)
 
     transactions = (
         db.query(Transaction)
@@ -215,5 +215,11 @@ def database_snapshot(db: Session) -> dict:
         "recurring_dismissals": _dump(
             db.query(RecurringDismissal).order_by(RecurringDismissal.id).all(), RecurringDismissalResponse
         ),
-        "pay_schedule": {"anchor_date": pay_anchor.isoformat()} if pay_anchor is not None else None,
+        "pay_schedule": (
+            {
+                "frequency": pay_schedule[0],
+                "anchor_date": pay_schedule[1].isoformat() if pay_schedule[1] is not None else None,
+            }
+            if pay_schedule is not None else None
+        ),
     }

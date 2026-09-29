@@ -270,6 +270,7 @@ def _validated_ledger_query(
     min_amount: Decimal | None,
     max_amount: Decimal | None,
     import_batch_id: int | None,
+    transaction_ids: list[int] | None,
     sort: str | None,
     direction: str,
 ):
@@ -345,6 +346,7 @@ def _validated_ledger_query(
         min_amount=min_amount,
         max_amount=max_amount,
         import_batch_id=import_batch_id,
+        transaction_ids=transaction_ids,
     )
 
     return build_transaction_query(db, filters, sort=sort, direction=direction)
@@ -366,6 +368,7 @@ def list_transactions(
     min_amount: Decimal | None = Query(None, ge=0),
     max_amount: Decimal | None = Query(None, ge=0),
     import_batch_id: int | None = None,
+    transaction_ids: list[int] | None = Query(None),
     sort: str | None = None,
     direction: str = "asc",
     page: int = Query(1, ge=1),
@@ -378,7 +381,7 @@ def list_transactions(
         account_id=account_id, account_group_id=account_group_id, category_id=category_id,
         uncategorized=uncategorized, kind=kind, date_from=date_from, date_to=date_to,
         search=search, transaction_type=transaction_type, min_amount=min_amount, max_amount=max_amount,
-        import_batch_id=import_batch_id,
+        import_batch_id=import_batch_id, transaction_ids=transaction_ids,
         sort=sort, direction=direction,
     )
     items, total = paginate(query, page=page, page_size=page_size, options=LIST_LOADERS)
@@ -414,6 +417,7 @@ def export_transactions(
     min_amount: Decimal | None = Query(None, ge=0),
     max_amount: Decimal | None = Query(None, ge=0),
     import_batch_id: int | None = None,
+    transaction_ids: list[int] | None = Query(None),
     sort: str | None = None,
     direction: str = "asc",
     db: Session = Depends(get_db)
@@ -436,7 +440,7 @@ def export_transactions(
         account_id=account_id, account_group_id=account_group_id, category_id=category_id,
         uncategorized=uncategorized, kind=kind, date_from=date_from, date_to=date_to,
         search=search, transaction_type=transaction_type, min_amount=min_amount, max_amount=max_amount,
-        import_batch_id=import_batch_id,
+        import_batch_id=import_batch_id, transaction_ids=transaction_ids,
         sort=sort, direction=direction,
     )
 
@@ -487,6 +491,7 @@ def list_transaction_groups(
     min_amount: Decimal | None = Query(None, ge=0),
     max_amount: Decimal | None = Query(None, ge=0),
     import_batch_id: int | None = None,
+    transaction_ids: list[int] | None = Query(None),
     include_categorized: bool = False,
     db: Session = Depends(get_db)
 ):
@@ -554,6 +559,7 @@ def list_transaction_groups(
         min_amount=min_amount,
         max_amount=max_amount,
         import_batch_id=import_batch_id,
+        transaction_ids=transaction_ids,
     )
 
     total_in, total_out, net_total = transaction_group_totals(db, filters, include_categorized=include_categorized)

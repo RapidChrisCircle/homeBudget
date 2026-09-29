@@ -189,6 +189,12 @@ export default function CategoriesPage() {
   const [payPeriodError, setPayPeriodError] = useState('')
   const [payPeriodActionError, setPayPeriodActionError] = useState('')
   const [anchorDraft, setAnchorDraft] = useState('')
+  // Defaults to 'fortnightly' the same way anchorDraft always starts blank
+  // rather than pre-filled from an existing schedule - both setup forms
+  // (first-time, and "Change pay schedule" on an already-configured one)
+  // start fresh every time they're opened rather than trying to echo back
+  // whatever's already stored.
+  const [frequencyDraft, setFrequencyDraft] = useState('fortnightly')
   const [savingAnchor, setSavingAnchor] = useState(false)
 
   const [presetMessage, setPresetMessage] = useState('')
@@ -408,15 +414,34 @@ export default function CategoriesPage() {
     }
   }, [payPeriodReferenceDate])
 
+  // Keeps the "Change pay schedule" form pre-selected on whatever the
+  // ACTUAL current frequency is, once it's known - unlike anchorDraft
+  // (which always starts blank, since there's no "current date" a user
+  // would want echoed back), frequency genuinely has a current value worth
+  // showing, and defaulting a monthly household's own change form to
+  // "Fortnightly" would be wrong-footing at best. Only fires once a real
+  // schedule exists (payPeriod?.frequency is null while unconfigured), so
+  // the first-time setup form keeps its own 'fortnightly' default.
+  useEffect(() => {
+    if (payPeriod?.frequency) {
+      setFrequencyDraft(payPeriod.frequency)
+    }
+  }, [payPeriod?.frequency])
+
   const handleSetPayday = async (event) => {
     event.preventDefault()
-    if (!anchorDraft) {
+    // anchor_date is only required for fortnightly - a monthly schedule
+    // has no anchor to store at all (see PaySchedule's own docstring).
+    if (frequencyDraft === 'fortnightly' && !anchorDraft) {
       return
     }
     setPayPeriodActionError('')
     setSavingAnchor(true)
     try {
-      await api.put('/pay-schedule', { anchor_date: anchorDraft })
+      await api.put('/pay-schedule', {
+        frequency: frequencyDraft,
+        anchor_date: frequencyDraft === 'fortnightly' ? anchorDraft : null,
+      })
       setAnchorDraft('')
       setPayPeriod(await fetchPayPeriod(payPeriodReferenceDate))
     } catch (err) {
@@ -1126,6 +1151,19 @@ export default function CategoriesPage() {
       <Card id="categories-monthly-budgets" title="Monthly Budgets">
         {budgetActionError && <ErrorState label="Action failed:" message={budgetActionError} />}
 
+        {/* T5.4 - the fold-in decision: a monthly (last business day)
+            schedule's own Pay Period Budgeting card shows no per-category
+            table of its own, since it would be identical to this one under
+            a calendar-month schedule. This line is the whole of what a
+            monthly schedule adds beyond what's already here. */}
+        {payPeriod?.configured && payPeriod.frequency === 'monthly' && (
+          <p>
+            Paid on the last business day &mdash; next payday {formatDate(payPeriod.payday)},{' '}
+            {payPeriod.days_until_next_payday}{' '}
+            {payPeriod.days_until_next_payday === 1 ? 'day' : 'days'} away.
+          </p>
+        )}
+
         <label>
           Month
           <input
@@ -1253,28 +1291,40 @@ export default function CategoriesPage() {
         {!payPeriodLoading && !payPeriodError && payPeriod && !payPeriod.configured && (
           <>
             <p>
-              Rescales each expense category&rsquo;s standing monthly budget to a fortnightly pace,
-              for a household paid every two weeks &mdash; three months a year hold three pay
-              cycles, which a calendar month alone doesn&rsquo;t show. Only the standing amount is
-              used, never a monthly override - a fortnight can straddle two different months.
+              Rescales each expense category&rsquo;s standing monthly budget to your own pay
+              cycle. Fortnightly: three months a year hold three pay cycles, which a calendar
+              month alone doesn&rsquo;t show, so this tracks the real 14-day window instead
+              &mdash; only the standing amount is used, never a monthly override, since a
+              fortnight can straddle two different months. Monthly, on the last business day:
+              the period is simply the calendar month, so this card only adds your payday and
+              days-until-next-pay above what Monthly Budgets already shows.
             </p>
             <form onSubmit={handleSetPayday}>
               <label>
-                A recent payday
-                <input
-                  type="date"
-                  value={anchorDraft}
-                  onChange={(event) => setAnchorDraft(event.target.value)}
-                  required
-                />
+                Pay frequency
+                <select value={frequencyDraft} onChange={(event) => setFrequencyDraft(event.target.value)}>
+                  <option value="fortnightly">Fortnightly</option>
+                  <option value="monthly">Monthly (last business day)</option>
+                </select>
               </label>
+              {frequencyDraft === 'fortnightly' && (
+                <label>
+                  A recent payday
+                  <input
+                    type="date"
+                    value={anchorDraft}
+                    onChange={(event) => setAnchorDraft(event.target.value)}
+                    required
+                  />
+                </label>
+              )}
               <button type="submit" className="button-primary" disabled={savingAnchor}>
-                Set payday
+                Set pay schedule
               </button>
             </form>
           </>
         )}
-        {!payPeriodLoading && !payPeriodError && payPeriod && payPeriod.configured && (
+        {!payPeriodLoading && !payPeriodError && payPeriod && payPeriod.configured && payPeriod.frequency === 'fortnightly' && (
           <>
             <div className="pay-period-nav">
               <button type="button" onClick={handlePreviousPayPeriod}>&larr; Previous</button>
@@ -1285,17 +1335,26 @@ export default function CategoriesPage() {
             </div>
 
             <details>
-              <summary>Change payday</summary>
+              <summary>Change pay schedule</summary>
               <form onSubmit={handleSetPayday}>
                 <label>
-                  A recent payday
-                  <input
-                    type="date"
-                    value={anchorDraft}
-                    onChange={(event) => setAnchorDraft(event.target.value)}
-                    required
-                  />
+                  Pay frequency
+                  <select value={frequencyDraft} onChange={(event) => setFrequencyDraft(event.target.value)}>
+                    <option value="fortnightly">Fortnightly</option>
+                    <option value="monthly">Monthly (last business day)</option>
+                  </select>
                 </label>
+                {frequencyDraft === 'fortnightly' && (
+                  <label>
+                    A recent payday
+                    <input
+                      type="date"
+                      value={anchorDraft}
+                      onChange={(event) => setAnchorDraft(event.target.value)}
+                      required
+                    />
+                  </label>
+                )}
                 <button type="submit" className="button-primary" disabled={savingAnchor}>
                   Save
                 </button>
@@ -1339,6 +1398,41 @@ export default function CategoriesPage() {
                 <Amount value={payPeriod.summary.net_saved} /> this period.
               </p>
             )}
+          </>
+        )}
+        {!payPeriodLoading && !payPeriodError && payPeriod && payPeriod.configured && payPeriod.frequency === 'monthly' && (
+          <>
+            <p>
+              Paid monthly, on the last business day &mdash; this calendar month&rsquo;s figures
+              are the same ones Monthly Budgets already shows above, so they aren&rsquo;t
+              repeated here. See Monthly Budgets for the payday and days-until-next-pay line.
+            </p>
+            <details>
+              <summary>Change pay schedule</summary>
+              <form onSubmit={handleSetPayday}>
+                <label>
+                  Pay frequency
+                  <select value={frequencyDraft} onChange={(event) => setFrequencyDraft(event.target.value)}>
+                    <option value="fortnightly">Fortnightly</option>
+                    <option value="monthly">Monthly (last business day)</option>
+                  </select>
+                </label>
+                {frequencyDraft === 'fortnightly' && (
+                  <label>
+                    A recent payday
+                    <input
+                      type="date"
+                      value={anchorDraft}
+                      onChange={(event) => setAnchorDraft(event.target.value)}
+                      required
+                    />
+                  </label>
+                )}
+                <button type="submit" className="button-primary" disabled={savingAnchor}>
+                  Save
+                </button>
+              </form>
+            </details>
           </>
         )}
       </Card>

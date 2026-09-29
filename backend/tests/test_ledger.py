@@ -242,6 +242,53 @@ def test_filter_by_import_batch_id(db_session):
     assert from_this_import.import_batch_id != from_another_import.import_batch_id
 
 
+def test_filter_by_transaction_ids(db_session):
+
+    first = make_transaction(db_session, narration="First")
+    second = make_transaction(db_session, narration="Second")
+    make_transaction(db_session, narration="Third - not requested")
+    db_session.commit()
+
+    query = build_transaction_query(
+        db_session,
+        TransactionFilters(transaction_ids=[first.id, second.id]),
+    )
+    results = query.all()
+
+    assert {r.narration for r in results} == {"First", "Second"}
+
+
+def test_filter_by_transaction_ids_empty_list_matches_nothing(db_session):
+
+    make_transaction(db_session, narration="Coffee")
+    db_session.commit()
+
+    query = build_transaction_query(db_session, TransactionFilters(transaction_ids=[]))
+
+    assert query.all() == []
+
+
+def test_filter_by_transaction_ids_combines_with_other_filters(db_session):
+
+    groceries = make_category(db_session)
+    match = make_transaction(db_session, narration="Woolworths", category_id=groceries.id)
+    # Same id list would include this one too, but it's a different category.
+    other_category_same_id_scope = make_transaction(db_session, narration="Coles")
+    db_session.commit()
+
+    query = build_transaction_query(
+        db_session,
+        TransactionFilters(
+            transaction_ids=[match.id, other_category_same_id_scope.id],
+            category_id=groceries.id,
+        ),
+    )
+    results = query.all()
+
+    assert len(results) == 1
+    assert results[0].narration == "Woolworths"
+
+
 # --- Sorting -----------------------------------------------------------
 # The ledger is PAGINATED, so sorting has to happen in SQL across the whole
 # result set - sorting only the rows already on a page would silently lie

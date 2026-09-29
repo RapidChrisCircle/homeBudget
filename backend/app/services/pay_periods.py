@@ -1,12 +1,33 @@
-"""Fortnightly pay-period boundaries and budget pacing.
+"""Pay-period boundaries and budget pacing, for either of two pay
+frequencies (PaySchedule.frequency, PAY_FREQUENCIES in models.py).
 
-Finding 3: the preset household is paid fortnightly, and three months a
-year contain three pay cycles - a strictly calendar-monthly budget
-mis-states those months in both directions. This module answers "what
-fortnight does this date fall in" and "what's the fortnightly pace of an
-existing monthly budget", both anchored to the single household-wide
-PaySchedule row (models.py) - one anchor every page agrees on, never a
-second independently-configured one.
+Finding 3 (fortnightly): the Queensland preset household is paid every two
+weeks, and three months a year contain three pay cycles - a strictly
+calendar-monthly budget mis-states those months in both directions. This
+module answers "what fortnight does this date fall in" and "what's the
+fortnightly pace of an existing monthly budget", anchored to the single
+household-wide PaySchedule row (models.py) - one schedule every page
+agrees on, never a second independently-configured one.
+
+Finding 23 (monthly, T5.4): the inverse case - a household paid monthly,
+on the last business day. Here the "period" IS the calendar month (a
+deliberate choice: the payday sets the RHYTHM, not a boundary offset from
+it), so pacing is a 1:1 passthrough of the standing budget and the whole
+per-category table would be identical to the existing Monthly Budgets
+card. Rather than show that table twice, the frontend folds a monthly
+schedule into Monthly Budgets itself (just a payday line), and this module
+still answers "when is the next payday" and "what's the pace" truthfully
+for any API caller that isn't the frontend, via `frequency`/`payday`/
+`days_until_next_payday` on the same response shape either way.
+
+"Last business day" means Mon-Fri only, no public-holiday calendar - a
+deliberate simplification, not an oversight: QLD public holidays
+essentially never fall on the last weekday of a month (Christmas/Boxing
+Day precede the 31st, New Year's/Australia Day are early-month, Labour Day
+and King's Birthday are first-Mondays, and Easter never reaches a month
+end), so a holiday calendar would change the computed payday in
+approximately no real month, for either a new dependency or ~100 lines
+needing yearly review.
 
 Deliberately a VIEW over the existing monthly budget model, not a second,
 independently-edited budget period (see ROADMAP.md's T2.2 design note for
@@ -14,7 +35,7 @@ why: making the budget period itself configurable would touch reporting,
 trends and the dashboard's month-bounds assumptions throughout, for a
 household that still thinks in calendar months for everything except this
 one pacing check). A category's already-resolved STANDING monthly
-budget_amount is rescaled to a fortnightly figure; nothing about how
+budget_amount is rescaled to each frequency's own pace; nothing about how
 budgets are stored, overridden or reported elsewhere changes, and a
 household that never sets a PaySchedule sees nothing different anywhere
 else in the app.
@@ -23,17 +44,20 @@ Overrides are deliberately NOT consulted here, unlike reporting.py's
 effective_budget()-based resolution - a fortnight can (and three times a
 year, does) straddle two different calendar months, each potentially
 carrying its own override, and there is no principled way to pick "the"
-month an override should apply from for a 14-day window. Pacing always
-uses the plain standing amount; this is a documented limitation, not an
-oversight.
+month an override should apply from for a 14-day window; the same
+reasoning extends to "monthly", whose period boundaries don't align with
+calendar-month override boundaries either, once the payday lands
+mid-month-ish via a weekend rollback. Pacing always uses the plain
+standing amount; this is a documented limitation, not an oversight.
 
-26 pay periods/year (PAY_PERIODS_PER_YEAR) is the real-world fortnightly
-pay convention this rescaling matches - 365.25 / 14 is not exactly 26, and
-a household paid fortnightly already lives with an occasional 27-payday
-year without their annual budget being recalculated for it. Matching that
-convention, rather than a more "precise" derived figure, is the point.
+PERIODS_PER_YEAR gives each frequency's real-world pay-calendar
+convention, not a more "precise" derived figure - 365.25 / 14 isn't
+exactly 26, and a fortnightly household already lives with an occasional
+27-payday year without their annual budget being recalculated for it;
+monthly is exactly 12 by definition.
 """
 
+import calendar
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -43,20 +67,33 @@ from sqlalchemy.orm import Session, aliased
 
 from ..models import Category, PaySchedule
 from .allocations import allocation_subquery
+from .reporting import month_bounds
 
 FORTNIGHT_DAYS = 14
 PAY_PERIODS_PER_YEAR = 26
 
+# One place mapping a frequency to how many pacing periods it has per year -
+# see pace() below. Keys match models.PAY_FREQUENCIES exactly.
+PERIODS_PER_YEAR = {"fortnightly": PAY_PERIODS_PER_YEAR, "monthly": 12}
 
-def get_anchor(db: Session) -> date | None:
-    """The household's one configured payday, or None if pay-period
-    budgeting hasn't been set up yet. Never guessed from today's date."""
+
+def get_schedule(db: Session) -> tuple[str, date | None] | None:
+    """(frequency, anchor_date) if pay-period budgeting has been set up,
+    else None - "not configured" is the absence of a row, never guessed
+    from today's date. anchor_date is only ever non-None for "fortnightly" -
+    see PaySchedule's own docstring in models.py for why "monthly" simply
+    has none to store.
+    """
 
     schedule = db.query(PaySchedule).first()
-    return schedule.anchor_date if schedule is not None else None
+
+    if schedule is None:
+        return None
+
+    return schedule.frequency, schedule.anchor_date
 
 
-def set_anchor(db: Session, anchor_date: date) -> date:
+def set_schedule(db: Session, frequency: str, anchor_date: date | None) -> tuple[str, date | None]:
     """Upserts the single PaySchedule row - see its own docstring for why
     this is enforced in Python (get-or-create-and-update) rather than a
     schema constraint.
@@ -65,14 +102,15 @@ def set_anchor(db: Session, anchor_date: date) -> date:
     schedule = db.query(PaySchedule).first()
 
     if schedule is not None:
+        schedule.frequency = frequency
         schedule.anchor_date = anchor_date
     else:
-        schedule = PaySchedule(anchor_date=anchor_date)
+        schedule = PaySchedule(frequency=frequency, anchor_date=anchor_date)
         db.add(schedule)
 
     db.commit()
 
-    return anchor_date
+    return frequency, anchor_date
 
 
 def pay_period_bounds(anchor: date, reference: date) -> tuple[date, date]:
@@ -101,16 +139,66 @@ def shift_period(start: date, periods: int) -> date:
     return start + timedelta(days=FORTNIGHT_DAYS * periods)
 
 
-def fortnightly_pace(monthly_amount: Decimal | None) -> Decimal | None:
-    """Rescales an already-resolved STANDING MONTHLY figure to a
-    fortnightly pace (amount * 12 / 26). None in, None out - "no budget
-    set" stays "no budget set", never a rescaled zero.
+def last_business_day(year: int, month: int) -> date:
+    """The last Mon-Fri day of the given calendar month - see this
+    module's own docstring for why a public-holiday calendar isn't worth
+    it here. calendar.monthrange(year, month)[1] is the same "days in this
+    month" primitive services.recurring._add_months already uses.
+    """
+
+    day = calendar.monthrange(year, month)[1]
+    candidate = date(year, month, day)
+
+    while candidate.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
+        candidate -= timedelta(days=1)
+
+    return candidate
+
+
+def next_payday(reference: date) -> date:
+    """The next monthly payday (last business day of a calendar month) on
+    or after `reference` - "on or after", not strictly after, so a
+    household checking on payday itself sees 0 days away rather than
+    being told to wait a further month.
+    """
+
+    this_months_payday = last_business_day(reference.year, reference.month)
+
+    if this_months_payday >= reference:
+        return this_months_payday
+
+    next_month = reference.month + 1
+    next_year = reference.year
+
+    if next_month > 12:
+        next_month = 1
+        next_year += 1
+
+    return last_business_day(next_year, next_month)
+
+
+def pace(monthly_amount: Decimal | None, frequency: str) -> Decimal | None:
+    """Rescales an already-resolved STANDING MONTHLY figure to `frequency`'s
+    own pace (amount * 12 / PERIODS_PER_YEAR[frequency]) - for "monthly"
+    this is a 1:1 passthrough, still quantized to 2dp so the serialized
+    form never differs from the fortnightly case just because the maths
+    happened to be trivial. None in, None out - "no budget set" stays "no
+    budget set", never a rescaled zero.
     """
 
     if monthly_amount is None:
         return None
 
-    return (monthly_amount * 12 / PAY_PERIODS_PER_YEAR).quantize(Decimal("0.01"))
+    return (monthly_amount * 12 / PERIODS_PER_YEAR[frequency]).quantize(Decimal("0.01"))
+
+
+def fortnightly_pace(monthly_amount: Decimal | None) -> Decimal | None:
+    """Thin alias for pace(monthly_amount, "fortnightly") - kept so every
+    caller and test written against the original fortnightly-only API
+    keeps working unchanged now that pace() covers both frequencies.
+    """
+
+    return pace(monthly_amount, "fortnightly")
 
 
 @dataclass
@@ -136,15 +224,17 @@ class PayPeriodCategoryPace:
         return self.pace - self.actual
 
 
-def pay_period_category_totals(db: Session, start: date, end: date) -> list[PayPeriodCategoryPace]:
-    """Every non-transfer category's activity in the fortnight [start, end),
-    with its standing budget rescaled to a fortnightly pace. Deliberately
-    NOT reporting.category_totals_for_period() - that function requires a
-    month-aligned start and resolves overrides for the ONE month it spans,
-    neither of which is meaningful for an arbitrary 14-day window that can
-    straddle two months. Structurally this mirrors that function's own
-    query (outer join through allocation_subquery, kind != transfer),
-    without pretending the two share a code path they can't.
+def pay_period_category_totals(
+    db: Session, start: date, end: date, frequency: str = "fortnightly"
+) -> list[PayPeriodCategoryPace]:
+    """Every non-transfer category's activity in the period [start, end),
+    with its standing budget rescaled to `frequency`'s own pace. Deliberately
+    NOT reporting.category_totals_for_period() - that function resolves
+    overrides for the ONE month it spans, which isn't meaningful for a
+    fortnight that can straddle two months (see this module's own
+    docstring). Structurally this mirrors that function's own query (outer
+    join through allocation_subquery, kind != transfer), without pretending
+    the two share a code path they can't.
     """
 
     alloc = allocation_subquery(db)
@@ -192,7 +282,7 @@ def pay_period_category_totals(db: Session, start: date, end: date) -> list[PayP
             parent_name=row.parent_name,
             kind=row.kind,
             standing_budget=row.budget_amount,
-            pace=fortnightly_pace(row.budget_amount),
+            pace=pace(row.budget_amount, frequency),
             actual=actual,
         ))
 

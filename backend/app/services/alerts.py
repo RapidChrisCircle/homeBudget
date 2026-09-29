@@ -29,7 +29,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from ..models import Account, AlertDismissal
+from ..models import Account, AlertDismissal, RecurringDismissal
 from .coverage import account_coverage_gaps
 from .recurring import detect_series
 from .reporting import budget_lines, category_totals_for_period, default_period, month_bounds
@@ -181,7 +181,10 @@ def _transfer_alerts(db: Session, dismissed_keys: set[str]) -> list[Alert]:
             title="Transfer with no matching counterpart",
             detail=f"{accounts.get(leg.account_id, '')} - {leg.narration} on {leg.transaction_date.isoformat()}",
             amount=leg.debit if leg.debit is not None else leg.credit,
-            link="/transactions",
+            # T5.2 - the exact row, not the whole ledger. Was "/transactions"
+            # unfiltered, the same vagueness the Transfer Matching card's own
+            # missing call-to-action had one level up.
+            link=f"/transactions?transaction_ids={leg.id}",
             dismiss_kind="generic",
         ))
 
@@ -221,3 +224,79 @@ def dismiss_alert(db: Session, alert_key: str) -> int:
     db.refresh(dismissal)
 
     return dismissal.id
+
+
+def dismiss_all_alerts(db: Session, kind: str | None = None) -> int:
+    """Dismisses every CURRENTLY OUTSTANDING alert - optionally scoped to
+    one kind - and returns how many that was. "Currently outstanding" is
+    the whole semantic: an alert created after this call runs (a category
+    that goes over budget five minutes later) is not retroactively
+    dismissed - this is a snapshot action, not a standing rule.
+
+    Cannot be a single generic bulk-key endpoint, the way categories'/
+    transactions' own bulk actions are: a mixed feed has TWO dismissal
+    mechanisms (see this module's own docstring), and the client has no
+    business knowing which alert uses which - that split is this module's
+    concern alone. Each alert is routed through dismiss_alert (generic) or
+    a RecurringDismissal upsert (recurring), mirroring that function's own
+    idempotent shape exactly rather than inventing a second one.
+
+    A missed_recurring and a price_change alert for the SAME series share
+    one (account_id, narration_key) RecurringDismissal row - dismissing
+    either one (individually, or here) silences both, since detect_series()
+    itself can't tell why a series was dismissed, only that it was. This
+    function dedupes the underlying write so that shared pair is never
+    inserted twice in one call, but still counts both alerts toward the
+    returned total - dismissing all clears both from the feed, and the
+    count should say so.
+    """
+
+    alerts = collect_alerts(db)
+
+    if kind is not None:
+        alerts = [a for a in alerts if a.kind == kind]
+
+    seen_recurring: set[tuple[int, str]] = set()
+    seen_generic: set[str] = set()
+
+    for alert in alerts:
+
+        if alert.dismiss_kind == "recurring":
+
+            recurring_key = (alert.recurring_account_id, alert.recurring_narration_key)
+
+            if recurring_key in seen_recurring:
+                continue
+
+            seen_recurring.add(recurring_key)
+
+            existing = (
+                db.query(RecurringDismissal)
+                .filter(
+                    RecurringDismissal.account_id == alert.recurring_account_id,
+                    RecurringDismissal.narration_key == alert.recurring_narration_key,
+                )
+                .first()
+            )
+
+            if existing is None:
+                db.add(RecurringDismissal(
+                    account_id=alert.recurring_account_id,
+                    narration_key=alert.recurring_narration_key,
+                ))
+
+        else:
+
+            if alert.key in seen_generic:
+                continue
+
+            seen_generic.add(alert.key)
+
+            existing = db.query(AlertDismissal).filter(AlertDismissal.alert_key == alert.key).first()
+
+            if existing is None:
+                db.add(AlertDismissal(alert_key=alert.key))
+
+    db.commit()
+
+    return len(alerts)

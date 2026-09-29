@@ -510,6 +510,26 @@ def test_groups_endpoint_honours_import_batch_id(client, db_session):
     assert groups[0]["transaction_count"] == 2
 
 
+def test_groups_endpoint_honours_transaction_ids(client, db_session):
+
+    account = make_account(db_session)
+
+    wanted_a = make_transaction(db_session, account.id, date(2026, 6, 1), "IGA NEWPORT              NEWPORT", -4.45)
+    wanted_b = make_transaction(db_session, account.id, date(2026, 6, 2), "IGA NEWPORT              NEWPORT", -5.00)
+    # A third occurrence, not requested - must not count toward the group.
+    make_transaction(db_session, account.id, date(2026, 6, 3), "IGA NEWPORT              NEWPORT", -6.00)
+    db_session.commit()
+
+    response = client.get(
+        "/api/transactions/groups", params={"transaction_ids": [wanted_a.id, wanted_b.id]}
+    )
+
+    assert response.status_code == 200
+    groups = response.json()["groups"]
+    assert len(groups) == 1
+    assert groups[0]["transaction_count"] == 2
+
+
 def test_groups_endpoint_rejects_unknown_kind(client):
 
     response = client.get("/api/transactions/groups", params={"kind": "bogus"})

@@ -1157,23 +1157,38 @@ class DashboardWidget(Base):
     )
 
 
-class PaySchedule(Base):
-    """The household's fortnightly pay anchor - a SINGLE row, always id=1,
-    enforced in Python (api/pay_periods.py upserts rather than inserts a
-    second row) rather than a schema constraint, matching this app's usual
-    preference for explicit application logic over exotic constraints for a
-    single-household deployment.
+# Shared by PaySchedule validation (api/pay_periods.py) and
+# services/pay_periods.py, so the set of valid frequencies is defined
+# exactly once - the same convention CATEGORY_KINDS above already
+# establishes for a small, closed set of string values.
+PAY_FREQUENCIES = ("fortnightly", "monthly")
 
-    anchor_date is any one real payday - services/pay_periods.py counts
-    whole 14-day steps forward and backward from it to find the boundaries
-    of the fortnight containing any given date, so it works identically
-    for a date long before or long after anchor_date, and across a
-    calendar-year boundary, since nothing about the calculation resets at
-    January 1st.
+
+class PaySchedule(Base):
+    """The household's pay schedule - a SINGLE row, always id=1, enforced
+    in Python (services/pay_periods.set_schedule upserts rather than
+    inserts a second row) rather than a schema constraint, matching this
+    app's usual preference for explicit application logic over exotic
+    constraints for a single-household deployment.
+
+    frequency is one of PAY_FREQUENCIES above (T5.4 added "monthly"
+    alongside the original "fortnightly" - Finding 23, the inverse of
+    Finding 3's original fortnightly-only assumption).
+
+    anchor_date is any one real payday, and is only MEANINGFUL for
+    "fortnightly" - services/pay_periods.py counts whole 14-day steps
+    forward and backward from it to find the boundaries of the fortnight
+    containing any given date, so it works identically for a date long
+    before or long after anchor_date, and across a calendar-year boundary,
+    since nothing about the calculation resets at January 1st. It is
+    nullable because a "monthly" schedule (paid on the last business day)
+    genuinely has no anchor to store - every period boundary is derivable
+    straight from the calendar, and inventing a placeholder date here would
+    imply a choice that was never made.
 
     No row existing at all means pay-period budgeting hasn't been set up -
     GET /pay-periods reports {"configured": false} rather than silently
-    guessing an anchor from today's date, which would misalign every
+    guessing a schedule from today's date, which would misalign every
     boundary it computes without the user ever having chosen anything.
     """
 
@@ -1184,9 +1199,16 @@ class PaySchedule(Base):
         primary_key=True
     )
 
+    frequency = Column(
+        String,
+        nullable=False,
+        default="fortnightly",
+        server_default="fortnightly"
+    )
+
     anchor_date = Column(
         Date,
-        nullable=False
+        nullable=True
     )
 
 

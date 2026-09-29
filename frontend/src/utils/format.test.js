@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { currentMonthRange, formatDate, formatMonths, formatPercent, previousMonthRange, transactionAmount } from './format.js'
+import { currentMonthRange, formatDate, formatMonths, formatPercent, previousMonthRange, transactionAmount, transactionIdsLedgerLink } from './format.js'
 
 describe('formatDate', () => {
   it('reorders YYYY-MM-DD to DD/MM/YY', () => {
@@ -94,5 +94,15 @@ describe('currentMonthRange / previousMonthRange', () => {
   it('gets February right in both a leap and a non-leap year', () => {
     expect(currentMonthRange(new Date(2024, 1, 10))).toEqual({ from: '2024-02-01', to: '2024-02-29' })
     expect(currentMonthRange(new Date(2026, 1, 10))).toEqual({ from: '2026-02-01', to: '2026-02-28' })
+  })
+})
+
+describe('transactionIdsLedgerLink', () => {
+  it('encodes a single id', () => {
+    expect(transactionIdsLedgerLink([5])).toBe('/transactions?transaction_ids=5')
+  })
+
+  it('encodes multiple ids as repeated params, not a comma-joined value', () => {
+    expect(transactionIdsLedgerLink([5, 9])).toBe('/transactions?transaction_ids=5&transaction_ids=9')
   })
 })

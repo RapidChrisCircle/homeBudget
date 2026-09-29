@@ -613,6 +613,33 @@ def test_export_csv_filters_by_import_batch_id(client):
     assert "CCTrueUp" not in response.text
 
 
+def test_list_transactions_filters_by_transaction_ids(client):
+
+    upload(client, SAMPLE_CSV)
+    transactions = list_transactions(client)
+    wanted_ids = [t["id"] for t in transactions if "CCTrueUp" in t["narration"]]
+    assert len(wanted_ids) == 2
+
+    response = client.get("/api/transactions", params={"transaction_ids": wanted_ids})
+
+    items = response.json()["items"]
+    assert len(items) == 2
+    assert {i["id"] for i in items} == set(wanted_ids)
+
+
+def test_export_csv_filters_by_transaction_ids(client):
+
+    upload(client, SAMPLE_CSV)
+    transactions = list_transactions(client)
+    taquiza_id = next(t["id"] for t in transactions if "LS Taquiza" in t["narration"])
+
+    response = client.get("/api/transactions/export", params={"transaction_ids": [taquiza_id]})
+
+    assert response.status_code == 200
+    assert "LS Taquiza" in response.text
+    assert "CCTrueUp" not in response.text
+
+
 def test_list_transaction_types_returns_distinct_sorted_values(client):
 
     upload(client, SAMPLE_CSV)

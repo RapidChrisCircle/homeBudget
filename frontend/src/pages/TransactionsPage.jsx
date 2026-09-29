@@ -406,6 +406,30 @@ export default function TransactionsPage() {
         </label>
       )}
     </HeaderFilter>,
+    // Transactions (T5.1) - scopes the ledger to specific rows a caller
+    // already knows by id (a Transfer Matching link, a precise alert
+    // link), never something a person types by hand - there is no field
+    // here to edit, only an explanation and Clear, reusing HeaderFilter's
+    // existing popover shape as-is. Rendered as a real, visible, clearable
+    // chip rather than applied silently: a ledger showing two rows with no
+    // visible reason why would be worse than no filter at all.
+    <HeaderFilter
+      key="transaction_ids"
+      as="div"
+      label="Transactions"
+      valueLabel={filterValueLabels.transaction_ids}
+      value={committedFilters.transaction_ids}
+      isActive={Boolean(committedFilters.transaction_ids)}
+      onApply={() => {}}
+      onClear={() => applyFilterPatch({ transaction_ids: '' })}
+    >
+      {() => (
+        <p>
+          Scoped to specific transactions from another page (e.g. Transfer Matching) - not something
+          typed in here. Clear to remove the scope and see the full ledger again.
+        </p>
+      )}
+    </HeaderFilter>,
   ]
 
   // The lookups that populate the filter dropdowns and the import history.

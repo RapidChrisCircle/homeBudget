@@ -125,6 +125,47 @@ def test_both_categorized_as_transfer_is_false_when_one_leg_is_mis_categorized(d
     assert match.both_categorized_as_transfer is False
 
 
+def test_per_leg_category_breakdown_identifies_which_leg_is_the_problem(db_session):
+
+    everyday = make_account(db_session, "Everyday", "1111")
+    savings = make_account(db_session, "Savings", "2222")
+    transfer_category = make_category(db_session, name="Card Payment")
+    expense_category = make_category(db_session, name="Groceries", kind="expense")
+    debit = make_transaction(
+        db_session, everyday, date(2026, 1, 5), debit=Decimal("-200.00"), category_id=expense_category.id
+    )
+    credit = make_transaction(
+        db_session, savings, date(2026, 1, 5), credit=Decimal("200.00"), category_id=transfer_category.id
+    )
+    db_session.commit()
+
+    match = transfer_candidates(db_session)[0]
+
+    # leg_a is always the debit, leg_b always the credit, by construction.
+    assert match.leg_a_id == debit.id
+    assert match.leg_a_category_name == "Groceries"
+    assert match.leg_a_is_transfer is False
+    assert match.leg_b_id == credit.id
+    assert match.leg_b_category_name == "Card Payment"
+    assert match.leg_b_is_transfer is True
+
+
+def test_per_leg_category_name_is_none_for_an_uncategorized_leg(db_session):
+
+    everyday = make_account(db_session, "Everyday", "1111")
+    savings = make_account(db_session, "Savings", "2222")
+    make_transaction(db_session, everyday, date(2026, 1, 5), debit=Decimal("-200.00"))
+    make_transaction(db_session, savings, date(2026, 1, 5), credit=Decimal("200.00"))
+    db_session.commit()
+
+    match = transfer_candidates(db_session)[0]
+
+    assert match.leg_a_category_name is None
+    assert match.leg_a_is_transfer is False
+    assert match.leg_b_category_name is None
+    assert match.leg_b_is_transfer is False
+
+
 def test_excludes_split_transactions(db_session):
 
     everyday = make_account(db_session, "Everyday", "1111")
@@ -228,7 +269,33 @@ def test_get_transfers_shape(client, db_session):
     assert match["leg_a_account_name"] == "Everyday"
     assert match["leg_b_account_name"] == "Savings"
     assert match["both_categorized_as_transfer"] is False
+    assert match["leg_a_category_name"] is None
+    assert match["leg_a_is_transfer"] is False
+    assert match["leg_b_category_name"] is None
+    assert match["leg_b_is_transfer"] is False
     assert body["unmatched"] == []
+
+
+def test_get_transfers_exposes_which_leg_is_mis_categorized(client, db_session):
+
+    everyday = make_account(db_session, "Everyday", "1111")
+    savings = make_account(db_session, "Savings", "2222")
+    transfer_category = make_category(db_session, name="Card Payment")
+    expense_category = make_category(db_session, name="Groceries", kind="expense")
+    make_transaction(
+        db_session, everyday, date(2026, 1, 5), debit=Decimal("-200.00"), category_id=expense_category.id
+    )
+    make_transaction(
+        db_session, savings, date(2026, 1, 5), credit=Decimal("200.00"), category_id=transfer_category.id
+    )
+    db_session.commit()
+
+    match = client.get("/api/transfers").json()["matches"][0]
+
+    assert match["leg_a_category_name"] == "Groceries"
+    assert match["leg_a_is_transfer"] is False
+    assert match["leg_b_category_name"] == "Card Payment"
+    assert match["leg_b_is_transfer"] is True
 
 
 def test_get_transfers_reports_an_unmatched_leg(client, db_session):

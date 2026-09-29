@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { _resetAlertsCountForTests, getAlertsCount } from '../services/alertsCount.ts'
 import { api } from '../services/api'
 import AlertsPage from './AlertsPage.jsx'
 
@@ -59,6 +60,7 @@ async function waitForLoaded() {
 describe('AlertsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    _resetAlertsCountForTests()
   })
 
   it('shows a reassurance message when there are no alerts', async () => {
@@ -141,14 +143,92 @@ describe('AlertsPage', () => {
     expect(screen.getByText(/Boom/)).toBeInTheDocument()
   })
 
-  it('shows the kind label for each alert', async () => {
+  it('groups alerts into one section per kind, with a heading naming each', async () => {
     mockLoad([overBudgetAlert, missedRecurringAlert])
 
     renderPage()
     await waitForLoaded()
 
-    const rows = screen.getAllByRole('row')
-    expect(within(rows[1]).getByText('Over budget')).toBeInTheDocument()
-    expect(within(rows[2]).getByText('Missed / stopped')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Over budget \(1\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Missed \/ stopped \(1\)/ })).toBeInTheDocument()
+  })
+
+  it('shows an explanation of what a kind means and how to resolve it, once per section', async () => {
+    mockLoad([overBudgetAlert])
+
+    renderPage()
+    await waitForLoaded()
+
+    expect(screen.getByText(/passed its budget for the month/)).toBeInTheDocument()
+  })
+
+  it('dismisses just one group via POST /alerts/dismissals/all with that kind', async () => {
+    mockLoad([overBudgetAlert, missedRecurringAlert])
+    api.post.mockResolvedValue({ data: { dismissed_count: 1 } })
+
+    renderPage()
+    await waitForLoaded()
+
+    const overBudgetSection = screen.getByRole('heading', { name: /Over budget/ }).closest('.alerts-group')
+    fireEvent.click(within(overBudgetSection).getByRole('button', { name: 'Dismiss these 1' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/alerts/dismissals/all', { kind: 'over_budget' })
+    })
+  })
+
+  it('confirms before dismissing everything, and does nothing if declined', async () => {
+    mockLoad([overBudgetAlert, missedRecurringAlert])
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    renderPage()
+    await waitForLoaded()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss all' }))
+
+    expect(window.confirm).toHaveBeenCalled()
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
+  it('dismisses everything via POST /alerts/dismissals/all with no kind, once confirmed', async () => {
+    mockLoad([overBudgetAlert, missedRecurringAlert])
+    api.post.mockResolvedValue({ data: { dismissed_count: 2 } })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+    await waitForLoaded()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss all' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/alerts/dismissals/all', {})
+    })
+  })
+
+  it('disables Dismiss all when there is nothing to dismiss', async () => {
+    mockLoad([])
+
+    renderPage()
+    await waitForLoaded()
+
+    expect(screen.getByRole('button', { name: 'Dismiss all' })).toBeDisabled()
+  })
+
+  it('updates the shared alerts-count store after a dismissal, so the nav badge never goes stale', async () => {
+    mockLoad([overBudgetAlert])
+    api.post.mockResolvedValue({ data: {} })
+    // The refresh after dismissing answers with the NEW, lower count.
+    api.get.mockImplementation((path) => {
+      if (path !== '/alerts') return Promise.reject(new Error(`unexpected path ${path}`))
+      const remaining = api.get.mock.calls.length > 1 ? [] : [overBudgetAlert]
+      return Promise.resolve({ data: { alerts: remaining, count: remaining.length } })
+    })
+
+    renderPage()
+    await waitForLoaded()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+
+    await waitFor(() => expect(getAlertsCount()).toBe(0))
   })
 })

@@ -37,7 +37,7 @@ const sampleBudgetData = {
   totals: { budgeted: '250.00', actual: '180.00', difference: '70.00' },
 }
 
-const samplePayPeriod = { configured: false, start_date: null, end_date: null, label: null, categories: [], summary: null }
+const samplePayPeriod = { configured: false, frequency: null, start_date: null, end_date: null, label: null, payday: null, days_until_next_payday: null, categories: [], summary: null }
 
 function mockLoad({
   categories = [sampleCategory], budgetData = sampleBudgetData, usage = [], payPeriod = samplePayPeriod,
@@ -1172,12 +1172,12 @@ describe('CategoriesPage pay periods', () => {
     await waitForPayPeriodLoaded()
 
     expect(within(payPeriodSection()).getByLabelText('A recent payday')).toBeInTheDocument()
-    expect(within(payPeriodSection()).getByRole('button', { name: 'Set payday' })).toBeInTheDocument()
+    expect(within(payPeriodSection()).getByRole('button', { name: 'Set pay schedule' })).toBeInTheDocument()
   })
 
   it('submits a new payday and reloads the period', async () => {
     mockLoad()
-    api.put.mockResolvedValue({ data: { configured: true, anchor_date: '2026-01-02' } })
+    api.put.mockResolvedValue({ data: { configured: true, frequency: 'fortnightly', anchor_date: '2026-01-02' } })
 
     render(<CategoriesPage />)
     await waitForPayPeriodLoaded()
@@ -1185,10 +1185,29 @@ describe('CategoriesPage pay periods', () => {
     fireEvent.change(within(payPeriodSection()).getByLabelText('A recent payday'), {
       target: { value: '2026-01-02' },
     })
-    fireEvent.click(within(payPeriodSection()).getByRole('button', { name: 'Set payday' }))
+    fireEvent.click(within(payPeriodSection()).getByRole('button', { name: 'Set pay schedule' }))
 
     await waitFor(() => {
-      expect(api.put).toHaveBeenCalledWith('/pay-schedule', { anchor_date: '2026-01-02' })
+      expect(api.put).toHaveBeenCalledWith('/pay-schedule', { frequency: 'fortnightly', anchor_date: '2026-01-02' })
+    })
+  })
+
+  it('submits a monthly schedule with no anchor date', async () => {
+    mockLoad()
+    api.put.mockResolvedValue({ data: { configured: true, frequency: 'monthly', anchor_date: null } })
+
+    render(<CategoriesPage />)
+    await waitForPayPeriodLoaded()
+
+    fireEvent.change(within(payPeriodSection()).getByLabelText('Pay frequency'), {
+      target: { value: 'monthly' },
+    })
+    expect(within(payPeriodSection()).queryByLabelText('A recent payday')).not.toBeInTheDocument()
+
+    fireEvent.click(within(payPeriodSection()).getByRole('button', { name: 'Set pay schedule' }))
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/pay-schedule', { frequency: 'monthly', anchor_date: null })
     })
   })
 
@@ -1196,9 +1215,12 @@ describe('CategoriesPage pay periods', () => {
     mockLoad({
       payPeriod: {
         configured: true,
+        frequency: 'fortnightly',
         start_date: '2026-01-01',
         end_date: '2026-01-15',
         label: '2026-01-01 to 2026-01-14',
+        payday: '2026-01-15',
+        days_until_next_payday: 10,
         categories: [
           {
             category_id: 1, category_name: 'Groceries', parent_id: null, parent_name: null,
@@ -1224,9 +1246,12 @@ describe('CategoriesPage pay periods', () => {
     mockLoad({
       payPeriod: {
         configured: true,
+        frequency: 'fortnightly',
         start_date: '2026-01-01',
         end_date: '2026-01-15',
         label: '',
+        payday: '2026-01-15',
+        days_until_next_payday: 10,
         categories: [],
         summary: { total_income: '0.00', total_spending: '0.00', net_saved: '0.00' },
       },
@@ -1254,9 +1279,12 @@ describe('CategoriesPage pay periods', () => {
     mockLoad({
       payPeriod: {
         configured: true,
+        frequency: 'fortnightly',
         start_date: '2026-01-01',
         end_date: '2026-01-15',
         label: '',
+        payday: '2026-01-15',
+        days_until_next_payday: 10,
         categories: [
           {
             category_id: 1, category_name: 'Groceries', parent_id: null, parent_name: null,
@@ -1271,5 +1299,107 @@ describe('CategoriesPage pay periods', () => {
     await waitForPayPeriodLoaded()
 
     expect(within(payPeriodSection()).getByText(/over/)).toBeInTheDocument()
+  })
+
+  it('shows a compact message instead of a duplicate table when the schedule is monthly', async () => {
+    mockLoad({
+      payPeriod: {
+        configured: true,
+        frequency: 'monthly',
+        start_date: '2026-04-01',
+        end_date: '2026-05-01',
+        label: '',
+        payday: '2026-04-30',
+        days_until_next_payday: 15,
+        categories: [
+          {
+            category_id: 1, category_name: 'Groceries', parent_id: null, parent_name: null,
+            standing_budget: '300.00', pace: '300.00', actual: '50.00', difference: '250.00',
+          },
+        ],
+        summary: { total_income: '0.00', total_spending: '50.00', net_saved: '-50.00' },
+      },
+    })
+
+    render(<CategoriesPage />)
+    await waitForPayPeriodLoaded()
+
+    const section = payPeriodSection()
+    expect(within(section).getByText(/same ones Monthly Budgets already shows/)).toBeInTheDocument()
+    // No per-category pacing table for monthly - it would just repeat
+    // Monthly Budgets' own numbers.
+    expect(within(section).queryByRole('table')).not.toBeInTheDocument()
+    expect(within(section).queryByText('Groceries')).not.toBeInTheDocument()
+  })
+
+  it('offers to change frequency back to fortnightly from a monthly schedule', async () => {
+    mockLoad({
+      payPeriod: {
+        configured: true,
+        frequency: 'monthly',
+        start_date: '2026-04-01',
+        end_date: '2026-05-01',
+        label: '',
+        payday: '2026-04-30',
+        days_until_next_payday: 15,
+        categories: [],
+        summary: { total_income: '0.00', total_spending: '0.00', net_saved: '0.00' },
+      },
+    })
+
+    render(<CategoriesPage />)
+    await waitForPayPeriodLoaded()
+
+    // <details> content is present in the DOM (and queryable) regardless of
+    // whether it's open, the same way every other closed-by-default
+    // disclosure in this app already is - no need to click it open first.
+    // The sync itself happens in a useEffect keyed off payPeriod.frequency,
+    // a tick after loading flips false, hence waitFor rather than an
+    // immediate assertion.
+    await waitFor(() => {
+      expect(within(payPeriodSection()).getByLabelText('Pay frequency')).toHaveValue('monthly')
+    })
+  })
+
+  it('shows the payday on Monthly Budgets when the schedule is monthly', async () => {
+    mockLoad({
+      payPeriod: {
+        configured: true,
+        frequency: 'monthly',
+        start_date: '2026-04-01',
+        end_date: '2026-05-01',
+        label: '',
+        payday: '2026-04-30',
+        days_until_next_payday: 15,
+        categories: [],
+        summary: { total_income: '0.00', total_spending: '0.00', net_saved: '0.00' },
+      },
+    })
+
+    render(<CategoriesPage />)
+    await waitForPayPeriodLoaded()
+
+    expect(within(budgetsSection()).getByText(/next payday 30\/04\/26, 15 days away/)).toBeInTheDocument()
+  })
+
+  it('does not show a payday line on Monthly Budgets for a fortnightly schedule', async () => {
+    mockLoad({
+      payPeriod: {
+        configured: true,
+        frequency: 'fortnightly',
+        start_date: '2026-01-01',
+        end_date: '2026-01-15',
+        label: '',
+        payday: '2026-01-15',
+        days_until_next_payday: 10,
+        categories: [],
+        summary: { total_income: '0.00', total_spending: '0.00', net_saved: '0.00' },
+      },
+    })
+
+    render(<CategoriesPage />)
+    await waitForPayPeriodLoaded()
+
+    expect(within(budgetsSection()).queryByText(/next payday/)).not.toBeInTheDocument()
   })
 })

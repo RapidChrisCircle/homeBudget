@@ -47,6 +47,16 @@ export const EMPTY_FILTERS = {
   // Backs the Import chip (T4.3b) - an exact import batch id, the same
   // "one field, one param" shape as transaction_type. '' means "any".
   import_batch_id: '',
+  // Backs the Transaction chip (T5.1) - a comma-joined string of specific
+  // transaction ids, the one filter this app never lets a user type by
+  // hand (see the chip itself, below): a caller that already knows exactly
+  // which rows it means (Transfer Matching's own links) sets this, never a
+  // person typing ids into a field. '' means "any". Stored as a string,
+  // like every other field here, rather than an array - kept comma-joined
+  // internally and only exploded into repeated `transaction_ids` query
+  // params (what the backend actually expects - see
+  // searchParamsFromFilters below) at the URL boundary.
+  transaction_ids: '',
 }
 
 export function filtersFromSearchParams(searchParams) {
@@ -67,6 +77,11 @@ export function filtersFromSearchParams(searchParams) {
     min_amount: searchParams.get('min_amount') || '',
     max_amount: searchParams.get('max_amount') || '',
     import_batch_id: searchParams.get('import_batch_id') || '',
+    // getAll, not get - this is the one filter the backend accepts as
+    // REPEATED query params (?transaction_ids=1&transaction_ids=2), not a
+    // single value, so reading only the first would silently drop every
+    // id after it.
+    transaction_ids: searchParams.getAll('transaction_ids').join(','),
   }
 }
 
@@ -103,6 +118,11 @@ export function searchParamsFromFilters(filters, pageSize) {
   if (filters.min_amount) params.set('min_amount', filters.min_amount)
   if (filters.max_amount) params.set('max_amount', filters.max_amount)
   if (filters.import_batch_id) params.set('import_batch_id', filters.import_batch_id)
+  if (filters.transaction_ids) {
+    for (const id of filters.transaction_ids.split(',')) {
+      if (id) params.append('transaction_ids', id)
+    }
+  }
 
   if (pageSize && pageSize !== DEFAULT_PAGE_SIZE) params.set('page_size', String(pageSize))
 
@@ -132,6 +152,13 @@ export function groupsQueryFromSearchParams(searchParams) {
   for (const key of GROUPS_FILTER_KEYS) {
     const value = searchParams.get(key)
     if (value) params.set(key, value)
+  }
+
+  // transaction_ids is carried separately from the scalar keys above - it's
+  // the one filter the backend accepts as REPEATED params, so copying it
+  // with a single get/set would silently keep only the first id.
+  for (const id of searchParams.getAll('transaction_ids')) {
+    params.append('transaction_ids', id)
   }
 
   return params.toString()
@@ -200,6 +227,7 @@ export const LEDGER_FILTER_GROUPS = [
   ['category'],
   ['transaction_type'],
   ['import_batch_id'],
+  ['transaction_ids'],
 ]
 
 export function activeFilterCount(filters) {
@@ -252,6 +280,16 @@ export function describeFilters(filters, { accounts = [], accountGroups = [], ca
     return batch ? batch.filename : filters.import_batch_id
   }
 
+  // Never the ids themselves - a bare list of database ids means nothing
+  // to a person reading the chip row; the count is what's actually useful
+  // ("2 transactions"), and this filter is never hand-edited anyway (see
+  // its own chip below).
+  const transactionIdsLabel = () => {
+    if (!filters.transaction_ids) return null
+    const count = filters.transaction_ids.split(',').filter(Boolean).length
+    return `${count} transaction${count === 1 ? '' : 's'}`
+  }
+
   return {
     date: range(filters.date_from, filters.date_to, formatDate),
     account: accountLabel(),
@@ -260,5 +298,6 @@ export function describeFilters(filters, { accounts = [], accountGroups = [], ca
     category: categoryLabel(),
     transaction_type: filters.transaction_type || null,
     import: importLabel(),
+    transaction_ids: transactionIdsLabel(),
   }
 }
