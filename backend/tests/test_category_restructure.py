@@ -459,3 +459,37 @@ def test_split_preview_agrees_with_what_the_split_moves(client, db_session):
 
     assert preview["parts"][0]["transaction_count"] == applied["transactions_moved"] == 2
     assert preview["remaining_count"] == 2
+
+
+def test_split_clears_categorized_by_rule_id_so_apply_rules_does_not_revert_it(client, db_session):
+    """Splitting a category moves matching transactions by an explicit user
+    action. If those rows were originally tagged by a broader rule pointing at
+    the source category, leaving categorized_by_rule_id intact would let a
+    subsequent 'Apply rules now' move them right back to the source category.
+    """
+
+    account = make_account(db_session)
+    groceries = make_category(client, "Groceries")
+    rule_id = client.post(
+        "/api/category-rules", json={"narration_pattern": "bws", "category_id": groceries}
+    ).json()["id"]
+
+    bws = make_transaction(db_session, account.id, debit=Decimal("-30.00"), category_id=groceries, narration="BWS LIQUOR")
+    bws.categorized_by_rule_id = rule_id
+    db_session.commit()
+
+    body = client.post("/api/categories/split", json={
+        "category_id": groceries,
+        "parts": [{"name": "Alcohol", "pattern": "bws", "create_rule": True}],
+    }).json()
+    alcohol_id = body["created"][0]["id"]
+
+    db_session.expire_all()
+    moved = db_session.get(Transaction, bws.id)
+    assert moved.category_id == alcohol_id
+    assert moved.categorized_by_rule_id is None
+
+    # Running Apply rules now must not revert the split transaction back to Groceries.
+    client.post("/api/category-rules/apply")
+    db_session.expire_all()
+    assert db_session.get(Transaction, bws.id).category_id == alcohol_id

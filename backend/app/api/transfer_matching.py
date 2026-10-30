@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ..deps import get_db
 from ..models import Account
 from ..schemas import TransferMatchingResponse, TransferMatchResponse, UnmatchedTransferLegResponse
-from ..services.transfer_matching import transfer_candidates, unmatched_transfer_legs
+from ..services.transfer_matching import transfer_analysis
 
 router = APIRouter()
 
@@ -18,8 +18,7 @@ def get_transfer_matches(db: Session = Depends(get_db)):
     docstring for why.
     """
 
-    matches = transfer_candidates(db)
-    unmatched = unmatched_transfer_legs(db, matches)
+    matches, unmatched = transfer_analysis(db)
 
     # One small lookup rather than joining Account into transfer_candidates'
     # own query - that function already has everything it needs (account

@@ -11,6 +11,7 @@
 // utils/format.formatPercent, imported here since it's equally pure),
 // and 'link' becomes a react-router <Link>.
 import { overBudgetLines } from './budgets.js'
+import { categoryPathLabel } from './categories.js'
 import { formatPercent, lastInclusiveDay, uncategorizedLedgerLink } from './format.js'
 
 function text(value) {
@@ -76,7 +77,7 @@ export function buildNarrative(report) {
     const verb = Number(mover.delta) >= 0 ? 'up' : 'down'
 
     segments.push(text(' '))
-    segments.push(link(mover.category_name, categoryLedgerLink(mover.category_id, report.start_date, report.end_date)))
+    segments.push(link(categoryPathLabel(mover), categoryLedgerLink(mover.category_id, report.start_date, report.end_date)))
     segments.push(text(` is the biggest change, ${verb} `))
     segments.push(amount(Math.abs(Number(mover.delta))))
     segments.push(text('.'))

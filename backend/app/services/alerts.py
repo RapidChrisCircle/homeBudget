@@ -15,7 +15,8 @@ the EXISTING RecurringDismissal / POST /recurring/dismissals mechanism
 verbatim - `detect_series()`'s own default already excludes a dismissed
 series, so an alert for it simply stops being generated, with no new state
 to track here. Only the three signal kinds that had no dismissal concept of
-their own - over-budget, a coverage gap, an unmatched transfer - get the new
+their own - over-budget, a coverage gap, an unmatched or half-categorized
+transfer - get the new
 generic, key-based AlertDismissal table (models.py). Each alert's `key` is
 built from the underlying FACT's own identity (which category and month;
 which account and gap; which transaction), never a surrogate id for a row
@@ -30,10 +31,10 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from ..models import Account, AlertDismissal, RecurringDismissal
-from .coverage import account_coverage_gaps
+from .coverage import all_account_coverage_gaps
 from .recurring import detect_series
 from .reporting import budget_lines, category_totals_for_period, default_period, month_bounds
-from .transfer_matching import transfer_candidates, unmatched_transfer_legs
+from .transfer_matching import transfer_analysis
 
 CATEGORY_PATH_SEPARATOR = " › "  # matches frontend/src/utils/categories.js's categoryPathLabel
 
@@ -137,12 +138,15 @@ def _recurring_alerts(db: Session) -> list[Alert]:
 
 def _coverage_alerts(db: Session, dismissed_keys: set[str]) -> list[Alert]:
 
-    accounts = db.query(Account.id, Account.name).all()
+    accounts = db.query(Account.id, Account.name).order_by(Account.id).all()
+    # One query across every account rather than one per account - see
+    # coverage.all_account_coverage_gaps.
+    gaps_by_account = all_account_coverage_gaps(db)
     alerts = []
 
     for account_id, account_name in accounts:
 
-        for gap in account_coverage_gaps(db, account_id):
+        for gap in gaps_by_account.get(account_id, []):
 
             key = f"coverage_gap:{account_id}:{gap.before_date.isoformat()}:{gap.after_date.isoformat()}"
 
@@ -164,11 +168,52 @@ def _coverage_alerts(db: Session, dismissed_keys: set[str]) -> list[Alert]:
 
 def _transfer_alerts(db: Session, dismissed_keys: set[str]) -> list[Alert]:
 
-    matches = transfer_candidates(db)
+    # One load of the matchable rows for both questions - see
+    # transfer_matching.transfer_analysis.
+    matches, unmatched = transfer_analysis(db)
     accounts = dict(db.query(Account.id, Account.name).all())
     alerts = []
 
-    for leg in unmatched_transfer_legs(db, matches):
+    # A matched pair where exactly ONE leg is categorized as a transfer is
+    # the case Finding 5 exists for: the other leg is still counted as
+    # ordinary spending or income, inflating reports, and - because its
+    # transfer-categorized partner IS matched - it never shows up as an
+    # unmatched leg below either. A pair where NEITHER leg is a transfer is
+    # deliberately not alerted on: two unrelated same-amount transactions a
+    # few days apart in different accounts are common enough (a refund, a
+    # split bill) that alerting on every one would bury the real signal -
+    # those stay visible on the Transfer Matching card, which is where
+    # "is this pair really a transfer?" gets decided.
+    for match in matches:
+
+        if match.leg_a_is_transfer == match.leg_b_is_transfer:
+            continue
+
+        key = f"mismatched_transfer:{match.leg_a_id}:{match.leg_b_id}"
+
+        if key in dismissed_keys:
+            continue
+
+        if match.leg_a_is_transfer:
+            odd_account_id, odd_category = match.leg_b_account_id, match.leg_b_category_name
+        else:
+            odd_account_id, odd_category = match.leg_a_account_id, match.leg_a_category_name
+
+        alerts.append(Alert(
+            key=key,
+            kind="mismatched_transfer",
+            title="Transfer with only one side categorized as a transfer",
+            detail=(
+                f"{accounts.get(match.leg_a_account_id, '')} → {accounts.get(match.leg_b_account_id, '')} "
+                f"on {match.leg_a_date.isoformat()} - the {accounts.get(odd_account_id, '')} side is "
+                f"{odd_category or 'uncategorized'}"
+            ),
+            amount=match.amount,
+            link=f"/transactions?transaction_ids={match.leg_a_id}&transaction_ids={match.leg_b_id}",
+            dismiss_kind="generic",
+        ))
+
+    for leg in unmatched:
 
         key = f"unmatched_transfer:{leg.id}"
 

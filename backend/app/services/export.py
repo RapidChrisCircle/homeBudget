@@ -33,6 +33,7 @@ from sqlalchemy.orm import Query, Session
 from ..models import (
     Account,
     AccountGroup,
+    AlertDismissal,
     Category,
     CategoryBudget,
     CategoryRule,
@@ -132,6 +133,7 @@ def database_snapshot(db: Session) -> dict:
     from ..schemas import (
         AccountGroupResponse,
         AccountResponse,
+        AlertDismissalResponse,
         CategoryResponse,
         CategoryRuleResponse,
         CsvFormatMappingResponse,
@@ -214,6 +216,13 @@ def database_snapshot(db: Session) -> dict:
         ),
         "recurring_dismissals": _dump(
             db.query(RecurringDismissal).order_by(RecurringDismissal.id).all(), RecurringDismissalResponse
+        ),
+        # The generic counterpart to recurring_dismissals above (T2.4/T5.3) -
+        # every coverage gap, over-budget month and unmatched transfer a
+        # household has already looked at and dismissed. Leaving these out
+        # would make a backup silently resurrect every one of them.
+        "alert_dismissals": _dump(
+            db.query(AlertDismissal).order_by(AlertDismissal.id).all(), AlertDismissalResponse
         ),
         "pay_schedule": (
             {

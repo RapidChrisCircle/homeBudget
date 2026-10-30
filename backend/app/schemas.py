@@ -685,6 +685,7 @@ class TopMoverResponse(BaseModel):
 
     category_id: int
     category_name: str
+    parent_name: str | None = None
     kind: str
     current: Decimal
     prior: Decimal

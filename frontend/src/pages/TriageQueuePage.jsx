@@ -123,22 +123,24 @@ export default function TriageQueuePage() {
         category_id: categoryId,
       })
 
+      let createdRuleId = null
       if (alsoCreateRule) {
         // Best-effort - a duplicate or otherwise-rejected rule must not
         // block progress through the queue, which is the whole point of
         // this page. Mirrors RuleEditor.jsx's own prefill convention:
         // merchant_label (here, group.merchant) over the raw narration.
         try {
-          await api.post('/category-rules', {
+          const ruleResponse = await api.post('/category-rules', {
             narration_pattern: current.merchant || current.sample_narration,
             category_id: categoryId,
           })
+          createdRuleId = ruleResponse?.data?.id ?? null
         } catch {
           // Swallowed deliberately - see comment above.
         }
       }
 
-      setUndoStack((stack) => [...stack, { group: current, atIndex: index }])
+      setUndoStack((stack) => [...stack, { group: current, atIndex: index, createdRuleId }])
       setQueue((q) => {
         const next = q.filter((g) => g.narration_key !== current.narration_key)
         setIndex((i) => Math.min(i, Math.max(next.length - 1, 0)))
@@ -168,12 +170,22 @@ export default function TriageQueuePage() {
       // Exact only because every group in this queue is uncategorised by
       // construction (GET /transactions/groups defaults to
       // include_categorized=false) - re-nulling is always the correct
-      // undo here. This does NOT revert an "also create a rule" side
-      // effect from the same assignment, if one was made.
+      // undo here. If the assignment also created a rule, delete that rule
+      // too (best-effort, matching creation above) so an undo doesn't
+      // leave a rule behind that the next "Apply rules now" would re-apply.
       await api.post('/transactions/bulk-category', {
         transaction_ids: last.group.transaction_ids,
         category_id: null,
       })
+
+      if (last.createdRuleId != null) {
+        try {
+          await api.delete(`/category-rules/${last.createdRuleId}`)
+        } catch {
+          // Best-effort - if the rule was already removed elsewhere, undoing
+          // the category assignment still completes cleanly.
+        }
+      }
 
       setUndoStack((stack) => stack.slice(0, -1))
       setQueue((q) => {

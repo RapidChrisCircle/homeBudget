@@ -93,6 +93,27 @@ def _validate_category_payload(db: Session, payload, category: Category | None =
                 detail="Sub-categories are one level only - the selected parent already has a parent of its own",
             )
 
+        # The mirror of api/category_rules.py's leaf-only check: a rule
+        # aimed at a category that is about to BECOME a parent would keep
+        # assigning transactions straight to a grouping-only category. Only
+        # checked when the parent is actually changing, so renaming a child
+        # of a pre-existing group never trips over legacy data.
+        parent_is_changing = category is None or category.parent_id != parent.id
+        parent_rule_count = (
+            db.query(func.count(CategoryRule.id))
+            .filter(CategoryRule.category_id == parent.id)
+            .scalar()
+        ) if parent_is_changing else 0
+
+        if parent_rule_count:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f'"{parent.name}" is the target of {parent_rule_count} rule(s) - point them at a '
+                    "sub-category first, since a category with sub-categories cannot be assigned directly"
+                ),
+            )
+
     has_children = category is not None and len(category.children) > 0
 
     if has_children and payload.parent_id is not None:

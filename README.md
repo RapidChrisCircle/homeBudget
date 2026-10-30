@@ -64,7 +64,7 @@ A row whose narration starts with `AUTHORISATION ONLY - ` **and** carries a nume
 
 Accounts are created automatically from the account numbers in the file. Every upload is recorded as a batch, listed in the same **Import** card as the upload control itself — the file input and its result/rejection on top, batch history (with **Wipe all**) below, one card rather than two. Deleting a batch cascades to its transactions. **Wipe all** clears every transaction and batch — there's no undo.
 
-Saved mappings are managed via `GET`/`POST`/`DELETE /api/csv-formats` (`backend/app/models.py`'s `CsvFormatMapping`, `backend/app/services/csv_formats.py`) — there's no settings page for them yet, only the mapping panel's own save action.
+Saved mappings are managed via `GET`/`POST`/`DELETE /api/csv-formats` (`backend/app/models.py`'s `CsvFormatMapping`, `backend/app/services/csv_formats.py`) and appear under **Saved CSV Formats** in the Import card whenever at least one custom format has been saved, where an outdated or mis-mapped format can be deleted so the next upload with that header re-opens the mapping panel.
 
 ## Manual transactions
 

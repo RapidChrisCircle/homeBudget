@@ -101,9 +101,30 @@ def transfer_candidates(db: Session, window_days: int = TRANSFER_WINDOW_DAYS) ->
     against each other at all.
     """
 
+    return _match_pairs(_matchable_transactions(db), window_days)
+
+
+def transfer_analysis(
+    db: Session, window_days: int = TRANSFER_WINDOW_DAYS
+) -> tuple[list[TransferMatch], list[Transaction]]:
+    """(transfer_candidates, unmatched_transfer_legs) from ONE load of the
+    matchable rows. Calling the two public functions back to back hydrates
+    every unsplit transaction (plus its category) twice; the alerts feed and
+    GET /transfers both need both answers on every request, so this is the
+    entry point they use.
+    """
+
+    rows = _matchable_transactions(db)
+    matches = _match_pairs(rows, window_days)
+
+    return matches, _unmatched_in(rows, matches)
+
+
+def _match_pairs(rows: list[Transaction], window_days: int) -> list[TransferMatch]:
+
     by_amount: dict[Decimal, list[Transaction]] = {}
 
-    for transaction in _matchable_transactions(db):
+    for transaction in rows:
 
         amount = _signed_amount(transaction)
 
@@ -177,9 +198,14 @@ def unmatched_transfer_legs(db: Session, matches: list[TransferMatch] | None = N
     if matches is None:
         matches = transfer_candidates(db)
 
+    return _unmatched_in(_matchable_transactions(db), matches)
+
+
+def _unmatched_in(rows: list[Transaction], matches: list[TransferMatch]) -> list[Transaction]:
+
     matched_ids = {m.leg_a_id for m in matches} | {m.leg_b_id for m in matches}
 
     return [
-        t for t in _matchable_transactions(db)
+        t for t in rows
         if t.category is not None and t.category.kind == "transfer" and t.id not in matched_ids
     ]

@@ -121,8 +121,9 @@ function App() {
   useEffect(() => {
     let cancelled = false
 
-    // The initial population of the shared store above - AlertsPage takes
-    // over keeping it fresh after this, via the same setAlertsCount setter.
+    // The initial population of the shared store above - AlertsPage keeps
+    // it fresh after its own dismissals, and services/api.ts refreshes it
+    // after every other mutation, via the same setAlertsCount setter.
     api.get('/alerts')
       .then((response) => {
         if (!cancelled) {

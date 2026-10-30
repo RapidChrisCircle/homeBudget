@@ -64,8 +64,24 @@ def _validate_rule_payload(db: Session, payload):
     ):
         raise HTTPException(status_code=422, detail="min_amount cannot be greater than max_amount")
 
-    if db.get(Category, payload.category_id) is None:
+    category = db.get(Category, payload.category_id)
+
+    if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
+
+    # The same leaf-only invariant api/transactions.py's
+    # _validate_assignable_category enforces for a hand assignment - a rule
+    # is just an automated assignment, and one aimed at a parent would put
+    # transactions directly on a grouping-only category on every future
+    # import and every "Apply rules now".
+    if category.children:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This category has sub-categories and cannot be a rule's target - "
+                "choose one of its sub-categories instead"
+            ),
+        )
 
 
 def _list_rules(db: Session) -> list[CategoryRule]:

@@ -153,6 +153,11 @@ def top_movers(periods: list[tuple[int, int]], grid_rows: list[dict], limit: int
         movers.append({
             "category_id": row["category_id"],
             "category_name": row["category_name"],
+            # So the narrative can name it "Parent › Child" like every
+            # other place a category stands as a row of its own - two
+            # leaves can share a bare name ("Home › Maintenance" vs
+            # "Car › Maintenance").
+            "parent_name": row.get("parent_name"),
             "kind": row["kind"],
             "current": current,
             "prior": prior,

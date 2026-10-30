@@ -4,6 +4,7 @@ import {
   describeApiError,
   getMultipleBuildsDetected,
   recordBuildIdentity,
+  shouldRefreshAlertsAfter,
   subscribeToBuildIdentity,
 } from './api.ts'
 
@@ -200,5 +201,34 @@ describe('recordBuildIdentity', () => {
   it('tolerates a response with no headers object at all', () => {
     expect(() => recordBuildIdentity(undefined)).not.toThrow()
     expect(() => recordBuildIdentity({})).not.toThrow()
+  })
+})
+
+describe('shouldRefreshAlertsAfter', () => {
+  it('refreshes after a mutation anywhere else in the app', () => {
+    expect(shouldRefreshAlertsAfter({ method: 'post', url: '/transactions/import' })).toBe(true)
+    expect(shouldRefreshAlertsAfter({ method: 'patch', url: '/transactions/7/category' })).toBe(true)
+    expect(shouldRefreshAlertsAfter({ method: 'put', url: '/budgets/3' })).toBe(true)
+    expect(shouldRefreshAlertsAfter({ method: 'delete', url: '/transactions/7' })).toBe(true)
+    expect(shouldRefreshAlertsAfter({ method: 'post', url: '/recurring/dismissals' })).toBe(true)
+  })
+
+  it('never refreshes after a plain read', () => {
+    expect(shouldRefreshAlertsAfter({ method: 'get', url: '/transactions' })).toBe(false)
+  })
+
+  it('leaves /alerts to AlertsPage, which already pushes its own fresh count', () => {
+    expect(shouldRefreshAlertsAfter({ method: 'post', url: '/alerts/dismissals' })).toBe(false)
+    expect(shouldRefreshAlertsAfter({ method: 'post', url: '/alerts/dismissals/all' })).toBe(false)
+  })
+
+  it('skips read-only POSTs - previews and forecast scenarios change nothing', () => {
+    expect(shouldRefreshAlertsAfter({ method: 'post', url: '/category-rules/preview' })).toBe(false)
+    expect(shouldRefreshAlertsAfter({ method: 'post', url: '/categories/split/preview' })).toBe(false)
+    expect(shouldRefreshAlertsAfter({ method: 'post', url: '/forecast/scenario' })).toBe(false)
+  })
+
+  it('tolerates a missing config', () => {
+    expect(shouldRefreshAlertsAfter(undefined)).toBe(false)
   })
 })

@@ -428,6 +428,15 @@ def split_category(db: Session, category_id: int, parts) -> dict:
             continue
 
         transaction.category_id = created[index].id
+        # A split is a deliberate human decision about where these rows
+        # belong, so they move into the same protected state a manual
+        # categorization does (see services/categorization.py's eligibility
+        # rule). Leaving the old rule marker in place would let "Apply rules
+        # now" re-evaluate them, match the broader rule that originally
+        # sorted them into the source (which, by _create_split_rules' own
+        # design, always outranks any rule a split creates), and silently
+        # move every one of them straight back.
+        transaction.categorized_by_rule_id = None
         transactions_moved += 1
 
     for split, narration in split_rows:

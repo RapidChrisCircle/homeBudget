@@ -153,6 +153,27 @@ describe('AlertsPage', () => {
     expect(screen.getByRole('heading', { name: /Missed \/ stopped \(1\)/ })).toBeInTheDocument()
   })
 
+  it('renders a mismatched_transfer alert under the Half-categorized transfer group with its explanation', async () => {
+    const mismatchedTransferAlert = {
+      key: 'mismatched_transfer:10:11',
+      kind: 'mismatched_transfer',
+      title: 'Transfer pair has only one leg categorized as Transfer: Transfer to Savings',
+      detail: 'Everyday → Savings · 2026-07-05 —Savings leg is Uncategorized',
+      amount: '500.00',
+      link: '/transactions?transaction_ids=10&transaction_ids=11',
+      dismiss_kind: 'generic',
+      recurring_account_id: null,
+      recurring_narration_key: null,
+    }
+    mockLoad([mismatchedTransferAlert])
+
+    renderPage()
+    await waitForLoaded()
+
+    expect(screen.getByRole('heading', { name: /Half-categorized transfer \(1\)/ })).toBeInTheDocument()
+    expect(screen.getByText(/matched transfer pair between two accounts has only one side categorized as a Transfer/)).toBeInTheDocument()
+  })
+
   it('shows an explanation of what a kind means and how to resolve it, once per section', async () => {
     mockLoad([overBudgetAlert])
 

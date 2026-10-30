@@ -40,11 +40,16 @@ A brand new account's very first transaction has nothing before it to
 check against - that is the start of its recorded history, not a gap, and
 the pairwise walk below never flags it (there is no earlier row to pair it
 with).
+
+Manually added (is_manual) transactions are left out of the walk entirely -
+see _coverage_query for why an app-computed balance is no evidence about a
+missing bank statement.
 """
 
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from itertools import groupby
 
 from sqlalchemy.orm import Session
 
@@ -73,25 +78,11 @@ class CoverageGap:
     discrepancy: Decimal
 
 
-def account_coverage_gaps(db: Session, account_id: int) -> list[CoverageGap]:
-    """Every coverage gap in one account's own transaction history, oldest
-    first. Empty means the recorded history is fully self-consistent - not
-    a guarantee nothing is missing (a gap that happens to net to exactly
-    zero activity is arithmetically invisible), only that nothing PROVABLY
-    is.
+def _gaps_in_rows(rows) -> list[CoverageGap]:
+    """The pairwise walk itself, over one account's rows already ordered by
+    (transaction_date, id). Shared by the single-account and all-accounts
+    entry points below so the two can never disagree about what a gap is.
     """
-
-    rows = (
-        db.query(
-            Transaction.transaction_date,
-            Transaction.debit,
-            Transaction.credit,
-            Transaction.balance,
-        )
-        .filter(Transaction.account_id == account_id)
-        .order_by(Transaction.transaction_date, Transaction.id)
-        .all()
-    )
 
     gaps: list[CoverageGap] = []
 
@@ -117,3 +108,70 @@ def account_coverage_gaps(db: Session, account_id: int) -> list[CoverageGap]:
             ))
 
     return gaps
+
+
+def _coverage_query(db: Session):
+    """Imported rows only. A manual (is_manual) transaction's balance is
+    one this app computed at the moment it was entered (see
+    api/transactions.create_transaction), not one a bank reported - so it
+    carries no evidence either way about whether a STATEMENT is missing.
+    Worse, once the real statement covering that date is imported, the
+    manual row's app-computed balance no longer lines up with the bank's
+    own running balance on either side of it, which would otherwise report
+    a permanent, undismissable-in-spirit "gap" that is really just a
+    placeholder awaiting reconciliation.
+    """
+
+    return (
+        db.query(
+            Transaction.account_id,
+            Transaction.transaction_date,
+            Transaction.debit,
+            Transaction.credit,
+            Transaction.balance,
+        )
+        .filter(Transaction.is_manual.is_(False))
+    )
+
+
+def account_coverage_gaps(db: Session, account_id: int) -> list[CoverageGap]:
+    """Every coverage gap in one account's own transaction history, oldest
+    first. Empty means the recorded history is fully self-consistent - not
+    a guarantee nothing is missing (a gap that happens to net to exactly
+    zero activity is arithmetically invisible), only that nothing PROVABLY
+    is.
+    """
+
+    rows = (
+        _coverage_query(db)
+        .filter(Transaction.account_id == account_id)
+        .order_by(Transaction.transaction_date, Transaction.id)
+        .all()
+    )
+
+    return _gaps_in_rows(rows)
+
+
+def all_account_coverage_gaps(db: Session) -> dict[int, list[CoverageGap]]:
+    """account_coverage_gaps for EVERY account, in one query rather than one
+    per account - what the alerts feed needs on every load. Accounts with no
+    gaps are simply absent from the result. Rows are still walked strictly
+    within each account (see module docstring: never across accounts).
+    """
+
+    rows = (
+        _coverage_query(db)
+        .order_by(Transaction.account_id, Transaction.transaction_date, Transaction.id)
+        .all()
+    )
+
+    result: dict[int, list[CoverageGap]] = {}
+
+    for account_id, account_rows in groupby(rows, key=lambda row: row.account_id):
+
+        gaps = _gaps_in_rows(list(account_rows))
+
+        if gaps:
+            result[account_id] = gaps
+
+    return result

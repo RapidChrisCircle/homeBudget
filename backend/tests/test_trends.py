@@ -306,3 +306,21 @@ def test_trends_categories_carry_their_parent(client, db_session):
 
     assert row["parent_id"] == parent.id
     assert row["parent_name"] == "Food"
+
+
+def test_top_movers_carries_parent_name_for_subcategories(db_session):
+
+    parent = make_category(db_session, name="Food")
+    child = make_category(db_session, name="Groceries")
+    child.parent_id = parent.id
+
+    make_transaction(db_session, transaction_date=date(2026, 6, 5), debit="-100.00", category_id=child.id)
+    make_transaction(db_session, transaction_date=date(2026, 7, 5), debit="-350.00", category_id=child.id)
+    db_session.commit()
+
+    periods, grid_rows = category_grid(db_session, 2026, 7, months=2)
+    movers = top_movers(periods, grid_rows)
+
+    assert len(movers) == 1
+    assert movers[0]["category_name"] == "Groceries"
+    assert movers[0]["parent_name"] == "Food"

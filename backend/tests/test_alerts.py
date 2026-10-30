@@ -181,6 +181,37 @@ def test_unmatched_transfer_alert_appears_and_can_be_dismissed(db_session):
     assert all(a.kind != "unmatched_transfer" for a in alerts_after)
 
 
+def test_mismatched_transfer_alert_appears_when_only_one_leg_is_categorized_as_transfer(db_session):
+    """A matched transfer pair where one leg is categorized as a transfer and
+    the other is left uncategorized (or expense/income) produces a
+    mismatched_transfer alert linking to both legs."""
+
+    everyday = make_account(db_session, "Everyday", "1111")
+    savings = make_account(db_session, "Savings", "2222")
+    transfer_category = make_category(db_session, "Internal Transfer", kind="transfer")
+
+    leg_a = make_transaction(
+        db_session, date(2026, 1, 5), narration="Transfer to Savings", debit=Decimal("-500.00"),
+        category_id=transfer_category.id, account_id=everyday.id, account_number="1111",
+    )
+    leg_b = make_transaction(
+        db_session, date(2026, 1, 5), narration="Transfer from Everyday", credit=Decimal("500.00"),
+        category_id=None, account_id=savings.id, account_number="2222",
+    )
+    db_session.commit()
+
+    alerts = collect_alerts(db_session)
+    mismatched = [a for a in alerts if a.kind == "mismatched_transfer"]
+
+    assert len(mismatched) == 1
+    assert mismatched[0].key == f"mismatched_transfer:{leg_a.id}:{leg_b.id}"
+    assert mismatched[0].link == f"/transactions?transaction_ids={leg_a.id}&transaction_ids={leg_b.id}"
+    assert mismatched[0].dismiss_kind == "generic"
+
+    dismiss_alert(db_session, mismatched[0].key)
+    assert all(a.kind != "mismatched_transfer" for a in collect_alerts(db_session))
+
+
 # --- recurring: missed/stopped and price change ---------------------------------
 
 def test_ended_recurring_series_produces_a_missed_recurring_alert(db_session):

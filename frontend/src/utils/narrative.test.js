@@ -105,6 +105,28 @@ describe('buildNarrative', () => {
     expect(joinText(buildNarrative(report))).toContain('Fuel is the biggest change, down 150')
   })
 
+  it('formats a sub-category top mover with its Parent › Child path', () => {
+    const report = baseReport({
+      has_prior_period_data: true,
+      prior_summary: { total_income: '5000.00', total_spending: '3000.00', net_saved: '2000.00' },
+      top_movers: [
+        {
+          category_id: 7,
+          category_name: 'Groceries',
+          parent_name: 'Food',
+          kind: 'expense',
+          current: '500',
+          prior: '100',
+          delta: '400',
+        },
+      ],
+    })
+
+    const segments = buildNarrative(report)
+    const moverLink = segments.find((s) => s.type === 'link' && s.to.includes('category_id=7'))
+    expect(moverLink.text).toBe('Food › Groceries')
+  })
+
   it('pluralizes the over-budget clause correctly, and links to /reports', () => {
     const one = baseReport({ budgets: [{ category_id: 1, difference: '-10.00' }] })
     expect(joinText(buildNarrative(one))).toContain('1 category is over budget')

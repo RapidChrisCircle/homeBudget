@@ -72,6 +72,7 @@ function resolveCategoryColorVar(categoryId, categories) {
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState([])
   const [batches, setBatches] = useState([])
+  const [csvFormats, setCsvFormats] = useState([])
   const [categories, setCategories] = useState([])
   const [accounts, setAccounts] = useState([])
   const [accountGroups, setAccountGroups] = useState([])
@@ -437,8 +438,9 @@ export default function TransactionsPage() {
   // refetched when a filter changes - only when something that can actually
   // change them happens (an import can create both accounts and batches).
   const fetchLookups = async (cancelledRef) => {
-    const [batchesRes, categoriesRes, accountsRes, groupsRes, typesRes] = await Promise.all([
+    const [batchesRes, csvFormatsRes, categoriesRes, accountsRes, groupsRes, typesRes] = await Promise.all([
       api.get('/import-batches'),
+      api.get('/csv-formats'),
       api.get('/categories'),
       api.get('/accounts'),
       api.get('/account-groups'),
@@ -447,6 +449,7 @@ export default function TransactionsPage() {
 
     if (!cancelledRef?.current) {
       setBatches(batchesRes.data)
+      setCsvFormats(csvFormatsRes.data)
       setCategories(categoriesRes.data)
       setAccounts(accountsRes.data)
       setAccountGroups(groupsRes.data)
@@ -847,7 +850,10 @@ export default function TransactionsPage() {
     setActionError('')
     try {
       await api.delete(`/transactions/${id}`)
-      await refresh()
+      // Deleting a row updates its ImportBatch.row_count (and removes the
+      // shared "Manually added" batch once its last row is gone), so the
+      // Import card's history table needs a lookup refresh too.
+      await refresh({ withLookups: true })
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Delete failed'
       setActionError(String(message))
@@ -861,6 +867,24 @@ export default function TransactionsPage() {
     setActionError('')
     try {
       await api.delete(`/import-batches/${id}`)
+      await refresh({ withLookups: true })
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Delete failed'
+      setActionError(String(message))
+    }
+  }
+
+  const handleDeleteCsvFormat = async (format) => {
+    if (
+      !window.confirm(
+        `Delete saved CSV format "${format.name}"? Future uploads with its column layout will ask to be mapped again.`
+      )
+    ) {
+      return
+    }
+    setActionError('')
+    try {
+      await api.delete(`/csv-formats/${format.id}`)
       await refresh({ withLookups: true })
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Delete failed'
@@ -1001,6 +1025,44 @@ export default function TransactionsPage() {
             ))}
           </tbody>
         </table>
+
+        {/* Only shown once at least one custom format has been saved via
+            CsvFormatMapper - an install that only ever imports the built-in
+            layout has nothing to manage here. */}
+        {csvFormats.length > 0 && (
+          <>
+            <h4>Saved CSV Formats</h4>
+            <table>
+              <caption className="visually-hidden">Saved CSV format mappings</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Format Name</th>
+                  <th scope="col">Institution</th>
+                  <th scope="col">Date Format</th>
+                  <th scope="col"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {csvFormats.map((format) => (
+                  <tr key={format.id}>
+                    <td className="cell-wrap">{format.name}</td>
+                    <td>{format.institution || '—'}</td>
+                    <td><code>{format.date_format}</code></td>
+                    <td>
+                      <button
+                        type="button"
+                        className="button-danger"
+                        onClick={() => handleDeleteCsvFormat(format)}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
       </Card>
 
       <Card id="transactions-add" title="Add a Transaction">

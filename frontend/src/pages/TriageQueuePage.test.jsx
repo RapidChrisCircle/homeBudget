@@ -9,6 +9,7 @@ vi.mock('../services/api', () => ({
   api: {
     get: vi.fn(),
     post: vi.fn(),
+    delete: vi.fn(),
   },
 }))
 
@@ -212,6 +213,31 @@ describe('TriageQueuePage', () => {
     })
     expect(screen.getByRole('heading', { name: 'Coles', level: 3 })).toBeInTheDocument()
     expect(screen.getByText('2 merchants · 5 transactions left')).toBeInTheDocument()
+  })
+
+  it('undo also deletes the rule created alongside the assignment when "Also create a rule" was checked', async () => {
+    mockLoad()
+    api.post.mockImplementation((path) => {
+      if (path === '/category-rules') {
+        return Promise.resolve({ data: { id: 42 } })
+      }
+      return Promise.resolve({ data: {} })
+    })
+    api.delete.mockResolvedValue({})
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Coles', level: 3 })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Also create a rule from this merchant'))
+    fireEvent.click(screen.getByRole('option', { name: 'Utilities' }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Red Energy', level: 3 })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /Undo/ }))
+
+    await waitFor(() => {
+      expect(api.delete).toHaveBeenCalledWith('/category-rules/42')
+    })
   })
 
   it('the Undo button is disabled until something has been assigned', async () => {

@@ -407,3 +407,22 @@ def test_apply_rules_matches_on_amount_range_using_absolute_value(client):
     response = client.post("/api/category-rules/apply")
 
     assert response.json()["categorized_count"] == 1
+
+
+def test_create_and_update_rule_reject_a_parent_category(client):
+    """A category with sub-categories is grouping-only; rules must not target
+    it on create or update."""
+
+    parent_id = client.post("/api/categories", json={"name": "Food", "kind": "expense"}).json()["id"]
+    child_id = client.post(
+        "/api/categories", json={"name": "Groceries", "kind": "expense", "parent_id": parent_id}
+    ).json()["id"]
+
+    create_resp = client.post("/api/category-rules", json=rule_payload(parent_id))
+    assert create_resp.status_code == 422
+    assert "sub-categories" in create_resp.json()["detail"]
+
+    rule_id = client.post("/api/category-rules", json=rule_payload(child_id)).json()["id"]
+    update_resp = client.put(f"/api/category-rules/{rule_id}", json=rule_payload(parent_id))
+    assert update_resp.status_code == 422
+    assert "sub-categories" in update_resp.json()["detail"]

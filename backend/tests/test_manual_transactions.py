@@ -401,3 +401,22 @@ def test_delete_manual_transaction(client):
 
     assert response.status_code == 204
     assert client.get("/api/transactions", params={"page_size": 50}).json()["items"] == []
+
+
+def test_delete_manual_transaction_decrements_batch_row_count_and_removes_empty_manual_batch(client):
+
+    account = make_account(client)
+    first = create_manual(client, account["id"], transaction_date="2026-09-01", debit="5.00").json()
+    second = create_manual(client, account["id"], transaction_date="2026-09-02", debit="10.00").json()
+
+    batches_after_two = client.get("/api/import-batches").json()
+    assert len(batches_after_two) == 1
+    assert batches_after_two[0]["row_count"] == 2
+
+    client.delete(f"/api/transactions/{second['id']}")
+    batches_after_one = client.get("/api/import-batches").json()
+    assert len(batches_after_one) == 1
+    assert batches_after_one[0]["row_count"] == 1
+
+    client.delete(f"/api/transactions/{first['id']}")
+    assert client.get("/api/import-batches").json() == []

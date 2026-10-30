@@ -141,7 +141,7 @@ def test_export_database_includes_every_table(client):
     assert set(body.keys()) == {
         "account_groups", "accounts", "categories", "category_rules", "category_budgets",
         "import_batches", "transactions", "csv_format_mappings", "savings_goals",
-        "dashboard_widgets", "recurring_dismissals", "pay_schedule",
+        "dashboard_widgets", "recurring_dismissals", "alert_dismissals", "pay_schedule",
     }
 
 
@@ -227,8 +227,20 @@ def test_export_database_on_an_empty_database_has_empty_lists(client):
     assert body == {
         "account_groups": [], "accounts": [], "categories": [], "category_rules": [],
         "category_budgets": [], "import_batches": [], "transactions": [], "csv_format_mappings": [],
-        "savings_goals": [], "dashboard_widgets": [], "recurring_dismissals": [], "pay_schedule": None,
+        "savings_goals": [], "dashboard_widgets": [], "recurring_dismissals": [], "alert_dismissals": [],
+        "pay_schedule": None,
     }
+
+
+def test_export_database_includes_alert_dismissals(client):
+    """A backup that dropped these would resurrect every alert a household
+    had already dismissed."""
+
+    client.post("/api/alerts/dismissals", json={"alert_key": "coverage_gap:1:2026-01-01:2026-01-05"})
+
+    body = json.loads(client.get("/api/export/database").text)
+
+    assert [row["alert_key"] for row in body["alert_dismissals"]] == ["coverage_gap:1:2026-01-01:2026-01-05"]
 
 
 def test_export_database_includes_the_pay_schedule_when_configured(client):

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { setAlertsCount } from "./alertsCount.ts";
 
 // FastAPI's own body for a request that reached A server but matched no
 // route there at all - not something any endpoint in this app raises on
@@ -181,9 +182,69 @@ export const api = axios.create({
 
 });
 
+// --- Keeping the Alerts nav badge fresh after any mutation ------------------
+//
+// services/alertsCount.ts's own comment explains why the badge lives in a
+// shared store; AlertsPage keeps it fresh after its own dismissals. But
+// nearly every OTHER mutation in the app can change the count too - an
+// import (new coverage gaps, new over-budget months), categorizing a
+// transfer leg, editing a budget, dismissing a recurring series on
+// /recurring - and none of those pages know or care about the badge. This
+// is the one choke point every one of them already passes through, so
+// the refresh lives here rather than being remembered at each call site
+// (and silently forgotten at the next new one).
+//
+// Debounced, so a burst of mutations (a bulk archive firing N requests,
+// a save followed by its own refetch) costs one GET /alerts, not N.
+// Skipped for /alerts itself (AlertsPage already pushes the fresh count
+// after its own dismissals) and for read-only POSTs - previews and
+// forecast scenarios change nothing persistent.
+const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
+const READ_ONLY_POST_PATTERNS = [/\/preview(\?|$)/, /^\/forecast\/scenario/];
+const ALERTS_REFRESH_DEBOUNCE_MS = 400;
+let alertsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Exported for the same reason recordBuildIdentity is - a page test mocks
+// the whole `api` module, so logic wired only into the interceptor would
+// otherwise never run under test.
+export function shouldRefreshAlertsAfter(config: any): boolean {
+    const method = (config?.method || "get").toLowerCase();
+    const url: string = config?.url || "";
+
+    if (!MUTATING_METHODS.has(method)) {
+        return false;
+    }
+
+    if (url.startsWith("/alerts")) {
+        return false;
+    }
+
+    return !READ_ONLY_POST_PATTERNS.some((pattern) => pattern.test(url));
+}
+
+function scheduleAlertsCountRefresh() {
+    if (alertsRefreshTimer !== null) {
+        clearTimeout(alertsRefreshTimer);
+    }
+
+    alertsRefreshTimer = setTimeout(() => {
+        alertsRefreshTimer = null;
+        api.get("/alerts")
+            .then((response) => setAlertsCount(response.data.count))
+            .catch(() => {
+                // A failed refresh just leaves the last known count - the
+                // same "no badge beats a wrong error" posture App.jsx's own
+                // initial fetch takes.
+            });
+    }, ALERTS_REFRESH_DEBOUNCE_MS);
+}
+
 api.interceptors.response.use(
     (response) => {
         recordBuildIdentity(response);
+        if (shouldRefreshAlertsAfter(response.config)) {
+            scheduleAlertsCountRefresh();
+        }
         return response;
     },
     (error) => {

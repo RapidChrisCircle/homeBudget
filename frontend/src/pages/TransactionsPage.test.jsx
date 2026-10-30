@@ -72,6 +72,7 @@ function envelope(transactions, overrides = {}) {
 function mockLoad({
   transactions = [sampleTransaction],
   batches = [sampleBatch],
+  csvFormats = [],
   categories = [sampleCategory],
   accounts = [sampleAccount],
   accountGroups = [],
@@ -92,6 +93,9 @@ function mockLoad({
     }
     if (path === '/import-batches') {
       return Promise.resolve({ data: batches })
+    }
+    if (path === '/csv-formats') {
+      return Promise.resolve({ data: csvFormats })
     }
     if (path === '/categories') {
       return Promise.resolve({ data: categories })
@@ -1402,7 +1406,7 @@ describe('TransactionsPage', () => {
     const isLookupCall = ([path]) => !path.startsWith('/transactions?') && !path.startsWith('/transactions/groups')
 
     const lookupCallsAfterMount = api.get.mock.calls.filter(isLookupCall).length
-    expect(lookupCallsAfterMount).toBe(6)
+    expect(lookupCallsAfterMount).toBe(7)
 
     applyHeaderFilter('Narration', () => {
       fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coffee' } })
@@ -1413,7 +1417,7 @@ describe('TransactionsPage', () => {
     })
 
     const lookupCallsAfterFilter = api.get.mock.calls.filter(isLookupCall).length
-    expect(lookupCallsAfterFilter).toBe(6)
+    expect(lookupCallsAfterFilter).toBe(7)
   })
 
   it('does refetch the lookups after an import, which can create accounts and batches', async () => {
@@ -1777,5 +1781,42 @@ describe('TransactionsPage CSV export', () => {
         'href', '/api/transactions/export?search=coffee'
       )
     })
+  })
+})
+
+describe('TransactionsPage saved CSV formats', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('hides the Saved CSV Formats section when no custom formats exist', async () => {
+    mockLoad({ csvFormats: [] })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Coffee')).toBeInTheDocument())
+
+    expect(screen.queryByText('Saved CSV Formats')).not.toBeInTheDocument()
+  })
+
+  it('lists saved CSV format mappings and deletes one when confirmed', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mockLoad({
+      csvFormats: [
+        { id: 4, name: 'My Credit Union', institution: 'MCU', date_format: '%Y-%m-%d' },
+      ],
+    })
+    api.delete.mockResolvedValue({})
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Saved CSV Formats')).toBeInTheDocument())
+
+    const row = screen.getByText('My Credit Union').closest('tr')
+    expect(within(row).getByText('MCU')).toBeInTheDocument()
+    expect(within(row).getByText('%Y-%m-%d')).toBeInTheDocument()
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/csv-formats/4'))
+    confirmSpy.mockRestore()
   })
 })

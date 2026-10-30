@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import ValidationError
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
@@ -872,7 +873,32 @@ def delete_transaction(
     if transaction is None:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
+    batch = db.get(ImportBatch, transaction.import_batch_id) if transaction.import_batch_id is not None else None
+
     db.delete(transaction)
+
+    # Keeps ImportBatch.row_count meaning "rows from this batch still in the
+    # ledger" - create_transaction increments it for the shared manual
+    # batch, so deleting has to give it back, or the import history drifts
+    # further from reality with every manual delete. The manual batch is
+    # removed once empty (create_transaction recreates it on demand); a
+    # real CSV import's batch is kept even at zero, since it is still the
+    # record that file was imported.
+    if batch is not None:
+        db.flush()
+        # Recounted rather than decremented, so an install whose counter
+        # already drifted before this fix self-heals on its next delete -
+        # and so the "empty" check below can never be fooled by a stale
+        # counter into deleting a batch that still owns rows.
+        batch.row_count = (
+            db.query(func.count(Transaction.id))
+            .filter(Transaction.import_batch_id == batch.id)
+            .scalar()
+        )
+
+        if batch.filename == MANUAL_BATCH_FILENAME and batch.row_count == 0:
+            db.delete(batch)
+
     db.commit()
 
 

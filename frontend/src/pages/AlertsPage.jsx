@@ -17,6 +17,7 @@ const KIND_LABELS = {
   price_change: 'Price change',
   coverage_gap: 'Coverage gap',
   unmatched_transfer: 'Unmatched transfer',
+  mismatched_transfer: 'Half-categorized transfer',
 }
 
 // Finding 21 (T5.3) - one sentence per KIND, not per alert: what it means,
@@ -29,6 +30,7 @@ const KIND_EXPLANATIONS = {
   price_change: 'A recurring bill or subscription’s amount changed from what it used to be - worth a quick check that the new amount is right, not a billing mistake.',
   coverage_gap: 'The account’s own running balance jumps in a way that suggests a statement is missing between what’s been imported - import the missing period to keep totals accurate.',
   unmatched_transfer: 'This transaction is categorized as a transfer, but no matching leg was found in another account - either the other side hasn’t been imported yet, or this one isn’t really a transfer.',
+  mismatched_transfer: 'These two transactions look like the two sides of one transfer, but only one of them is categorized as a transfer - the other is still counted as ordinary spending or income, inflating your reports. Categorize both sides as a transfer, or dismiss if they genuinely aren’t one.',
 }
 
 // Alerts arrive from collect_alerts() already close to kind-ordered (see

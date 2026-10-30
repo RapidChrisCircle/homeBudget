@@ -821,6 +821,22 @@ class Transaction(Base):
             "credit",
             "balance"
         ),
+        # Supports _latest_balance_subquery (services/ledger.py), coverage-gap
+        # scans (services/coverage.py), recurring series grouping
+        # (services/recurring.py), and account-scoped ledger queries.
+        Index(
+            "ix_transactions_account_date_id",
+            "account_id",
+            "transaction_date",
+            "id"
+        ),
+        # Supports default ledger pagination (ORDER BY transaction_date DESC,
+        # id DESC), date-range filters, and period-bounded reporting queries.
+        Index(
+            "ix_transactions_date_id",
+            "transaction_date",
+            "id"
+        ),
     )
 
 

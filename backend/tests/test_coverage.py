@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.models import Account, ImportBatch, Transaction
-from app.services.coverage import account_coverage_gaps
+from app.services.coverage import account_coverage_gaps, all_account_coverage_gaps
 
 
 def make_account(db_session, name="Joint Everyday", account_number="1111", group_id=None):
@@ -181,3 +181,43 @@ def test_a_grouped_accounts_handover_never_reads_as_a_gap(db_session):
 
     assert account_coverage_gaps(db_session, old_card.id) == []
     assert account_coverage_gaps(db_session, new_card.id) == []
+
+
+def test_manual_transactions_are_excluded_from_coverage_gap_checks(db_session):
+    """A manual transaction's running balance is synthesized at entry time, not
+    reported by a bank statement. Subsequent real CSV imports for earlier dates
+    must chain against the bank's own statement rows without false-positive
+    coverage gaps around the manual entry."""
+
+    account = make_account(db_session)
+    make_transaction(db_session, account.id, date(2026, 7, 1), balance="100.00", credit=Decimal("100.00"))
+
+    manual = make_transaction(db_session, account.id, date(2026, 7, 15), balance="75.00", debit=Decimal("-25.00"))
+    manual.is_manual = True
+
+    # Real bank statement row on 7/10 chains cleanly from 7/1 (100 - 20 = 80),
+    # which would look broken if compared against the manual row on 7/15.
+    make_transaction(db_session, account.id, date(2026, 7, 10), balance="80.00", debit=Decimal("-20.00"))
+    db_session.commit()
+
+    assert account_coverage_gaps(db_session, account.id) == []
+    assert all_account_coverage_gaps(db_session) == {}
+
+
+def test_all_account_coverage_gaps_batches_across_accounts(db_session):
+
+    first = make_account(db_session, name="First", account_number="1111")
+    second = make_account(db_session, name="Second", account_number="2222")
+
+    make_transaction(db_session, first.id, date(2026, 6, 1), balance="100.00", credit=Decimal("100.00"), account_number="1111")
+    make_transaction(db_session, first.id, date(2026, 7, 1), balance="500.00", credit=Decimal("50.00"), account_number="1111")
+
+    make_transaction(db_session, second.id, date(2026, 6, 1), balance="100.00", credit=Decimal("100.00"), account_number="2222")
+    make_transaction(db_session, second.id, date(2026, 7, 1), balance="80.00", debit=Decimal("-20.00"), account_number="2222")
+    db_session.commit()
+
+    gaps_by_account = all_account_coverage_gaps(db_session)
+
+    assert list(gaps_by_account.keys()) == [first.id]
+    assert len(gaps_by_account[first.id]) == 1
+    assert gaps_by_account[first.id][0].discrepancy == Decimal("350.00")

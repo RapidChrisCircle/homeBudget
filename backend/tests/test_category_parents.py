@@ -285,3 +285,20 @@ def test_bulk_delete_promotes_children_not_named_in_the_request(client):
 
     child = next(c for c in client.get("/api/categories").json() if c["id"] == child_id)
     assert child["parent_id"] is None
+
+
+def test_creating_a_child_under_a_category_targeted_by_a_rule_is_rejected(client):
+    """Turning a leaf category that already has rules pointing at it into a
+    parent would leave those rules assigning future transactions directly to a
+    grouping-only parent."""
+
+    target_id = client.post("/api/categories", json={"name": "Housing", "kind": "expense"}).json()["id"]
+    client.post("/api/category-rules", json={"narration_pattern": "rent", "category_id": target_id})
+
+    response = client.post(
+        "/api/categories",
+        json={"name": "Rent", "kind": "expense", "parent_id": target_id},
+    )
+
+    assert response.status_code == 422
+    assert "rule(s)" in response.json()["detail"]
