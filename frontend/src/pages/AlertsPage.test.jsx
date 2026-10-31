@@ -157,8 +157,8 @@ describe('AlertsPage', () => {
     const mismatchedTransferAlert = {
       key: 'mismatched_transfer:10:11',
       kind: 'mismatched_transfer',
-      title: 'Transfer pair has only one leg categorized as Transfer: Transfer to Savings',
-      detail: 'Everyday → Savings · 2026-07-05 —Savings leg is Uncategorized',
+      title: 'Transfer with only one side categorized as a transfer',
+      detail: 'Everyday → Savings on 2026-07-05 - the Savings side is uncategorized',
       amount: '500.00',
       link: '/transactions?transaction_ids=10&transaction_ids=11',
       dismiss_kind: 'generic',
@@ -171,7 +171,17 @@ describe('AlertsPage', () => {
     await waitForLoaded()
 
     expect(screen.getByRole('heading', { name: /Half-categorized transfer \(1\)/ })).toBeInTheDocument()
-    expect(screen.getByText(/matched transfer pair between two accounts has only one side categorized as a Transfer/)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /These two transactions look like the two sides of one transfer, but only one of them is categorized as a transfer/
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Transfer with only one side categorized as a transfer' })
+    ).toHaveAttribute('href', '/transactions?transaction_ids=10&transaction_ids=11')
+    expect(
+      screen.getByText('Everyday → Savings on 2026-07-05 - the Savings side is uncategorized')
+    ).toBeInTheDocument()
   })
 
   it('shows an explanation of what a kind means and how to resolve it, once per section', async () => {
