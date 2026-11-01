@@ -4,6 +4,7 @@ import { computeDomain, linearScale, niceTicks } from './chartScale.js'
 
 const PLOT_WIDTH = CHART_WIDTH - CHART_MARGIN.left - CHART_MARGIN.right
 const PLOT_HEIGHT = CHART_HEIGHT - CHART_MARGIN.top - CHART_MARGIN.bottom
+const X_INSET = 16
 
 // Multi-series line chart over a shared categorical x-axis (a list of period
 // labels, e.g. "2026-01"). Used for spending-by-category-over-time and
@@ -52,10 +53,18 @@ export default function LineChart({
     return <p>Not enough data yet.</p>
   }
 
-  const xScale = linearScale({ domain: { min: 0, max: Math.max(periods.length - 1, 1) }, range: [0, PLOT_WIDTH] })
-  const yScale = linearScale({ domain, range: [PLOT_HEIGHT, 0] })
+  const xScale = linearScale({
+    domain: { min: 0, max: Math.max(periods.length - 1, 1) },
+    range: [X_INSET, PLOT_WIDTH - X_INSET],
+  })
   const ticks = niceTicks(domain.min, domain.max, 5)
-  const showZeroLine = domain.min < 0 && domain.max > 0
+  const scaleDomain = {
+    min: Math.min(domain.min, ticks[0]),
+    max: Math.max(domain.max, ticks[ticks.length - 1]),
+  }
+  const yScale = linearScale({ domain: scaleDomain, range: [PLOT_HEIGHT, 0] })
+  const showZeroLine = scaleDomain.min < 0 && scaleDomain.max > 0
+  const xLabelStep = periods.length > 14 ? Math.ceil(periods.length / 8) : 1
 
   return (
     <div className="chart-container" ref={containerRef}>
@@ -167,11 +176,16 @@ export default function LineChart({
             )
           })}
 
-          {periods.map((period, index) => (
-            <text key={period} x={xScale(index)} y={PLOT_HEIGHT + 20} textAnchor="middle" fontSize="10" fill="var(--text-muted)">
-              {period}
-            </text>
-          ))}
+          {periods.map((period, index) => {
+            if (xLabelStep > 1 && index % xLabelStep !== 0 && index !== periods.length - 1) {
+              return null
+            }
+            return (
+              <text key={period} x={xScale(index)} y={PLOT_HEIGHT + 22} textAnchor="middle" fontSize="10" fill="var(--text-muted)">
+                {period}
+              </text>
+            )
+          })}
         </g>
       </svg>
 

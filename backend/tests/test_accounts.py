@@ -267,3 +267,54 @@ def test_get_account_coverage_404s_on_an_unknown_account(client):
     response = client.get("/api/accounts/999999/coverage")
 
     assert response.status_code == 404
+
+
+def test_merge_accounts_deduplicates_matching_transactions_and_moves_unique_ones(client, db_session):
+
+    from app.models import Category
+
+    salary = Category(name="Salary", kind="income")
+    db_session.add(salary)
+    target = Account(name="BW-Transaction", institution="Bankwest", account_type="everyday", account_number="0128778")
+    source = Account(name="128778", institution=None, account_type=None, account_number="128778")
+    db_session.add_all([target, source])
+    db_session.flush()
+
+    # Duplicate transaction present on both accounts (categorized on source, uncategorized on target)
+    t_target_dup = _seed_transaction(
+        db_session, target, date(2026, 8, 3), "1200.00", credit="658.16", narration="SALARY MEALS ON WHEELS"
+    )
+    t_source_dup = _seed_transaction(
+        db_session, source, date(2026, 8, 3), "1200.00", credit="658.16", narration="SALARY MEALS ON WHEELS"
+    )
+    t_source_dup.category_id = salary.id
+    t_source_dup.note = "Fortnightly pay"
+
+    # Unique transaction only on source
+    _seed_transaction(
+        db_session, source, date(2026, 8, 17), "1706.42", credit="506.42", narration="SALARY MEALS ON WHEELS"
+    )
+    db_session.commit()
+
+    response = client.post("/api/accounts/merge", json={
+        "source_ids": [source.id],
+        "target_id": target.id,
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["target"]["id"] == target.id
+    assert body["target"]["name"] == "BW-Transaction"
+    assert body["merged_account_names"] == ["128778"]
+    assert body["transactions_moved"] == 1
+    assert body["duplicates_removed"] == 1
+
+    accounts = client.get("/api/accounts").json()
+    assert [a["name"] for a in accounts] == ["BW-Transaction"]
+
+    tx_items = client.get("/api/transactions", params={"page_size": 10}).json()["items"]
+    assert len(tx_items) == 2
+    assert all(t["account_id"] == target.id for t in tx_items)
+    aug_3 = next(t for t in tx_items if t["transaction_date"] == "2026-08-03")
+    assert aug_3["id"] == t_target_dup.id
+    assert aug_3["category_id"] == salary.id

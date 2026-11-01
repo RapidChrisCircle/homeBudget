@@ -269,3 +269,48 @@ def test_preview_reports_skipped_authorisation_count(client):
 
     import_response = upload(client, csv_content)
     assert import_response.json()["skipped_authorisation_count"] == 1
+
+
+def test_import_matches_account_and_deduplicates_when_leading_zero_stripped_by_excel(client):
+    """When a bank CSV with account number '0128778' is opened and saved in
+    Excel, Excel strips the leading zero to '128778'. Re-importing that file
+    must match the existing '0128778' account and skip duplicate rows rather
+    than creating a second account and doubling every transaction.
+    """
+
+    first_csv = HEADER + (
+        '306-089,0128778,03/08/2026,"SALARY MEALS ON WHEELS",,,658.16,1200.00,DEP\n'
+        '306-089,0128778,07/08/2026,"SALARY MEALS ON WHEELS",,,506.42,1706.42,DEP\n'
+    )
+    first_res = upload(client, first_csv)
+    assert first_res.status_code == 201
+    assert first_res.json()["imported_count"] == 2
+    assert first_res.json()["new_account_count"] == 1
+
+    accounts = client.get("/api/accounts").json()
+    assert len(accounts) == 1
+    account_id = accounts[0]["id"]
+    client.put(f"/api/accounts/{account_id}", json={
+        **accounts[0],
+        "name": "BW-Transaction",
+    })
+
+    excel_saved_csv = HEADER + (
+        ',128778,03/08/2026,"SALARY MEALS ON WHEELS",,,658.16,1200.00,DEP\n'
+        ',128778,07/08/2026,"SALARY MEALS ON WHEELS",,,506.42,1706.42,DEP\n'
+        ',128778,17/08/2026,"SALARY MEALS ON WHEELS",,,506.42,2212.84,DEP\n'
+    )
+    second_res = upload(client, excel_saved_csv)
+    assert second_res.status_code == 201
+    body = second_res.json()
+    assert body["new_account_count"] == 0
+    assert body["skipped_duplicate_count"] == 2
+    assert body["imported_count"] == 1
+
+    all_accounts = client.get("/api/accounts").json()
+    assert len(all_accounts) == 1
+    assert all_accounts[0]["name"] == "BW-Transaction"
+
+    items = client.get("/api/transactions", params={"page_size": 10}).json()["items"]
+    assert len(items) == 3
+    assert all(t["account_name"] == "BW-Transaction" for t in items)

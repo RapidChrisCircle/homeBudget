@@ -537,4 +537,44 @@ describe('AccountsPage backup', () => {
     expect(link).toHaveAttribute('href', '/api/export/database')
     expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/export'))
   })
+
+  it('combines selected duplicate accounts into the kept account', async () => {
+    const duplicateAccount = {
+      ...sampleAccount,
+      id: 9,
+      name: '128778',
+      account_number: '128778',
+    }
+    mockLoad([sampleAccount, duplicateAccount])
+    api.post.mockResolvedValue({
+      data: {
+        target: sampleAccount,
+        merged_account_names: ['128778'],
+        transactions_moved: 1,
+        duplicates_removed: 3,
+      },
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('link', { name: '128778' })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Select Joint Everyday'))
+    fireEvent.click(screen.getByLabelText('Select 128778'))
+
+    fireEvent.change(screen.getByLabelText('Keep'), { target: { value: String(sampleAccount.id) } })
+    fireEvent.click(screen.getByRole('button', { name: 'Combine 1 into the one kept' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/accounts/merge', {
+        source_ids: [duplicateAccount.id],
+        target_id: sampleAccount.id,
+      })
+    })
+
+    expect(
+      await screen.findByText('Combined 1 account into "Joint Everyday", moving 1 transaction(s) and removing 3 duplicate(s).')
+    ).toBeInTheDocument()
+  })
 })

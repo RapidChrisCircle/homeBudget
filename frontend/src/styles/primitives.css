@@ -326,6 +326,22 @@ input[type='checkbox'] {
   position: relative;
 }
 
+.chart-container ul {
+  list-style: none;
+  padding-left: 0;
+  margin-top: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+}
+
+.chart-container li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .chart-tooltip {
   position: absolute;
   transform: translate(-50%, calc(-100% - var(--space-2)));

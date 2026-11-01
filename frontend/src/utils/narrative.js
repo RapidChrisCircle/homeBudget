@@ -73,7 +73,7 @@ export function buildNarrative(report) {
   // one, "current" vs "prior" reduces to "current vs 0", which isn't a
   // move, it's just this month's only data point.
   if (report.has_prior_period_data && report.top_movers.length > 0) {
-    const mover = report.top_movers[0]
+    const mover = report.top_movers.find((m) => !m.kind || m.kind === 'expense') || report.top_movers[0]
     const verb = Number(mover.delta) >= 0 ? 'up' : 'down'
 
     segments.push(text(' '))

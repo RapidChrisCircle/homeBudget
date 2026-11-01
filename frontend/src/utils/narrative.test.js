@@ -158,4 +158,19 @@ describe('buildNarrative', () => {
     const report = baseReport()
     expect(joinText(buildNarrative(report))).toBe("2026-09 — you've spent 3240.00.")
   })
+
+  it('prefers the top expense mover over an income mover in the spending narrative', () => {
+    const report = baseReport({
+      has_prior_period_data: true,
+      prior_summary: { total_income: '12200.71', total_spending: '3000.00', net_saved: '9200.71' },
+      top_movers: [
+        { category_id: 9, category_name: 'Salary', parent_name: 'Income', kind: 'income', current: '0', prior: '12200.71', delta: '-12200.71' },
+        { category_id: 2, category_name: 'Groceries', parent_name: 'Food', kind: 'expense', current: '800', prior: '400', delta: '400' },
+      ],
+    })
+
+    const text = joinText(buildNarrative(report))
+    expect(text).toContain('Food › Groceries is the biggest change, up 400')
+    expect(text).not.toContain('Income › Salary')
+  })
 })

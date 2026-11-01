@@ -48,6 +48,12 @@ describe('computeDomain', () => {
     expect(domain.min).toBeLessThanOrEqual(10)
     expect(domain.max).toBeGreaterThanOrEqual(20)
   })
+
+  it('does not pad a non-negative series below zero into negative territory', () => {
+    const domain = computeDomain([0, 100, 10000])
+    expect(domain.min).toBe(0)
+    expect(domain.max).toBeGreaterThan(10000)
+  })
 })
 
 describe('linearScale', () => {

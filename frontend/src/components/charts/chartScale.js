@@ -39,7 +39,10 @@ export function computeDomain(values, { includeZero = false, paddingFraction = 0
   }
 
   const pad = (max - min) * paddingFraction
-  return { min: min - pad, max: max + pad }
+  return {
+    min: min >= 0 ? Math.max(0, min - pad) : min - pad,
+    max: max <= 0 ? Math.min(0, max + pad) : max + pad,
+  }
 }
 
 // A linear map from a {min, max} domain to a [start, end] pixel range. For an

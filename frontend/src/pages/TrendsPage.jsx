@@ -18,6 +18,8 @@ export default function TrendsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const months = Number(searchParams.get('months')) || DEFAULT_MONTHS
+  const year = searchParams.get('year')
+  const month = searchParams.get('month')
   // Which group the category chart is drilled into, in the URL beside
   // `months` for the same reason every other view state in this app is: a
   // drilled-in chart is reloadable and shareable, not a state that
@@ -34,7 +36,11 @@ export default function TrendsPage() {
     setLoading(true)
     setError('')
 
-    api.get(`/trends?months=${months}`)
+    const query = year && month
+      ? `/trends?year=${year}&month=${month}&months=${months}`
+      : `/trends?months=${months}`
+
+    api.get(query)
       .then((response) => {
         if (!cancelled) {
           setTrends(response.data)
@@ -55,7 +61,7 @@ export default function TrendsPage() {
     return () => {
       cancelled = true
     }
-  }, [months])
+  }, [months, year, month])
 
   const handleMonthsChange = (event) => {
     const next = new URLSearchParams(searchParams)
@@ -63,6 +69,21 @@ export default function TrendsPage() {
     // The window changing can retire the drilled-into group entirely (a
     // group with no activity in the new window isn't in the data at all),
     // so drilling resets rather than leaving an empty chart.
+    next.delete('group')
+    setSearchParams(next)
+  }
+
+  const handleEndMonthChange = (event) => {
+    const value = event.target.value
+    const next = new URLSearchParams(searchParams)
+    if (!value) {
+      next.delete('year')
+      next.delete('month')
+    } else {
+      const [nextYear, nextMonth] = value.split('-')
+      next.set('year', nextYear)
+      next.set('month', String(Number(nextMonth)))
+    }
     next.delete('group')
     setSearchParams(next)
   }
@@ -99,6 +120,9 @@ export default function TrendsPage() {
 
   const { periods, categories, monthly, budget } = trends
   const periodLabels = periods.map((p) => p.label)
+  const activeEndMonth = year && month
+    ? `${year}-${String(month).padStart(2, '0')}`
+    : (periodLabels[periodLabels.length - 1] || '')
 
   // Deliberately NOT `categories.length > 0`: category_grid() outer-joins so
   // a budgeted-but-idle category appears even on a completely empty ledger
@@ -108,16 +132,22 @@ export default function TrendsPage() {
   const hasHistory = monthly.some((m) => Number(m.total_income) !== 0 || Number(m.total_spending) !== 0)
 
   const monthLabel = (
-    <label>
-      Months
-      <select value={months} onChange={handleMonthsChange}>
-        {MONTH_OPTIONS.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="filter-bar">
+      <label>
+        Months
+        <select value={months} onChange={handleMonthsChange}>
+          {MONTH_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Ending month
+        <input type="month" value={activeEndMonth} onChange={handleEndMonthChange} />
+      </label>
+    </div>
   )
 
   if (!hasHistory) {

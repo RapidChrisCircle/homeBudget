@@ -3,7 +3,7 @@
 
 export const CHART_WIDTH = 640
 export const CHART_HEIGHT = 280
-export const CHART_MARGIN = { top: 16, right: 16, bottom: 32, left: 56 }
+export const CHART_MARGIN = { top: 16, right: 24, bottom: 36, left: 68 }
 
 // References to the --series-1..7 custom properties defined in index.css,
 // not literal hex values - so a chart's series colours resolve through

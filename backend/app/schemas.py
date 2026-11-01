@@ -56,6 +56,25 @@ class AccountUpdate(BaseModel):
     group_id: Optional[int] = None
 
 
+class AccountMergeRequest(BaseModel):
+    """Combine `source_ids` into `target_id`, deduplicating transactions
+    that already exist on the target account (e.g. when a CSV re-saved in
+    Excel stripped leading zeros from the account number and created a
+    duplicate account with duplicate transactions).
+    """
+
+    source_ids: list[int]
+    target_id: int
+
+
+class AccountMergeResponse(BaseModel):
+
+    target: AccountResponse
+    merged_account_names: list[str]
+    transactions_moved: int
+    duplicates_removed: int
+
+
 class AccountGroupResponse(BaseModel):
 
     id: int

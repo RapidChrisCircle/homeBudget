@@ -455,6 +455,19 @@ def preview_import(
     return _parse_rows(mapping, header, reader, stop_after=PREVIEW_SAMPLE_ROWS)
 
 
+def _canonical_account_number(value: str) -> str:
+    """Normalizes an account number so formatting differences across CSV exports
+    (spaces, hyphens, or leading zeros stripped when a CSV is opened and saved
+    in Excel, e.g. '0128778' -> '128778') resolve to the same account and
+    duplicate-detection key.
+    """
+
+    compact = re.sub(r"[\s-]+", "", (value or "").strip())
+    if compact.isdigit():
+        return compact.lstrip("0") or "0"
+    return compact
+
+
 def import_rows(
     db: Session,
     filename: str,
@@ -468,17 +481,56 @@ def import_rows(
     about them.
     """
 
-    account_numbers = {row.account_number for row in rows}
+    min_date = min(row.transaction_date for row in rows)
+    max_date = max(row.transaction_date for row in rows)
 
-    existing_keys = {
-        (t.bsb_number, t.account_number, t.transaction_date, t.narration, t.debit, t.credit, t.balance)
-        for t in db.query(Transaction).filter(Transaction.account_number.in_(account_numbers)).all()
+    all_accounts = db.query(Account).order_by(Account.id).all()
+    existing_accounts: dict[str, Account] = {a.account_number: a for a in all_accounts}
+    accounts_by_canonical: dict[str, Account] = {}
+    for account in all_accounts:
+        accounts_by_canonical.setdefault(_canonical_account_number(account.account_number), account)
+
+    account_canonical_by_id = {
+        account.id: _canonical_account_number(account.account_number)
+        for account in all_accounts
     }
 
-    existing_accounts = {
-        a.account_number: a
-        for a in db.query(Account).filter(Account.account_number.in_(account_numbers)).all()
-    }
+    existing_tx_rows = (
+        db.query(
+            Transaction.account_id,
+            Transaction.account_number,
+            Transaction.transaction_date,
+            Transaction.narration,
+            Transaction.debit,
+            Transaction.credit,
+            Transaction.balance,
+        )
+        .filter(
+            Transaction.transaction_date >= min_date,
+            Transaction.transaction_date <= max_date,
+        )
+        .all()
+    )
+
+    existing_keys = set()
+    for t in existing_tx_rows:
+        existing_keys.add((
+            _canonical_account_number(t.account_number),
+            t.transaction_date,
+            t.narration,
+            t.debit,
+            t.credit,
+            t.balance,
+        ))
+        if t.account_id in account_canonical_by_id:
+            existing_keys.add((
+                account_canonical_by_id[t.account_id],
+                t.transaction_date,
+                t.narration,
+                t.debit,
+                t.credit,
+                t.balance,
+            ))
 
     # Loaded once for the whole file - matching is then pure Python per row.
     rules = load_rules(db)
@@ -499,8 +551,16 @@ def import_rows(
 
     for row in rows:
 
+        canonical_acct = _canonical_account_number(row.account_number)
+        account = existing_accounts.get(row.account_number) or accounts_by_canonical.get(canonical_acct)
+        effective_canonical = (
+            _canonical_account_number(account.account_number)
+            if account is not None
+            else canonical_acct
+        )
+
         key = (
-            row.bsb_number, row.account_number, row.transaction_date,
+            effective_canonical, row.transaction_date,
             row.narration, row.debit, row.credit, row.balance
         )
 
@@ -509,8 +569,6 @@ def import_rows(
             continue
 
         seen_in_file.add(key)
-
-        account = existing_accounts.get(row.account_number)
 
         if account is None:
             account = Account(
@@ -522,13 +580,14 @@ def import_rows(
             db.add(account)
             db.flush()
             existing_accounts[row.account_number] = account
+            accounts_by_canonical[canonical_acct] = account
             new_account_count += 1
 
         transaction = Transaction(
             import_batch_id=batch.id,
             account_id=account.id,
-            bsb_number=row.bsb_number,
-            account_number=row.account_number,
+            bsb_number=row.bsb_number or account.bsb_number,
+            account_number=account.account_number,
             transaction_date=row.transaction_date,
             narration=row.narration,
             cheque_number=row.cheque_number,

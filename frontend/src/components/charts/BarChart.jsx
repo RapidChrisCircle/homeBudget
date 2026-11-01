@@ -44,9 +44,13 @@ export default function BarChart({
     return <p>Not enough data yet.</p>
   }
 
-  const yScale = linearScale({ domain, range: [PLOT_HEIGHT, 0] })
-  const zeroY = yScale(0)
   const ticks = niceTicks(domain.min, domain.max, 5)
+  const scaleDomain = {
+    min: Math.min(domain.min, ticks[0]),
+    max: Math.max(domain.max, ticks[ticks.length - 1]),
+  }
+  const yScale = linearScale({ domain: scaleDomain, range: [PLOT_HEIGHT, 0] })
+  const zeroY = yScale(0)
 
   const groupWidth = PLOT_WIDTH / periods.length
   const groupPadding = groupWidth * GROUP_PADDING_FRACTION
@@ -139,7 +143,7 @@ export default function BarChart({
             <text
               key={period}
               x={index * groupWidth + groupWidth / 2}
-              y={PLOT_HEIGHT + 20}
+              y={PLOT_HEIGHT + 22}
               textAnchor="middle"
               fontSize="10"
               fill="var(--text-muted)"

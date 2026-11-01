@@ -134,6 +134,21 @@ describe('LineChart', () => {
     expect(positiveLines.length).toBe(0)
   })
 
+  it('keeps outward-rounded y-axis ticks strictly above the x-axis period labels', () => {
+    const { container } = render(
+      <LineChart
+        periods={['2026-06', '2026-07', '2026-08']}
+        series={[{ label: 'Clothing', values: [50, 1580, -214] }]}
+      />
+    )
+
+    const xLabel = Array.from(container.querySelectorAll('text')).find((el) => el.textContent === '2026-06')
+    const yTick = Array.from(container.querySelectorAll('text')).find((el) => el.textContent === '-500')
+    expect(xLabel).toBeDefined()
+    expect(yTick).toBeDefined()
+    expect(Number(yTick.getAttribute('y'))).toBeLessThan(Number(xLabel.getAttribute('y')))
+  })
+
   describe('drill-down', () => {
     const series = [
       { label: 'Groceries', values: [100, 120, 90] },

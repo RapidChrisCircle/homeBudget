@@ -11,7 +11,7 @@ import { ACCOUNT_TYPE_OPTIONS, accountTypeLabel, isLiabilityType } from '../util
 import { formatBalance } from '../utils/format.js'
 import { sortRowsBy, useTableSort } from '../utils/tableSort.js'
 
-const ACCOUNTS_TABLE_COLUMN_COUNT = 7
+const ACCOUNTS_TABLE_COLUMN_COUNT = 8
 
 // Sorted PER SECTION (see buildAccountSections below) rather than merged
 // into one list - one shared sortKey/direction (from useTableSort) applies
@@ -99,6 +99,11 @@ export default function AccountsPage() {
   const [creatingGroup, setCreatingGroup] = useState(false)
   const [renamingGroupId, setRenamingGroupId] = useState(null)
   const [renameGroupValue, setRenameGroupValue] = useState('')
+
+  const [selectedIds, setSelectedIds] = useState([])
+  const [combineTargetId, setCombineTargetId] = useState('')
+  const [combining, setCombining] = useState(false)
+  const [combineMessage, setCombineMessage] = useState('')
 
   const refresh = async () => {
     const [accountsRes, groupsRes] = await Promise.all([
@@ -304,6 +309,58 @@ export default function AccountsPage() {
     }
   }
 
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((selectedId) => selectedId !== id) : [...prev, id]))
+  }
+
+  const handleCombine = async () => {
+    const target = accounts.find((account) => String(account.id) === String(combineTargetId))
+
+    if (!target || selectedIds.length < 2) {
+      return
+    }
+
+    const sources = selectedIds.filter((id) => id !== target.id)
+    const sourceNames = sources
+      .map((id) => accounts.find((account) => account.id === id)?.name)
+      .filter(Boolean)
+      .join(', ')
+
+    if (!window.confirm(
+      `Combine ${sourceNames} into "${target.name}"? Unique transactions and goals move across, `
+      + 'duplicate transactions already on the target account are removed, and the combined accounts are deleted. '
+      + 'This cannot be undone.'
+    )) {
+      return
+    }
+
+    setActionError('')
+    setCombining(true)
+    try {
+      const response = await api.post('/accounts/merge', { source_ids: sources, target_id: target.id })
+      const {
+        merged_account_names: merged,
+        transactions_moved: moved,
+        duplicates_removed: duplicatesRemoved,
+      } = response.data
+      setCombineMessage(
+        `Combined ${merged.length} account${merged.length === 1 ? '' : 's'} into "${target.name}", `
+        + `moving ${moved} transaction(s) and removing ${duplicatesRemoved} duplicate(s).`
+      )
+      setSelectedIds([])
+      setCombineTargetId('')
+      if (editingId != null && sources.includes(editingId)) {
+        cancelEdit()
+      }
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Combine failed'
+      setActionError(String(message))
+    } finally {
+      setCombining(false)
+    }
+  }
+
   const renderFormFields = () => (
     <>
       <div>
@@ -411,11 +468,15 @@ export default function AccountsPage() {
   const { sortKey: groupSortKey, sortDirection: groupSortDirection, toggleSort: toggleGroupSort } =
     useTableSort(groups, ACCOUNT_GROUP_SORT_COLUMNS)
 
+  const selectedAccounts = accounts.filter((account) => selectedIds.includes(account.id))
+  const combineTargetIsSelected = selectedIds.some((id) => String(id) === String(combineTargetId))
+
   const renderAccountsTable = (sectionAccounts) => (
     <table>
       <caption className="visually-hidden">Accounts</caption>
       <thead>
         <tr>
+          <th scope="col"></th>
           <SortableHeader label="Name" sortKey="name" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
           <SortableHeader label="Institution" sortKey="institution" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
           <SortableHeader label="Type" sortKey="type" activeSortKey={accountSortKey} activeDirection={accountSortDirection} onSort={toggleAccountSort} />
@@ -433,6 +494,14 @@ export default function AccountsPage() {
           return (
             <Fragment key={account.id}>
               <tr>
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${account.name}`}
+                    checked={selectedIds.includes(account.id)}
+                    onChange={() => toggleSelected(account.id)}
+                  />
+                </td>
                 <td>
                   <Link to={`/accounts/${account.id}`}>{account.name}</Link>
                 </td>
@@ -530,6 +599,49 @@ export default function AccountsPage() {
             </Card>
           )
         })}
+      </Card>
+
+      <Card id="accounts-combine" title="Combine Accounts">
+        <p>
+          Two accounts that are really the same bank account (for example, when Excel strips a
+          leading zero from an account number on import) become one: unique transactions and
+          goals move to the account you keep, duplicate transactions already present on the kept
+          account are removed, and the duplicate account is deleted. Tick the accounts to combine
+          in All Accounts above, then pick which one to keep.
+        </p>
+
+        {combineMessage && <p>{combineMessage}</p>}
+
+        {selectedIds.length < 2 ? (
+          <p>Select two or more accounts above to combine them.</p>
+        ) : (
+          <>
+            <ul>
+              {selectedAccounts.map((account) => (
+                <li key={account.id}>{account.name} ({account.account_number})</li>
+              ))}
+            </ul>
+            <label>
+              Keep
+              <select value={combineTargetId} onChange={(event) => setCombineTargetId(event.target.value)}>
+                <option value="">Select the account to keep</option>
+                {selectedAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name} ({account.account_number})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="button-primary"
+              onClick={handleCombine}
+              disabled={!combineTargetIsSelected || combining}
+            >
+              Combine {selectedIds.length - 1} into the one kept
+            </button>
+          </>
+        )}
       </Card>
 
       <Card id="account-groups" title="Account Groups">

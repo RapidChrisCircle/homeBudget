@@ -3,10 +3,21 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
-from ..models import ACCOUNT_TYPES, BALANCE_SIGNS, Account, AccountGroup, SavingsGoal, Transaction
+from ..models import (
+    ACCOUNT_TYPES,
+    BALANCE_SIGNS,
+    Account,
+    AccountGroup,
+    ImportBatch,
+    RecurringDismissal,
+    SavingsGoal,
+    Transaction,
+)
 from ..schemas import (
     AccountCoverageResponse,
     AccountCreate,
+    AccountMergeRequest,
+    AccountMergeResponse,
     AccountResponse,
     AccountUpdate,
     BalanceHistoryResponse,
@@ -96,6 +107,150 @@ def create_account(
     db.refresh(account)
     # A brand new account has no transactions yet, so no balance - not queried.
     return _serialize_account(account, None, None)
+
+
+@router.post("/accounts/merge", response_model=AccountMergeResponse)
+def merge_accounts_endpoint(
+    payload: AccountMergeRequest,
+    db: Session = Depends(get_db)
+):
+    """Combines one or more duplicate accounts into `target_id`.
+
+    For each transaction in the source accounts:
+    - If an identical transaction (matching date, narration, debit, credit,
+      and balance) already exists in the target account, the duplicate row
+      is removed (after preserving any category/splits/notes on the kept
+      target row if the target row was uncategorized).
+    - Otherwise, the transaction is moved onto `target_id` and its stored
+      `account_number` is updated to match the target account.
+    """
+
+    target = db.get(Account, payload.target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Target account not found")
+
+    unique_source_ids = [
+        source_id for source_id in dict.fromkeys(payload.source_ids)
+        if source_id != payload.target_id
+    ]
+    if not unique_source_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="Choose at least one other account to combine into the target",
+        )
+
+    sources: list[Account] = []
+    for source_id in unique_source_ids:
+        source = db.get(Account, source_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="Source account not found")
+        sources.append(source)
+
+    target_transactions = (
+        db.query(Transaction)
+        .filter(Transaction.account_id == target.id)
+        .order_by(Transaction.id)
+        .all()
+    )
+
+    def _dup_key(tx: Transaction):
+        return (tx.transaction_date, tx.narration, tx.debit, tx.credit, tx.balance)
+
+    target_by_key: dict[tuple, Transaction] = {}
+    for tx in target_transactions:
+        target_by_key.setdefault(_dup_key(tx), tx)
+
+    source_ids_only = [source.id for source in sources]
+    source_transactions = (
+        db.query(Transaction)
+        .filter(Transaction.account_id.in_(source_ids_only))
+        .order_by(Transaction.id)
+        .all()
+    )
+
+    transactions_moved = 0
+    duplicates_removed = 0
+    affected_batch_ids: set[int] = set()
+
+    for src_tx in source_transactions:
+        key = _dup_key(src_tx)
+        existing_tx = target_by_key.get(key)
+
+        if existing_tx is not None:
+            if existing_tx.category_id is None and not existing_tx.splits:
+                if src_tx.category_id is not None:
+                    existing_tx.category_id = src_tx.category_id
+                    existing_tx.categorized_by_rule_id = src_tx.categorized_by_rule_id
+            if not existing_tx.note and src_tx.note:
+                existing_tx.note = src_tx.note
+            if src_tx.import_batch_id is not None:
+                affected_batch_ids.add(src_tx.import_batch_id)
+            db.delete(src_tx)
+            duplicates_removed += 1
+        else:
+            src_tx.account_id = target.id
+            src_tx.account_number = target.account_number
+            if not src_tx.bsb_number and target.bsb_number:
+                src_tx.bsb_number = target.bsb_number
+            target_by_key[key] = src_tx
+            transactions_moved += 1
+
+    db.flush()
+
+    if affected_batch_ids:
+        for batch in db.query(ImportBatch).filter(ImportBatch.id.in_(affected_batch_ids)).all():
+            remaining = (
+                db.query(Transaction)
+                .filter(Transaction.import_batch_id == batch.id)
+                .count()
+            )
+            removed_from_batch = max(0, batch.row_count - remaining)
+            batch.row_count = remaining
+            batch.skipped_duplicate_count = (batch.skipped_duplicate_count or 0) + removed_from_batch
+
+    db.query(SavingsGoal).filter(SavingsGoal.account_id.in_(source_ids_only)).update(
+        {"account_id": target.id}, synchronize_session=False
+    )
+
+    target_dismissal_keys = {
+        d.narration_key
+        for d in db.query(RecurringDismissal).filter(RecurringDismissal.account_id == target.id).all()
+    }
+    for dismissal in db.query(RecurringDismissal).filter(RecurringDismissal.account_id.in_(source_ids_only)).all():
+        if dismissal.narration_key in target_dismissal_keys:
+            db.delete(dismissal)
+        else:
+            dismissal.account_id = target.id
+            target_dismissal_keys.add(dismissal.narration_key)
+
+    for source in sources:
+        if not target.institution and source.institution:
+            target.institution = source.institution
+        if not target.account_type and source.account_type:
+            target.account_type = source.account_type
+            target.balance_sign = source.balance_sign
+        if not target.bsb_number and source.bsb_number:
+            target.bsb_number = source.bsb_number
+        if target.group_id is None and source.group_id is not None:
+            target.group_id = source.group_id
+
+    merged_names = [source.name for source in sources]
+
+    db.flush()
+    for source in sources:
+        db.refresh(source)
+        db.delete(source)
+
+    db.commit()
+    db.refresh(target)
+
+    balance, balance_as_of = account_balance(db, target.id)
+    return AccountMergeResponse(
+        target=_serialize_account(target, balance, balance_as_of),
+        merged_account_names=merged_names,
+        transactions_moved=transactions_moved,
+        duplicates_removed=duplicates_removed,
+    )
 
 
 @router.get("/accounts/{account_id}", response_model=AccountResponse)
