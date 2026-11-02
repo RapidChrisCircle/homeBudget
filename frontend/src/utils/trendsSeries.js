@@ -107,6 +107,16 @@ export function drilledGroupName(categories, groupId) {
   return categories.find((c) => String(c.parent_id) === String(groupId))?.parent_name || null
 }
 
+// The expense category a merchant drill-down is showing, or null when the
+// category isn't in this window's data.
+export function drilledCategory(categories, categoryId) {
+  if (!categoryId) {
+    return null
+  }
+
+  return categories.find((c) => c.kind === 'expense' && String(c.category_id) === String(categoryId)) || null
+}
+
 // The inclusive first/last day of a "YYYY-MM" period label, for a ledger
 // date filter - the ledger's date bounds are inclusive on both ends (see
 // components/ledgerFilterParams.js), unlike reporting's own half-open

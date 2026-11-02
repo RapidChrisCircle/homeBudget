@@ -408,4 +408,88 @@ describe('TrendsPage drill-down', () => {
 
     await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
   })
+
+  it('drills into a sub-category from the legend to show its merchants and supports sorting by total spent or merchant', async () => {
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/trends/merchants')) {
+        return Promise.resolve({
+          data: {
+            category_id: 2,
+            category_name: 'Takeaway',
+            parent_id: 10,
+            parent_name: 'Food',
+            total_spent: '90.00',
+            merchants: [
+              {
+                narration_key: 'BISTRO',
+                merchant: 'BISTRO LA VUE',
+                sample_narration: 'BISTRO LA VUE',
+                transaction_count: 1,
+                total_spent: '55.00',
+                first_date: '2026-06-14',
+                last_date: '2026-06-14',
+                transaction_ids: [101],
+              },
+              {
+                narration_key: 'ALPHA CAFE',
+                merchant: 'ALPHA CAFE',
+                sample_narration: 'ALPHA CAFE',
+                transaction_count: 2,
+                total_spent: '35.00',
+                first_date: '2026-05-03',
+                last_date: '2026-07-19',
+                transaction_ids: [102, 103],
+              },
+            ],
+          },
+        })
+      }
+      return Promise.resolve({
+        data: { periods, categories: groupedCategories, monthly, budget },
+      })
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    // Step 1: Click group "Food" in legend
+    fireEvent.click(screen.getByRole('button', { name: 'Food' }))
+    await waitFor(() => expect(screen.getByText('Spending in Food Over Time')).toBeInTheDocument())
+
+    // Step 2: Click sub-category "Takeaway" in legend
+    fireEvent.click(screen.getByRole('button', { name: 'Takeaway' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/trends/merchants?category_id=2&months=6')
+      expect(screen.getByText(/Merchants in Takeaway/)).toBeInTheDocument()
+    })
+
+    // Default sort is Total Spent descending: BISTRO LA VUE (55.00) before ALPHA CAFE (35.00)
+    const getMerchantOrder = () =>
+      screen
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => row.querySelector('td')?.textContent)
+
+    expect(getMerchantOrder()).toEqual(['BISTRO LA VUE', 'ALPHA CAFE'])
+
+    // Click Total Spent header (desc -> unsorted -> asc) to sort ascending (35.00 before 55.00)
+    fireEvent.click(screen.getByRole('button', { name: /Total Spent/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Total Spent/ }))
+    expect(getMerchantOrder()).toEqual(['ALPHA CAFE', 'BISTRO LA VUE'])
+
+    // Click Merchant header to sort alphabetically ascending, then descending
+    fireEvent.click(screen.getByRole('button', { name: /Merchant/ }))
+    expect(getMerchantOrder()).toEqual(['ALPHA CAFE', 'BISTRO LA VUE'])
+    fireEvent.click(screen.getByRole('button', { name: /Merchant/ }))
+    expect(getMerchantOrder()).toEqual(['BISTRO LA VUE', 'ALPHA CAFE'])
+
+    // Clicking "View in ledger" opens the merchant's transactions in /transactions
+    const viewLinks = screen.getAllByRole('link', { name: 'View in ledger' })
+    fireEvent.click(viewLinks[0])
+    await waitFor(() => {
+      expect(screen.getByText('ledger?transaction_ids=101')).toBeInTheDocument()
+    })
+  })
 })

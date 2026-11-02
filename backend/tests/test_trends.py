@@ -2,7 +2,7 @@ import io
 from datetime import date
 from decimal import Decimal
 
-from app.models import Category, CategoryBudget, ImportBatch, Transaction
+from app.models import Category, CategoryBudget, ImportBatch, Transaction, TransactionSplit
 from app.services.reporting import (
     category_grid,
     category_totals_for_period,
@@ -324,3 +324,70 @@ def test_top_movers_carries_parent_name_for_subcategories(db_session):
     assert len(movers) == 1
     assert movers[0]["category_name"] == "Groceries"
     assert movers[0]["parent_name"] == "Food"
+
+
+def test_get_trends_merchants_returns_sorted_merchants_including_singletons_and_splits(client, db_session):
+    parent = make_category(db_session, name="Lifestyle", kind="expense")
+    dining = make_category(db_session, name="Dining Out & Takeaway", kind="expense")
+    dining.parent_id = parent.id
+    groceries = make_category(db_session, name="Groceries", kind="expense")
+
+    # Repeated merchant: two visits totaling 85.00
+    t1 = make_transaction(
+        db_session,
+        transaction_date=date(2026, 6, 10),
+        narration="UBER *EATS  123456",
+        debit=Decimal("-35.00"),
+        category_id=dining.id,
+    )
+    t2 = make_transaction(
+        db_session,
+        transaction_date=date(2026, 7, 12),
+        narration="UBER *EATS  789012",
+        debit=Decimal("-50.00"),
+        category_id=dining.id,
+    )
+    # Single-visit merchant: 120.00 (must NOT be filtered out by MIN_GROUP_SIZE)
+    t3 = make_transaction(
+        db_session,
+        transaction_date=date(2026, 7, 20),
+        narration="BISTRO LA VUE",
+        debit=Decimal("-120.00"),
+        category_id=dining.id,
+    )
+    # Split transaction: 40.00 allocated to Dining Out & Takeaway, 60.00 to Groceries
+    t4 = make_transaction(
+        db_session,
+        transaction_date=date(2026, 7, 22),
+        narration="COSTCO WHOLESALE",
+        debit=Decimal("-100.00"),
+        category_id=None,
+    )
+    db_session.add_all([
+        TransactionSplit(transaction_id=t4.id, category_id=dining.id, amount=Decimal("-40.00")),
+        TransactionSplit(transaction_id=t4.id, category_id=groceries.id, amount=Decimal("-60.00")),
+    ])
+    db_session.commit()
+
+    response = client.get(f"/api/trends/merchants?category_id={dining.id}&year=2026&month=7&months=2")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["category_id"] == dining.id
+    assert body["category_name"] == "Dining Out & Takeaway"
+    assert body["parent_id"] == parent.id
+    assert body["parent_name"] == "Lifestyle"
+    assert body["total_spent"] == "245.00"
+
+    merchants = body["merchants"]
+    assert [m["merchant"] for m in merchants] == ["BISTRO LA VUE", "UBER *EATS", "COSTCO WHOLESALE"]
+    assert [m["total_spent"] for m in merchants] == ["120.00", "85.00", "40.00"]
+    assert [m["transaction_count"] for m in merchants] == [1, 2, 1]
+    assert merchants[0]["transaction_ids"] == [t3.id]
+    assert set(merchants[1]["transaction_ids"]) == {t1.id, t2.id}
+    assert merchants[2]["transaction_ids"] == [t4.id]
+
+
+def test_get_trends_merchants_validates_category_and_period_params(client):
+    assert client.get("/api/trends/merchants?category_id=9999").status_code == 404
+    assert client.get("/api/trends/merchants?category_id=1&year=2026").status_code == 422

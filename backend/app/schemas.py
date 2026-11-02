@@ -866,6 +866,28 @@ class TrendsResponse(BaseModel):
     balances: list[TrendBalanceResponse]
 
 
+class TrendMerchantRowResponse(BaseModel):
+
+    narration_key: str
+    merchant: str
+    sample_narration: str
+    transaction_count: int
+    total_spent: Decimal
+    first_date: date
+    last_date: date
+    transaction_ids: list[int]
+
+
+class TrendMerchantsResponse(BaseModel):
+
+    category_id: int
+    category_name: str
+    parent_id: Optional[int] = None
+    parent_name: Optional[str] = None
+    total_spent: Decimal
+    merchants: list[TrendMerchantRowResponse]
+
+
 class BalanceHistoryResponse(BaseModel):
 
     periods: list[CategoryGridPeriodResponse]
