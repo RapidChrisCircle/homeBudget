@@ -19,12 +19,19 @@ from ..schemas import (
     TransactionCreate,
     TransactionGroupListResponse,
     TransactionListResponse,
+    TransactionNicknameUpdate,
     TransactionNoteUpdate,
     TransactionResponse,
     TransactionSplitsUpdate,
     TransactionUpdate,
 )
 from ..services.categorization import apply_rules_to_transaction, load_rules
+from ..services.narration import (
+    merchant_nicknames_map,
+    narration_key,
+    resolve_merchant_nickname,
+    upsert_merchant_nickname,
+)
 from ..services.csv_formats import ColumnMapping, validate_mapping_input
 from ..services.export import ledger_csv
 from ..services.csv_import import (
@@ -386,6 +393,7 @@ def list_transactions(
         sort=sort, direction=direction,
     )
     items, total = paginate(query, page=page, page_size=page_size, options=LIST_LOADERS)
+    _attach_merchant_nicknames(db, items)
     total_in, total_out, net_total = ledger_totals(query)
 
     return TransactionListResponse(
@@ -398,6 +406,14 @@ def list_transactions(
         total_out=total_out,
         net_total=net_total,
     )
+
+
+def _attach_merchant_nicknames(db: Session, transactions: list[Transaction]) -> None:
+    if not transactions:
+        return
+    nicknames = merchant_nicknames_map(db)
+    for tx in transactions:
+        tx.merchant_nickname = resolve_merchant_nickname(tx.narration, nicknames)
 
 
 # Static path, declared before /transactions/{transaction_id} for the same
@@ -646,8 +662,11 @@ def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)
 
     db.add(transaction)
     batch.row_count += 1
+    if payload.merchant_nickname is not None:
+        upsert_merchant_nickname(db, payload.narration, payload.merchant_nickname)
     db.commit()
     db.refresh(transaction)
+    _attach_merchant_nicknames(db, [transaction])
 
     return transaction
 
@@ -720,8 +739,12 @@ def update_transaction(transaction_id: int, payload: TransactionUpdate, db: Sess
     transaction.categorized_by_rule_id = None
     transaction.note = payload.note
 
+    if payload.merchant_nickname is not None:
+        upsert_merchant_nickname(db, payload.narration, payload.merchant_nickname)
+
     db.commit()
     db.refresh(transaction)
+    _attach_merchant_nicknames(db, [transaction])
 
     return transaction
 
@@ -751,6 +774,7 @@ def update_transaction_category(
     transaction.splits = []
     db.commit()
     db.refresh(transaction)
+    _attach_merchant_nicknames(db, [transaction])
 
     return transaction
 
@@ -839,6 +863,7 @@ def update_transaction_splits(
     transaction.categorized_by_rule_id = None
     db.commit()
     db.refresh(transaction)
+    _attach_merchant_nicknames(db, [transaction])
 
     return transaction
 
@@ -858,6 +883,27 @@ def update_transaction_note(
     transaction.note = payload.note
     db.commit()
     db.refresh(transaction)
+    _attach_merchant_nicknames(db, [transaction])
+
+    return transaction
+
+
+@router.patch("/transactions/{transaction_id}/nickname", response_model=TransactionResponse)
+def update_transaction_nickname(
+    transaction_id: int,
+    payload: TransactionNicknameUpdate,
+    db: Session = Depends(get_db)
+):
+
+    transaction = db.get(Transaction, transaction_id)
+
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    upsert_merchant_nickname(db, transaction.narration, payload.nickname)
+    db.commit()
+    db.refresh(transaction)
+    _attach_merchant_nicknames(db, [transaction])
 
     return transaction
 

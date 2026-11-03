@@ -7,6 +7,7 @@ import CategorySelect from '../components/CategorySelect.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import InlineEditRow from '../components/InlineEditRow.jsx'
 import LoadingState from '../components/LoadingState.jsx'
+import MerchantNicknamesCard from '../components/MerchantNicknamesCard.jsx'
 import PageHeader from '../components/PageHeader.jsx'
 import { api } from '../services/api'
 import { showToast } from '../services/toast'
@@ -25,6 +26,7 @@ const EMPTY_FORM = {
   min_amount: '',
   max_amount: '',
   category_id: '',
+  merchant_nickname: '',
 }
 
 // Blank optional fields are sent as null, not '' - the backend treats an
@@ -139,6 +141,7 @@ export default function RulesPage() {
       min_amount: rule.min_amount ?? '',
       max_amount: rule.max_amount ?? '',
       category_id: String(rule.category_id),
+      merchant_nickname: rule.merchant_nickname || '',
     })
   }
 
@@ -183,10 +186,17 @@ export default function RulesPage() {
     setSaving(true)
 
     try {
+      const currentRule = editingId != null ? rules.find((rule) => rule.id === editingId) : null
+      const payload = {
+        ...buildPayload(form),
+        ...(form.merchant_nickname.trim() || currentRule?.merchant_nickname
+          ? { merchant_nickname: form.merchant_nickname.trim() || null }
+          : {}),
+      }
       if (editingId) {
-        await api.put(`/category-rules/${editingId}`, buildPayload(form))
+        await api.put(`/category-rules/${editingId}`, payload)
       } else {
-        await api.post('/category-rules', buildPayload(form))
+        await api.post('/category-rules', payload)
       }
       cancelEdit()
       await refresh()
@@ -324,6 +334,17 @@ export default function RulesPage() {
             value={form.narration_pattern}
             onChange={handleFieldChange('narration_pattern')}
             required
+          />
+        </label>
+      </div>
+      <div>
+        <label>
+          Merchant nickname (optional)
+          <input
+            type="text"
+            value={form.merchant_nickname}
+            onChange={handleFieldChange('merchant_nickname')}
+            placeholder="e.g. Local Grocer"
           />
         </label>
       </div>
@@ -552,6 +573,9 @@ export default function RulesPage() {
                         {rule.use_regex && (
                           <Badge tone="info" title="Patterns are matched as case-insensitive regular expressions"> regex</Badge>
                         )}
+                        {rule.merchant_nickname && (
+                          <Badge tone="neutral" title="Merchant nickname"> {rule.merchant_nickname}</Badge>
+                        )}
                       </td>
                       <td>{rule.transaction_type}</td>
                       <td><Amount value={rule.min_amount} neutral /></td>
@@ -601,6 +625,8 @@ export default function RulesPage() {
           </table>
         )}
       </Card>
+
+      <MerchantNicknamesCard refreshToken={rules} onChanged={refresh} />
     </section>
   )
 }

@@ -24,6 +24,7 @@ export default function RuleEditor({ transaction, categories, transactionTypes, 
     min_amount: '',
     max_amount: '',
     category_id: transaction.category_id ? String(transaction.category_id) : '',
+    merchant_nickname: transaction.merchant_nickname || '',
   }))
   const [preview, setPreview] = useState(null)
   const [previewing, setPreviewing] = useState(false)
@@ -89,7 +90,13 @@ export default function RuleEditor({ transaction, categories, transactionTypes, 
     setError('')
     setSaving(true)
     try {
-      await api.post('/category-rules', buildPayload())
+      const savePayload = {
+        ...buildPayload(),
+        ...(form.merchant_nickname.trim() || transaction.merchant_nickname
+          ? { merchant_nickname: form.merchant_nickname.trim() || null }
+          : {}),
+      }
+      await api.post('/category-rules', savePayload)
       await api.post('/category-rules/apply')
       onSaved()
     } catch (err) {
@@ -125,6 +132,17 @@ export default function RuleEditor({ transaction, categories, transactionTypes, 
                 onChange={handleFieldChange('narration_pattern')}
                 onBlur={runPreview}
                 required
+              />
+            </label>
+          </div>
+          <div>
+            <label>
+              Merchant nickname (optional)
+              <input
+                type="text"
+                value={form.merchant_nickname}
+                onChange={handleFieldChange('merchant_nickname')}
+                placeholder="e.g. Local Cafe"
               />
             </label>
           </div>

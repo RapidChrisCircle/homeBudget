@@ -483,4 +483,90 @@ describe('RulesPage v2 patterns (T3.2)', () => {
     expect(screen.getByLabelText('Treat patterns as regular expressions')).toBeChecked()
     expect(screen.getByLabelText('Additional pattern 1')).toHaveValue('coles')
   })
+
+  it('includes merchant_nickname when creating a rule and manages merchant nicknames in the dedicated section', async () => {
+    let nicknamesList = [
+      {
+        id: 10,
+        narration_key: 'WOOLWORTHS',
+        nickname: 'Woolies',
+        merchant: 'WOOLWORTHS',
+        sample_narration: 'WOOLWORTHS 1234',
+        transaction_count: 5,
+      },
+    ]
+    api.get.mockImplementation((path) => {
+      if (path === '/category-rules') return Promise.resolve({ data: [sampleRule] })
+      if (path === '/categories') return Promise.resolve({ data: [sampleCategory] })
+      if (path === '/transactions/types') return Promise.resolve({ data: ['DEP', 'WDL'] })
+      if (path === '/category-rules/review') return Promise.resolve({ data: { findings: [] } })
+      if (path === '/merchants/nicknames') return Promise.resolve({ data: nicknamesList })
+      return Promise.reject(new Error(`unexpected path ${path}`))
+    })
+    api.post.mockResolvedValue({ data: { ...sampleRule, merchant_nickname: 'Coles Local' } })
+    api.put.mockImplementation((path, payload) => {
+      if (path === '/merchants/nickname') {
+        nicknamesList = [
+          ...nicknamesList.filter((n) => n.narration_key !== (payload.narration_key || payload.narration?.toUpperCase())),
+          {
+            id: 11,
+            narration_key: (payload.narration_key || payload.narration).toUpperCase(),
+            nickname: payload.nickname,
+            merchant: (payload.narration_key || payload.narration).toUpperCase(),
+            sample_narration: payload.narration || payload.narration_key,
+            transaction_count: 2,
+          },
+        ]
+        return Promise.resolve({ data: { narration_key: 'COLES', nickname: payload.nickname } })
+      }
+      return Promise.resolve({ data: sampleRule })
+    })
+    api.delete.mockImplementation((path) => {
+      if (path === '/merchants/nicknames/10') {
+        nicknamesList = nicknamesList.filter((n) => n.id !== 10)
+      }
+      return Promise.resolve({})
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Woolies')).toBeInTheDocument())
+
+    // Create rule with a merchant nickname
+    fireEvent.change(screen.getByLabelText('Narration contains'), { target: { value: 'coles' } })
+    fireEvent.change(screen.getByLabelText('Merchant nickname (optional)'), {
+      target: { value: 'Coles Local' },
+    })
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: '1' } })
+
+    const addRuleButtons = screen.getAllByRole('button', { name: 'Add Rule' })
+    fireEvent.click(addRuleButtons[addRuleButtons.length - 1])
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/category-rules', {
+        narration_pattern: 'coles',
+        additional_patterns: [],
+        use_regex: false,
+        transaction_type: null,
+        min_amount: null,
+        max_amount: null,
+        category_id: 1,
+        merchant_nickname: 'Coles Local',
+      })
+    })
+
+    // Edit existing nickname in Merchant Nicknames card
+    const nicknamesCard = screen.getByText('Woolies').closest('.card')
+    fireEvent.click(within(nicknamesCard).getByRole('button', { name: 'Edit nickname for WOOLWORTHS' }))
+    const editInput = within(nicknamesCard).getByLabelText('Nickname for WOOLWORTHS')
+    fireEvent.change(editInput, { target: { value: 'Woolworths Metro' } })
+    fireEvent.click(within(nicknamesCard).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/merchants/nickname', {
+        narration_key: 'WOOLWORTHS',
+        nickname: 'Woolworths Metro',
+      })
+    })
+  })
 })

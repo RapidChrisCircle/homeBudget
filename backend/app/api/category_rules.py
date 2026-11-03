@@ -18,6 +18,7 @@ from ..schemas import (
     RuleReviewResponse,
 )
 from ..services.categorization import apply_rules_to_existing, preview_rule, rule_patterns
+from ..services.narration import merchant_nicknames_map, narration_key, upsert_merchant_nickname
 from ..services.rule_review import remove_redundant_rules, review_rules
 
 router = APIRouter()
@@ -86,11 +87,15 @@ def _validate_rule_payload(db: Session, payload):
 
 def _list_rules(db: Session) -> list[CategoryRule]:
 
-    return (
+    rules = (
         db.query(CategoryRule)
         .order_by(CategoryRule.priority, CategoryRule.id)
         .all()
     )
+    nicknames = merchant_nicknames_map(db)
+    for rule in rules:
+        rule.merchant_nickname = nicknames.get(narration_key(rule.narration_pattern))
+    return rules
 
 
 @router.get("/category-rules", response_model=list[CategoryRuleResponse])
@@ -156,10 +161,13 @@ def create_category_rule(
     # New rules go to the bottom of the evaluation order.
     next_priority = (db.query(func.max(CategoryRule.priority)).scalar() or 0) + 1
 
-    rule = CategoryRule(**payload.model_dump(), priority=next_priority)
+    rule = CategoryRule(**payload.model_dump(exclude={"merchant_nickname"}), priority=next_priority)
     db.add(rule)
+    if payload.merchant_nickname is not None:
+        upsert_merchant_nickname(db, payload.narration_pattern, payload.merchant_nickname)
     db.commit()
     db.refresh(rule)
+    rule.merchant_nickname = merchant_nicknames_map(db).get(narration_key(rule.narration_pattern))
 
     return rule
 
@@ -178,11 +186,15 @@ def update_category_rule(
 
     _validate_rule_payload(db, payload)
 
-    for field, value in payload.model_dump().items():
+    for field, value in payload.model_dump(exclude={"merchant_nickname"}).items():
         setattr(rule, field, value)
+
+    if payload.merchant_nickname is not None:
+        upsert_merchant_nickname(db, payload.narration_pattern, payload.merchant_nickname)
 
     db.commit()
     db.refresh(rule)
+    rule.merchant_nickname = merchant_nicknames_map(db).get(narration_key(rule.narration_pattern))
 
     return rule
 

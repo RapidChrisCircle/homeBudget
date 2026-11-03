@@ -22,6 +22,7 @@ export default function EditManualTransactionForm({ transaction, categories, onC
     amount: Math.abs(Number(transaction.debit ?? transaction.credit)).toFixed(2),
     categoryId: transaction.category_id ? String(transaction.category_id) : '',
     note: transaction.note || '',
+    merchantNickname: transaction.merchant_nickname || '',
   }))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -56,6 +57,9 @@ export default function EditManualTransactionForm({ transaction, categories, onC
         credit: form.direction === 'credit' ? form.amount : null,
         category_id: form.categoryId ? Number(form.categoryId) : null,
         note: form.note || null,
+        ...(form.merchantNickname.trim() || transaction.merchant_nickname
+          ? { merchant_nickname: form.merchantNickname.trim() || null }
+          : {}),
       })
       onSaved()
     } catch (err) {
@@ -166,6 +170,17 @@ export default function EditManualTransactionForm({ transaction, categories, onC
             <label>
               Note (optional)
               <input type="text" value={form.note} onChange={handleFieldChange('note')} />
+            </label>
+          </div>
+
+          <div>
+            <label>
+              Merchant nickname (optional)
+              <input
+                type="text"
+                value={form.merchantNickname}
+                onChange={handleFieldChange('merchantNickname')}
+              />
             </label>
           </div>
 

@@ -428,3 +428,76 @@ def test_get_trends_merchants_validates_category_and_period_params(client):
     assert client.get("/api/trends/merchants?category_id=9999").status_code == 404
     assert client.get("/api/trends/merchants?category_id=1&year=2026").status_code == 422
     assert client.put("/api/trends/merchants/nickname", json={"narration_key": "  ", "nickname": "X"}).status_code == 422
+
+
+def test_merchant_nicknames_across_rules_ledger_and_management_endpoints(client, db_session):
+    dining = make_category(db_session, name="Dining Out", kind="expense")
+    t1 = make_transaction(
+        db_session,
+        transaction_date=date(2026, 7, 12),
+        narration="UBER *EATS 1111",
+        debit=Decimal("-25.00"),
+        category_id=dining.id,
+    )
+    t2 = make_transaction(
+        db_session,
+        transaction_date=date(2026, 7, 15),
+        narration="UBER *EATS 2222",
+        debit=Decimal("-35.00"),
+        category_id=dining.id,
+    )
+    t3 = make_transaction(
+        db_session,
+        transaction_date=date(2026, 7, 18),
+        narration="LS TAQUIZA NEWPORT",
+        debit=Decimal("-45.00"),
+        category_id=dining.id,
+    )
+    db_session.commit()
+
+    # 1. Create a category rule with merchant_nickname
+    rule_res = client.post(
+        "/api/category-rules",
+        json={
+            "narration_pattern": "UBER *EATS",
+            "category_id": dining.id,
+            "merchant_nickname": "Uber Eats",
+        },
+    )
+    assert rule_res.status_code == 201
+    assert rule_res.json()["merchant_nickname"] == "Uber Eats"
+
+    # 2. Patch a transaction's merchant nickname directly from the ledger
+    patch_res = client.patch(
+        f"/api/transactions/{t3.id}/nickname",
+        json={"nickname": "Taquiza"},
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["merchant_nickname"] == "Taquiza"
+
+    # 3. Verify GET /api/transactions includes merchant_nickname on matching rows
+    tx_items = client.get("/api/transactions").json()["items"]
+    by_id = {row["id"]: row for row in tx_items}
+    assert by_id[t1.id]["merchant_nickname"] == "Uber Eats"
+    assert by_id[t2.id]["merchant_nickname"] == "Uber Eats"
+    assert by_id[t3.id]["merchant_nickname"] == "Taquiza"
+
+    # 4. Verify GET /api/transactions/groups includes nickname on merchant groups
+    groups = client.get("/api/transactions/groups?include_categorized=true").json()["groups"]
+    uber_group = next(g for g in groups if g["narration_key"] == "UBER *EATS")
+    assert uber_group["nickname"] == "Uber Eats"
+
+    # 5. Verify dedicated management endpoints: GET /api/merchants/nicknames and DELETE
+    nicknames = client.get("/api/merchants/nicknames").json()
+    assert len(nicknames) == 2
+    by_key = {n["narration_key"]: n for n in nicknames}
+    assert by_key["UBER *EATS"]["nickname"] == "Uber Eats"
+    assert by_key["UBER *EATS"]["transaction_count"] == 2
+    assert by_key["LS TAQUIZA NEWPORT"]["nickname"] == "Taquiza"
+    assert by_key["LS TAQUIZA NEWPORT"]["transaction_count"] == 1
+
+    del_res = client.delete(f"/api/merchants/nicknames/{by_key['LS TAQUIZA NEWPORT']['id']}")
+    assert del_res.status_code == 204
+    remaining = client.get("/api/merchants/nicknames").json()
+    assert [n["narration_key"] for n in remaining] == ["UBER *EATS"]
+

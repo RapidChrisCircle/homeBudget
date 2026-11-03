@@ -138,4 +138,25 @@ describe('RuleEditor', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(2)
   })
+
+  it('includes merchant_nickname in the save payload when entered', async () => {
+    const { onSaved } = renderEditor()
+
+    fireEvent.change(screen.getByLabelText('Merchant nickname (optional)'), {
+      target: { value: 'Taquiza Newport' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and apply' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/category-rules', {
+        narration_pattern: 'LS Taquiza',
+        transaction_type: 'WDL',
+        min_amount: null,
+        max_amount: null,
+        category_id: 2,
+        merchant_nickname: 'Taquiza Newport',
+      })
+    })
+    expect(onSaved).toHaveBeenCalled()
+  })
 })

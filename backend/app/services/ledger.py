@@ -111,7 +111,12 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 
 from ..models import Account, Category, Transaction, TransactionSplit
-from .narration import merchant_label, narration_key
+from .narration import (
+    merchant_label,
+    merchant_nicknames_map,
+    narration_key,
+    resolve_merchant_nickname,
+)
 
 DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 200
@@ -412,6 +417,7 @@ class TransactionGroup:
     uncategorized_count: int
     category_names: list[str]
     split_count: int
+    nickname: str | None = None
 
 
 def _grouped_filters(filters: TransactionFilters, include_categorized: bool) -> TransactionFilters:
@@ -498,6 +504,7 @@ def transaction_groups(
     for row in rows:
         buckets[narration_key(row.narration)].append(row)
 
+    nicknames = merchant_nicknames_map(db)
     groups = []
 
     for key, bucket_rows in buckets.items():
@@ -521,6 +528,7 @@ def transaction_groups(
                 # bucket_rows[0] is the newest occurrence - build_transaction_query
                 # orders (transaction_date DESC, id DESC), preserved through grouping.
                 merchant=merchant_label(bucket_rows[0].narration),
+                nickname=nicknames.get(key) or resolve_merchant_nickname(bucket_rows[0].narration, nicknames),
                 sample_narration=bucket_rows[0].narration,
                 transaction_count=len(bucket_rows),
                 total_amount=sum(amounts, Decimal("0")),

@@ -1,13 +1,15 @@
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
-from ..models import Category, MerchantNickname
+from ..models import Category, MerchantNickname, Transaction
 from ..schemas import (
     CategoryGridPeriodResponse,
     CategoryGridRowResponse,
+    MerchantNicknameItemResponse,
     MerchantNicknameResponse,
     MerchantNicknameUpdate,
     TrendBalanceResponse,
@@ -17,6 +19,7 @@ from ..schemas import (
     TrendMonthlySummaryResponse,
     TrendsResponse,
 )
+from ..services.narration import merchant_label, narration_key, upsert_merchant_nickname
 from ..services.net_worth import net_worth_history
 from ..services.reporting import (
     DEFAULT_GRID_MONTHS,
@@ -121,29 +124,84 @@ def get_trend_category_merchants(
     )
 
 
+@router.get("/merchants/nicknames", response_model=list[MerchantNicknameItemResponse])
+@router.get("/trends/merchants/nicknames", response_model=list[MerchantNicknameItemResponse])
+def list_merchant_nicknames(db: Session = Depends(get_db)):
+
+    rows = (
+        db.query(MerchantNickname)
+        .order_by(func.lower(MerchantNickname.nickname), MerchantNickname.id)
+        .all()
+    )
+    if not rows:
+        return []
+
+    tx_rows = (
+        db.query(Transaction.narration)
+        .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
+        .all()
+    )
+    all_txs = [
+        (narration, narration_key(narration or ""))
+        for (narration,) in tx_rows
+    ]
+    counts: dict[str, int] = {}
+    samples: dict[str, str] = {}
+    for narration, key in all_txs:
+        counts[key] = counts.get(key, 0) + 1
+        if key not in samples:
+            samples[key] = narration
+
+    items: list[MerchantNicknameItemResponse] = []
+    for row in rows:
+        key = row.narration_key
+        tx_count = counts.get(key, 0)
+        sample = samples.get(key)
+        if tx_count == 0 and key:
+            matching = [narration for narration, t_key in all_txs if key in t_key]
+            tx_count = len(matching)
+            if matching:
+                sample = matching[0]
+        items.append(
+            MerchantNicknameItemResponse(
+                id=row.id,
+                narration_key=key,
+                nickname=row.nickname,
+                merchant=merchant_label(sample) if sample else key,
+                sample_narration=sample,
+                transaction_count=tx_count,
+                created_at=row.created_at,
+            )
+        )
+    return items
+
+
+@router.put("/merchants/nickname", response_model=MerchantNicknameResponse)
 @router.put("/trends/merchants/nickname", response_model=MerchantNicknameResponse)
 def set_merchant_nickname(
     payload: MerchantNicknameUpdate,
     db: Session = Depends(get_db),
 ):
 
-    key = (payload.narration_key or "").strip()
+    raw_key = payload.narration_key if payload.narration_key is not None else (payload.narration or "")
+    key, saved_nickname = upsert_merchant_nickname(db, raw_key, payload.nickname)
     if not key:
-        raise HTTPException(status_code=422, detail="narration_key must not be empty")
-
-    clean_nickname = (payload.nickname or "").strip()
-    existing = db.query(MerchantNickname).filter(MerchantNickname.narration_key == key).first()
-
-    if not clean_nickname:
-        if existing is not None:
-            db.delete(existing)
-            db.commit()
-        return MerchantNicknameResponse(narration_key=key, nickname=None)
-
-    if existing is not None:
-        existing.nickname = clean_nickname
-    else:
-        db.add(MerchantNickname(narration_key=key, nickname=clean_nickname))
+        raise HTTPException(status_code=422, detail="narration_key or narration must not be empty")
 
     db.commit()
-    return MerchantNicknameResponse(narration_key=key, nickname=clean_nickname)
+    return MerchantNicknameResponse(narration_key=key, nickname=saved_nickname)
+
+
+@router.delete("/merchants/nicknames/{nickname_id}", status_code=204)
+@router.delete("/trends/merchants/nicknames/{nickname_id}", status_code=204)
+def delete_merchant_nickname(
+    nickname_id: int,
+    db: Session = Depends(get_db),
+):
+
+    row = db.get(MerchantNickname, nickname_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Merchant nickname not found")
+
+    db.delete(row)
+    db.commit()

@@ -49,7 +49,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Category, MerchantNickname, Transaction
 from .allocations import allocation_subquery
-from .narration import merchant_label, narration_key
+from .narration import merchant_label, narration_key, resolve_merchant_nickname
 from .reporting import _year_month_columns, month_bounds
 
 
@@ -309,7 +309,7 @@ def category_merchants(
         merchants.append({
             "narration_key": key,
             "merchant": label,
-            "nickname": nicknames.get(key),
+            "nickname": nicknames.get(key) or resolve_merchant_nickname(bucket_rows[0].narration, nicknames),
             "sample_narration": bucket_rows[0].narration,
             "transaction_count": count,
             "total_spent": amount,

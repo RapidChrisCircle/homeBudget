@@ -702,6 +702,7 @@ export default function TransactionsPage() {
   const ruleEditorTransactionFromGroup = (group) => ({
     narration: group.sample_narration,
     merchant_label: group.merchant,
+    merchant_nickname: group.nickname || '',
     transaction_type: '',
     category_id: null,
   })
@@ -782,6 +783,21 @@ export default function TransactionsPage() {
       await refresh()
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Note update failed'
+      setActionError(String(message))
+    }
+  }
+
+  const handleNicknameChange = async (transaction, nickname) => {
+    const trimmed = nickname.trim()
+    if (trimmed === (transaction.merchant_nickname || '')) {
+      return
+    }
+    setActionError('')
+    try {
+      await api.patch(`/transactions/${transaction.id}/nickname`, { nickname: trimmed || null })
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Merchant nickname update failed'
       setActionError(String(message))
     }
   }
@@ -1238,7 +1254,9 @@ export default function TransactionsPage() {
                       return (
                         <Fragment key={group.narration_key}>
                           <tr>
-                            <td className="cell-wrap" data-label="Merchant">{group.merchant}</td>
+                            <td className="cell-wrap" data-label="Merchant">
+                              {group.nickname ? `${group.nickname} (${group.merchant})` : group.merchant}
+                            </td>
                             <td className="numeric" data-label="Count">{group.transaction_count}</td>
                             <td data-label="Total"><Amount value={signedTotal} /></td>
                             <td data-label="Date range">{formatDate(group.first_date)} - {formatDate(group.last_date)}</td>
@@ -1410,6 +1428,11 @@ export default function TransactionsPage() {
                           <td data-label="Date">{formatDate(transaction.transaction_date)}</td>
                           <td data-label="Account">{transaction.account_name || formatAccount(transaction)}</td>
                           <td className="ledger-narration" data-label="Narration">
+                            {transaction.merchant_nickname && (
+                              <Badge tone="info" title={`Nickname for ${transaction.merchant_label || transaction.narration}`}>
+                                {transaction.merchant_nickname}{' '}
+                              </Badge>
+                            )}
                             {transaction.narration}
                             {transaction.is_manual && (
                               <Badge tone="neutral" title="Entered by hand, not imported from a bank export"> manual</Badge>
@@ -1496,6 +1519,14 @@ export default function TransactionsPage() {
                                   defaultValue={transaction.note || ''}
                                   onBlur={(e) => handleNoteChange(transaction, e.target.value)}
                                   aria-label={`Note for ${transaction.narration}`}
+                                />
+                                <input
+                                  type="text"
+                                  className="ledger-note-input"
+                                  placeholder="Merchant nickname..."
+                                  defaultValue={transaction.merchant_nickname || ''}
+                                  onBlur={(e) => handleNicknameChange(transaction, e.target.value)}
+                                  aria-label={`Merchant nickname for ${transaction.narration}`}
                                 />
                                 {transaction.is_manual && (
                                   <button

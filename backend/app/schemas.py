@@ -266,6 +266,7 @@ class CategoryRuleResponse(BaseModel):
     category_id: int
     category_name: Optional[str]
     category_parent_name: Optional[str]
+    merchant_nickname: Optional[str] = None
     priority: int
     created_at: datetime
 
@@ -290,6 +291,7 @@ class CategoryRuleCreate(BaseModel):
     min_amount: Optional[Decimal] = None
     max_amount: Optional[Decimal] = None
     category_id: int
+    merchant_nickname: Optional[str] = None
 
 
 class CategoryRuleUpdate(BaseModel):
@@ -301,6 +303,7 @@ class CategoryRuleUpdate(BaseModel):
     min_amount: Optional[Decimal] = None
     max_amount: Optional[Decimal] = None
     category_id: int
+    merchant_nickname: Optional[str] = None
 
 
 class CategoryRuleMove(BaseModel):
@@ -423,6 +426,7 @@ class TransactionCreate(BaseModel):
     # the built-in format's own convention) when left blank, so a manual
     # entry never has to invent a value it has no opinion about.
     transaction_type: Optional[str] = None
+    merchant_nickname: Optional[str] = None
 
 
 class TransactionUpdate(BaseModel):
@@ -440,6 +444,12 @@ class TransactionUpdate(BaseModel):
     category_id: Optional[int] = None
     note: Optional[str] = None
     transaction_type: Optional[str] = None
+    merchant_nickname: Optional[str] = None
+
+
+class TransactionNicknameUpdate(BaseModel):
+
+    nickname: Optional[str] = None
 
 
 class TransactionResponse(BaseModel):
@@ -461,6 +471,7 @@ class TransactionResponse(BaseModel):
     balance: Decimal
     transaction_type: str
     note: Optional[str]
+    merchant_nickname: Optional[str] = None
     is_manual: bool
     is_split: bool
     splits: list[TransactionSplitResponse]
@@ -499,6 +510,7 @@ class TransactionGroupResponse(BaseModel):
 
     narration_key: str
     merchant: str
+    nickname: Optional[str] = None
     sample_narration: str
     transaction_count: int
     total_amount: Decimal
@@ -892,7 +904,8 @@ class TrendMerchantsResponse(BaseModel):
 
 class MerchantNicknameUpdate(BaseModel):
 
-    narration_key: str
+    narration_key: Optional[str] = None
+    narration: Optional[str] = None
     nickname: Optional[str] = None
 
 
@@ -900,6 +913,17 @@ class MerchantNicknameResponse(BaseModel):
 
     narration_key: str
     nickname: Optional[str] = None
+
+
+class MerchantNicknameItemResponse(BaseModel):
+
+    id: int
+    narration_key: str
+    nickname: str
+    merchant: Optional[str] = None
+    sample_narration: Optional[str] = None
+    transaction_count: int = 0
+    created_at: datetime
 
 
 class BalanceHistoryResponse(BaseModel):
