@@ -25,12 +25,27 @@ export const TOP_CATEGORY_LIMIT = 6
 export function buildLevel(periods, categories, groupId) {
   const expenses = categories.filter((c) => c.kind === 'expense')
 
-  const asRow = (category) => ({
-    label: category.category_name,
-    amounts: Object.fromEntries(periods.map((p) => [p.label, Number(category.amounts[p.label])])),
-    total: Number(category.total),
-    drill: { kind: 'category', id: category.category_id },
-  })
+  const asRow = (category) => {
+    const total = Number(category.total)
+    const transactionCount = Number(category.transaction_count ?? 0)
+    const averageSpend =
+      category.average_spend !== undefined && category.average_spend !== null
+        ? Number(category.average_spend)
+        : transactionCount > 0
+          ? Number((total / transactionCount).toFixed(2))
+          : 0
+
+    return {
+      label: category.category_name,
+      amounts: Object.fromEntries(periods.map((p) => [p.label, Number(category.amounts[p.label])])),
+      total,
+      transaction_count: transactionCount,
+      first_date: category.first_date || null,
+      last_date: category.last_date || null,
+      average_spend: averageSpend,
+      drill: { kind: 'category', id: category.category_id },
+    }
+  }
 
   if (groupId) {
     return expenses.filter((c) => String(c.parent_id) === String(groupId)).map(asRow)
@@ -52,6 +67,10 @@ export function buildLevel(periods, categories, groupId) {
         label: category.parent_name,
         amounts: Object.fromEntries(periods.map((p) => [p.label, 0])),
         total: 0,
+        transaction_count: 0,
+        first_date: null,
+        last_date: null,
+        average_spend: 0,
         drill: { kind: 'group', id: category.parent_id },
       }
       groupRows.set(category.parent_id, group)
@@ -62,6 +81,17 @@ export function buildLevel(periods, categories, groupId) {
       group.amounts[period.label] += Number(category.amounts[period.label])
     }
     group.total += Number(category.total)
+    group.transaction_count += Number(category.transaction_count ?? 0)
+    if (category.first_date && (!group.first_date || category.first_date < group.first_date)) {
+      group.first_date = category.first_date
+    }
+    if (category.last_date && (!group.last_date || category.last_date > group.last_date)) {
+      group.last_date = category.last_date
+    }
+    group.average_spend =
+      group.transaction_count > 0
+        ? Number((group.total / group.transaction_count).toFixed(2))
+        : 0
   }
 
   return rows

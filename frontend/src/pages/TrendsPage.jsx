@@ -17,9 +17,18 @@ import { buildLevel, buildSeries, drilledCategory, drilledGroupName, monthBounds
 const MONTH_OPTIONS = [6, 12, 24]
 const DEFAULT_MONTHS = 6
 
+const CATEGORY_SORT_COLUMNS = {
+  category: { getValue: (r) => r.label, type: 'string' },
+  count: { getValue: (r) => r.transaction_count, type: 'numeric' },
+  date_range: { getValue: (r) => r.first_date, type: 'date' },
+  average: { getValue: (r) => r.average_spend, type: 'numeric' },
+  total: { getValue: (r) => r.total, type: 'numeric' },
+}
+
 const MERCHANT_SORT_COLUMNS = {
   merchant: { getValue: (m) => m.nickname || m.merchant, type: 'string' },
   count: { getValue: (m) => m.transaction_count, type: 'numeric' },
+  date_range: { getValue: (m) => m.first_date, type: 'date' },
   average: { getValue: (m) => m.average_spend, type: 'numeric' },
   total: { getValue: (m) => m.total_spent, type: 'numeric' },
 }
@@ -49,6 +58,9 @@ export default function TrendsPage() {
 
   const activeCategory = trends ? drilledCategory(trends.categories, categoryId) : null
   const activeCategoryId = activeCategory ? String(activeCategory.category_id) : ''
+  const groupName = trends ? drilledGroupName(trends.categories, groupId) : null
+  const activeGroupId = groupName ? groupId : ''
+  const levelRows = trends ? buildLevel(trends.periods, trends.categories, activeGroupId) : []
 
   useEffect(() => {
     let cancelled = false
@@ -121,6 +133,16 @@ export default function TrendsPage() {
       cancelled = true
     }
   }, [activeCategoryId, months, year, month])
+
+  const {
+    sortedRows: sortedCategories,
+    sortKey: categorySortKey,
+    sortDirection: categorySortDirection,
+    toggleSort: onCategorySort,
+  } = useTableSort(levelRows, CATEGORY_SORT_COLUMNS, {
+    sortKey: 'total',
+    sortDirection: 'desc',
+  })
 
   const {
     sortedRows: sortedMerchants,
@@ -242,7 +264,7 @@ export default function TrendsPage() {
     )
   }
 
-  const { periods, categories, monthly, budget } = trends
+  const { periods, monthly, budget } = trends
   const periodLabels = periods.map((p) => p.label)
   const activeEndMonth = year && month
     ? `${year}-${String(month).padStart(2, '0')}`
@@ -284,13 +306,7 @@ export default function TrendsPage() {
     )
   }
 
-  // A group the current window has no data for (or one deleted since the
-  // URL was shared) drills into nothing - fall back to the top level
-  // rather than rendering an empty chart with a breadcrumb.
-  const groupName = drilledGroupName(categories, groupId)
-  const activeGroupId = groupName ? groupId : ''
-
-  const categorySeries = buildSeries(periods, buildLevel(periods, categories, activeGroupId))
+  const categorySeries = buildSeries(periods, levelRows)
   // Income/Spending and Actual each carry which `kind` their own bar
   // stands for, so one handler (openKindMonth below) can drill any of them
   // into the ledger. Net saved and Budgeted opt out with `selectable:
@@ -371,14 +387,101 @@ export default function TrendsPage() {
         {categorySeries.length === 0 ? (
           <EmptyState message="No categorized spending in this window yet." />
         ) : (
-          <LineChart
-            periods={periodLabels}
-            series={categorySeries}
-            formatValue={formatAmount}
-            title="Spending by category over time"
-            onSelectPoint={openCategoryMonth}
-            onSelectSeries={selectCategorySeries}
-          />
+          <>
+            <LineChart
+              periods={periodLabels}
+              series={categorySeries}
+              formatValue={formatAmount}
+              title="Spending by category over time"
+              onSelectPoint={openCategoryMonth}
+              onSelectSeries={selectCategorySeries}
+            />
+
+            <div className="trends-categories-table">
+              <table>
+                <caption className="visually-hidden">
+                  {groupName ? `Sub-categories in ${groupName}` : 'Spending by category'}
+                </caption>
+                <thead>
+                  <tr>
+                    <SortableHeader
+                      label={groupName ? 'Sub-category' : 'Category'}
+                      sortKey="category"
+                      activeSortKey={categorySortKey}
+                      activeDirection={categorySortDirection}
+                      onSort={onCategorySort}
+                    />
+                    <SortableHeader
+                      label="Transactions"
+                      sortKey="count"
+                      activeSortKey={categorySortKey}
+                      activeDirection={categorySortDirection}
+                      onSort={onCategorySort}
+                      numeric
+                    />
+                    <SortableHeader
+                      label="Date Range"
+                      sortKey="date_range"
+                      activeSortKey={categorySortKey}
+                      activeDirection={categorySortDirection}
+                      onSort={onCategorySort}
+                    />
+                    <SortableHeader
+                      label="Average Spend"
+                      sortKey="average"
+                      activeSortKey={categorySortKey}
+                      activeDirection={categorySortDirection}
+                      onSort={onCategorySort}
+                      numeric
+                    />
+                    <SortableHeader
+                      label="Total Spent"
+                      sortKey="total"
+                      activeSortKey={categorySortKey}
+                      activeDirection={categorySortDirection}
+                      onSort={onCategorySort}
+                      numeric
+                    />
+                    <th scope="col"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedCategories.map((row) => (
+                    <tr key={`${row.drill.kind}-${row.drill.id}`}>
+                      <td>{row.label}</td>
+                      <td className="numeric">{row.transaction_count}</td>
+                      <td>
+                        {!row.first_date
+                          ? '—'
+                          : row.first_date === row.last_date
+                            ? formatDate(row.first_date)
+                            : `${formatDate(row.first_date)} – ${formatDate(row.last_date)}`}
+                      </td>
+                      <td className="numeric">
+                        <Amount value={row.average_spend} neutral />
+                      </td>
+                      <td className="numeric">
+                        <Amount value={row.total} neutral />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          aria-label={
+                            row.drill.kind === 'group'
+                              ? `Sub-categories in ${row.label}`
+                              : `Merchants in ${row.label}`
+                          }
+                          onClick={() => selectCategorySeries({ series: row })}
+                        >
+                          {row.drill.kind === 'group' ? 'Sub-categories' : 'Merchants'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
         {activeCategory && (
@@ -424,7 +527,13 @@ export default function TrendsPage() {
                         onSort={onMerchantSort}
                         numeric
                       />
-                      <th scope="col">Date Range</th>
+                      <SortableHeader
+                        label="Date Range"
+                        sortKey="date_range"
+                        activeSortKey={merchantSortKey}
+                        activeDirection={merchantSortDirection}
+                        onSort={onMerchantSort}
+                      />
                       <SortableHeader
                         label="Average Spend"
                         sortKey="average"

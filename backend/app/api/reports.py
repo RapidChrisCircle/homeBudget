@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -67,6 +68,10 @@ def get_monthly_report(
             archived=row["archived"],
             amounts={_label(y, m): amount for (y, m), amount in row["amounts"].items()},
             total=row["total"],
+            transaction_count=row.get("transaction_count", 0),
+            first_date=row.get("first_date"),
+            last_date=row.get("last_date"),
+            average_spend=row.get("average_spend", Decimal("0.00")),
         )
         for row in report["grid"]["rows"]
     ]

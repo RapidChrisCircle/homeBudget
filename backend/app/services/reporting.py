@@ -428,6 +428,9 @@ def category_grid(
             year_col,
             month_col,
             func.coalesce(func.sum(alloc.c.amount), 0).label("net"),
+            func.count(func.distinct(alloc.c.transaction_id)).label("transaction_count"),
+            func.min(alloc.c.transaction_date).label("first_date"),
+            func.max(alloc.c.transaction_date).label("last_date"),
         )
         .select_from(Category)
         .outerjoin(
@@ -466,6 +469,9 @@ def category_grid(
             "archived": row.archived,
             "_standing": row.budget_amount,
             "amounts": {},
+            "transaction_count": 0,
+            "first_date": None,
+            "last_date": None,
         })
 
         # An outer-joined category with no matching transaction anywhere in
@@ -478,6 +484,19 @@ def category_grid(
         net = Decimal(row.net)
         actual = -net if row.kind == "expense" else net
         entry["amounts"][(int(row.year), int(row.month))] = actual
+        entry["transaction_count"] += int(row.transaction_count or 0)
+        if row.first_date is not None:
+            entry["first_date"] = (
+                row.first_date
+                if entry["first_date"] is None or row.first_date < entry["first_date"]
+                else entry["first_date"]
+            )
+        if row.last_date is not None:
+            entry["last_date"] = (
+                row.last_date
+                if entry["last_date"] is None or row.last_date > entry["last_date"]
+                else entry["last_date"]
+            )
 
     grid_rows = []
 
@@ -499,6 +518,12 @@ def category_grid(
         entry["amounts"] = {p: amounts.get(p, Decimal("0")) for p in periods}
         entry["budgets"] = budgets
         entry["total"] = sum(entry["amounts"].values(), Decimal("0"))
+        tx_count = entry["transaction_count"]
+        entry["average_spend"] = (
+            (entry["total"] / Decimal(tx_count)).quantize(Decimal("0.01"))
+            if tx_count > 0
+            else Decimal("0.00")
+        )
         grid_rows.append(entry)
 
     grid_rows.sort(key=lambda r: r["category_name"])

@@ -15,6 +15,10 @@ const categories = [
     kind: 'expense',
     amounts: { '2026-06': '100.00', '2026-07': '120.00' },
     total: '220.00',
+    transaction_count: 4,
+    first_date: '2026-06-05',
+    last_date: '2026-07-18',
+    average_spend: '55.00',
   },
   {
     category_id: 2,
@@ -24,6 +28,10 @@ const categories = [
     kind: 'expense',
     amounts: { '2026-06': '40.00', '2026-07': '30.00' },
     total: '70.00',
+    transaction_count: 1,
+    first_date: '2026-06-12',
+    last_date: '2026-07-25',
+    average_spend: '70.00',
   },
   {
     category_id: 3,
@@ -33,6 +41,10 @@ const categories = [
     kind: 'expense',
     amounts: { '2026-06': '500.00', '2026-07': '500.00' },
     total: '1000.00',
+    transaction_count: 2,
+    first_date: '2026-06-01',
+    last_date: '2026-07-01',
+    average_spend: '500.00',
   },
   {
     category_id: 4,
@@ -55,6 +67,10 @@ describe('buildLevel', () => {
     expect(food.amounts['2026-06']).toBe(140)
     expect(food.amounts['2026-07']).toBe(150)
     expect(food.total).toBe(290)
+    expect(food.transaction_count).toBe(5)
+    expect(food.first_date).toBe('2026-06-05')
+    expect(food.last_date).toBe('2026-07-25')
+    expect(food.average_spend).toBe(58)
   })
 
   it('marks a group row as drilling into the group and a leaf as drilling to the ledger', () => {

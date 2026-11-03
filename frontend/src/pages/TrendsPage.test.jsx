@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
@@ -97,7 +97,7 @@ describe('TrendsPage', () => {
     })
     expect(screen.getByText('Income vs Spending vs Net')).toBeInTheDocument()
     expect(screen.getByText('Budget vs Actual')).toBeInTheDocument()
-    expect(screen.getByText('Groceries')).toBeInTheDocument()
+    expect(screen.getAllByText('Groceries').length).toBeGreaterThan(0)
     expect(screen.getByText('Income')).toBeInTheDocument()
     expect(screen.getByText('Budgeted')).toBeInTheDocument()
   })
@@ -214,6 +214,10 @@ const groupedCategories = [
     kind: 'expense',
     amounts: { '2026-05': '100.00', '2026-06': '120.00', '2026-07': '90.00' },
     total: '310.00',
+    transaction_count: 5,
+    first_date: '2026-05-04',
+    last_date: '2026-07-22',
+    average_spend: '62.00',
   },
   {
     category_id: 2,
@@ -223,6 +227,10 @@ const groupedCategories = [
     kind: 'expense',
     amounts: { '2026-05': '40.00', '2026-06': '30.00', '2026-07': '20.00' },
     total: '90.00',
+    transaction_count: 3,
+    first_date: '2026-05-10',
+    last_date: '2026-07-19',
+    average_spend: '30.00',
   },
   {
     category_id: 3,
@@ -232,6 +240,10 @@ const groupedCategories = [
     kind: 'expense',
     amounts: { '2026-05': '500.00', '2026-06': '500.00', '2026-07': '500.00' },
     total: '1500.00',
+    transaction_count: 3,
+    first_date: '2026-05-01',
+    last_date: '2026-07-01',
+    average_spend: '500.00',
   },
 ]
 
@@ -471,8 +483,9 @@ describe('TrendsPage drill-down', () => {
     })
 
     // Default sort is Total Spent descending: BISTRO LA VUE (55.00) before ALPHA CAFE (35.00)
+    const merchantsTable = screen.getByRole('table', { name: 'Merchants in Takeaway' })
     const getMerchantOrder = () =>
-      screen
+      within(merchantsTable)
         .getAllByRole('row')
         .slice(1)
         .map((row) => row.querySelector('td')?.textContent)
@@ -480,44 +493,99 @@ describe('TrendsPage drill-down', () => {
     expect(getMerchantOrder()).toEqual(['BISTRO LA VUE', 'ALPHA CAFE'])
 
     // Click Total Spent header (desc -> unsorted -> asc) to sort ascending (35.00 before 55.00)
-    fireEvent.click(screen.getByRole('button', { name: /Total Spent/ }))
-    fireEvent.click(screen.getByRole('button', { name: /Total Spent/ }))
+    fireEvent.click(within(merchantsTable).getByRole('button', { name: /Total Spent/ }))
+    fireEvent.click(within(merchantsTable).getByRole('button', { name: /Total Spent/ }))
     expect(getMerchantOrder()).toEqual(['ALPHA CAFE', 'BISTRO LA VUE'])
 
     // Click Merchant header to sort alphabetically ascending, then descending
-    fireEvent.click(screen.getByRole('button', { name: /Merchant/ }))
+    fireEvent.click(within(merchantsTable).getByRole('button', { name: /Merchant/ }))
     expect(getMerchantOrder()).toEqual(['ALPHA CAFE', 'BISTRO LA VUE'])
-    fireEvent.click(screen.getByRole('button', { name: /Merchant/ }))
+    fireEvent.click(within(merchantsTable).getByRole('button', { name: /Merchant/ }))
     expect(getMerchantOrder()).toEqual(['BISTRO LA VUE', 'ALPHA CAFE'])
 
     // Average Spend column is displayed and sortable
-    expect(screen.getByText('17.50')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Average Spend/ }))
+    expect(within(merchantsTable).getByText('17.50')).toBeInTheDocument()
+    fireEvent.click(within(merchantsTable).getByRole('button', { name: /Average Spend/ }))
     expect(getMerchantOrder()).toEqual(['ALPHA CAFE', 'BISTRO LA VUE'])
 
     // Give ALPHA CAFE a nickname
     api.put.mockResolvedValue({
       data: { narration_key: 'ALPHA CAFE', nickname: 'Morning Coffee' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Nickname ALPHA CAFE' }))
-    fireEvent.change(screen.getByLabelText('Nickname for ALPHA CAFE'), {
+    fireEvent.click(within(merchantsTable).getByRole('button', { name: 'Nickname ALPHA CAFE' }))
+    fireEvent.change(within(merchantsTable).getByLabelText('Nickname for ALPHA CAFE'), {
       target: { value: 'Morning Coffee' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fireEvent.click(within(merchantsTable).getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(api.put).toHaveBeenCalledWith('/trends/merchants/nickname', {
         narration_key: 'ALPHA CAFE',
         nickname: 'Morning Coffee',
       })
-      expect(screen.getByText(/Morning Coffee/)).toBeInTheDocument()
+      expect(within(merchantsTable).getByText(/Morning Coffee/)).toBeInTheDocument()
     })
 
     // Clicking "View in ledger" opens the merchant's transactions in /transactions
-    const viewLinks = screen.getAllByRole('link', { name: 'View in ledger' })
+    const viewLinks = within(merchantsTable).getAllByRole('link', { name: 'View in ledger' })
     fireEvent.click(viewLinks[0])
     await waitFor(() => {
       expect(screen.getByText('ledger?transaction_ids=102&transaction_ids=103')).toBeInTheDocument()
     })
+  })
+
+  it('renders the category table and sub-category table with transactions, date range, average spend, total spent, and sorting on each column', async () => {
+    mockLoad({ categories: groupedCategories })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    const categoryTable = screen.getByRole('table', { name: 'Spending by category' })
+    const getCategoryOrder = () =>
+      within(categoryTable)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => row.querySelector('td')?.textContent)
+
+    // Default sort is Total Spent descending: Rent (1500.00) before Food (400.00)
+    expect(getCategoryOrder()).toEqual(['Rent', 'Food'])
+    expect(within(categoryTable).getByText('50.00')).toBeInTheDocument() // Food average spend: 400 / 8
+
+    // Sort by Category (asc -> Food, Rent)
+    fireEvent.click(within(categoryTable).getByRole('button', { name: /^Category/ }))
+    expect(getCategoryOrder()).toEqual(['Food', 'Rent'])
+
+    // Sort by Transactions (asc -> Rent(3), Food(8))
+    fireEvent.click(within(categoryTable).getByRole('button', { name: /Transactions/ }))
+    expect(getCategoryOrder()).toEqual(['Rent', 'Food'])
+
+    // Sort by Date Range (asc -> Rent(2026-05-01), Food(2026-05-04))
+    fireEvent.click(within(categoryTable).getByRole('button', { name: /Date Range/ }))
+    expect(getCategoryOrder()).toEqual(['Rent', 'Food'])
+
+    // Sort by Average Spend (asc -> Food(50.00), Rent(500.00))
+    fireEvent.click(within(categoryTable).getByRole('button', { name: /Average Spend/ }))
+    expect(getCategoryOrder()).toEqual(['Food', 'Rent'])
+
+    // Drill into Food sub-categories directly from the table button
+    fireEvent.click(within(categoryTable).getByRole('button', { name: 'Sub-categories in Food' }))
+
+    await waitFor(() => expect(screen.getByText('Spending in Food Over Time')).toBeInTheDocument())
+
+    const subCategoryTable = screen.getByRole('table', { name: 'Sub-categories in Food' })
+    const getSubCategoryOrder = () =>
+      within(subCategoryTable)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => row.querySelector('td')?.textContent)
+
+    // Sub-category table inherits current sort (Average Spend asc: Takeaway(30.00), Groceries(62.00))
+    expect(getSubCategoryOrder()).toEqual(['Takeaway', 'Groceries'])
+
+    // Sort by Total Spent desc (asc first, then desc -> Groceries(310.00), Takeaway(90.00))
+    fireEvent.click(within(subCategoryTable).getByRole('button', { name: /Total Spent/ }))
+    fireEvent.click(within(subCategoryTable).getByRole('button', { name: /Total Spent/ }))
+    expect(getSubCategoryOrder()).toEqual(['Groceries', 'Takeaway'])
   })
 })

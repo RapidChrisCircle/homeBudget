@@ -306,6 +306,10 @@ def test_trends_categories_carry_their_parent(client, db_session):
 
     assert row["parent_id"] == parent.id
     assert row["parent_name"] == "Food"
+    assert row["transaction_count"] == 1
+    assert row["first_date"] == "2026-07-10"
+    assert row["last_date"] == "2026-07-10"
+    assert row["average_spend"] == "50.00"
 
 
 def test_top_movers_carries_parent_name_for_subcategories(db_session):

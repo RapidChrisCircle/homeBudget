@@ -694,6 +694,10 @@ class CategoryGridRowResponse(BaseModel):
     archived: bool
     amounts: dict[str, Decimal]
     total: Decimal
+    transaction_count: int = 0
+    first_date: Optional[date] = None
+    last_date: Optional[date] = None
+    average_spend: Decimal = Decimal("0.00")
 
 
 class CategoryGridResponse(BaseModel):

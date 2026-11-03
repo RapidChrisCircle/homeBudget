@@ -67,6 +67,10 @@ def get_trends(
                 archived=row["archived"],
                 amounts={_label(y, m): amount for (y, m), amount in row["amounts"].items()},
                 total=row["total"],
+                transaction_count=row.get("transaction_count", 0),
+                first_date=row.get("first_date"),
+                last_date=row.get("last_date"),
+                average_spend=row.get("average_spend", Decimal("0.00")),
             )
             for row in grid_rows
         ],
