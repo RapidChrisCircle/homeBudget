@@ -1065,6 +1065,56 @@ describe('DashboardPage', () => {
     })
   })
 
+  describe('Dashboard time period', () => {
+    it('defaults to the last 6 months', async () => {
+      mockLoad()
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+
+      expect(screen.getByLabelText('Time period')).toHaveValue('6')
+      expect(screen.getByRole('button', { name: '6m' })).toHaveAttribute('aria-pressed', 'true')
+      expect(api.get).toHaveBeenCalledWith('/trends?months=6')
+      expect(api.get).toHaveBeenCalledWith('/reports/kpis?months=6')
+    })
+
+    it.each([3, 12, 18])('quick-switches to %i months, refetching trends and KPIs', async (months) => {
+      mockLoad()
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: `${months}m` }))
+
+      await waitFor(() => {
+        expect(api.get).toHaveBeenCalledWith(`/trends?months=${months}`)
+        expect(api.get).toHaveBeenCalledWith(`/reports/kpis?months=${months}`)
+      })
+      expect(screen.getByLabelText('Time period')).toHaveValue(String(months))
+    })
+
+    it('fetches a custom period from its start and end months', async () => {
+      mockLoad()
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
+
+      // Prefilled from the loaded window (2026-02 .. 2026-07).
+      expect(screen.getByLabelText('Start month')).toHaveValue('2026-02')
+      expect(screen.getByLabelText('End month')).toHaveValue('2026-07')
+
+      fireEvent.change(screen.getByLabelText('Start month'), { target: { value: '2025-11' } })
+
+      await waitFor(() => {
+        expect(api.get).toHaveBeenCalledWith('/trends?year=2026&month=7&months=9')
+        expect(api.get).toHaveBeenCalledWith('/reports/kpis?year=2026&month=7&months=9')
+      })
+    })
+  })
+
   it('sorts Recent Activity by Narration', async () => {
     mockLoad({
       transactions: [

@@ -15,9 +15,18 @@ import { WIDGET_TYPE_KEYS, WIDGET_TYPES, WIDGET_WIDTHS, widgetTypeLabel } from '
 // window every stat_tile/net_worth_change widget's own GET /reports/kpis
 // fetch uses (see the comment above fetchDashboardData below).
 const CHART_MONTHS = 6
+const QUICK_PERIOD_OPTIONS = [3, 6, 12, 18]
 const RECENT_LIMIT = 5
 
 const EMPTY_NEW_WIDGET = { widget_type: 'stat_tile', width: '', config: {} }
+
+function shiftMonthLabel(label, deltaMonths) {
+  const [year, month] = label.split('-').map(Number)
+  const total = year * 12 + (month - 1) + deltaMonths
+  const nextYear = Math.floor(total / 12)
+  const nextMonth = (total % 12) + 1
+  return `${String(nextYear).padStart(4, '0')}-${String(nextMonth).padStart(2, '0')}`
+}
 
 // The dashboard is a grid of widgets (see widgetRegistry.jsx), rather than
 // a fixed list of Cards - the layout itself is server-side state
@@ -60,6 +69,10 @@ export default function DashboardPage() {
   const [layoutError, setLayoutError] = useState('')
   const [addingWidget, setAddingWidget] = useState(false)
   const [newWidget, setNewWidget] = useState(EMPTY_NEW_WIDGET)
+  const [periodPreset, setPeriodPreset] = useState(String(CHART_MONTHS))
+  const [customStartMonth, setCustomStartMonth] = useState('')
+  const [customEndMonth, setCustomEndMonth] = useState('')
+  const [customMonths, setCustomMonths] = useState(CHART_MONTHS)
 
   const fetchDashboardData = () => Promise.all([
     api.get('/dashboard/widgets'),
@@ -96,6 +109,11 @@ export default function DashboardPage() {
           setReport(reportRes.data)
           setTrends(trendsRes.data)
           setKpis(kpisRes.data)
+          if (trendsRes.data?.periods?.length > 0) {
+            const loadedPeriods = trendsRes.data.periods
+            setCustomStartMonth(loadedPeriods[0].label)
+            setCustomEndMonth(loadedPeriods[loadedPeriods.length - 1].label)
+          }
           setNetWorth(netWorthRes.data)
           setGoals(goalsRes.data.goals)
           setOverAllocatedAccounts(goalsRes.data.account_envelope_summaries.filter((s) => s.over_allocated))
@@ -185,6 +203,89 @@ export default function DashboardPage() {
     setNewWidget((prev) => ({ ...prev, config: { ...prev.config, [key]: value } }))
   }
 
+  const fetchPeriodWindow = async (query, syncCustomBounds = false) => {
+    setLayoutError('')
+    try {
+      const [trendsRes, kpisRes] = await Promise.all([
+        api.get(`/trends${query}`),
+        api.get(`/reports/kpis${query}`),
+      ])
+      setTrends(trendsRes.data)
+      setKpis(kpisRes.data)
+      if (syncCustomBounds && trendsRes.data?.periods?.length > 0) {
+        const nextPeriods = trendsRes.data.periods
+        setCustomStartMonth(nextPeriods[0].label)
+        setCustomEndMonth(nextPeriods[nextPeriods.length - 1].label)
+      }
+    } catch (err) {
+      setLayoutError(String(err?.response?.data?.detail || err?.message || 'Failed to update period'))
+    }
+  }
+
+  const selectPeriodPreset = (nextPreset) => {
+    setPeriodPreset(nextPreset)
+    if (nextPreset === 'custom') {
+      return
+    }
+    const nextMonths = Number(nextPreset) || CHART_MONTHS
+    setCustomMonths(nextMonths)
+    fetchPeriodWindow(`?months=${nextMonths}`, true)
+  }
+
+  const handleCustomStartMonthChange = (event) => {
+    const nextStart = event.target.value
+    setCustomStartMonth(nextStart)
+    if (!nextStart) {
+      return
+    }
+    const endLabel = customEndMonth || nextStart
+    const [startY, startM] = nextStart.split('-').map(Number)
+    const [endY, endM] = endLabel.split('-').map(Number)
+    const rawSpan = (endY - startY) * 12 + (endM - startM) + 1
+    if (rawSpan >= 1) {
+      const span = Math.min(24, rawSpan)
+      setCustomMonths(span)
+      fetchPeriodWindow(`?year=${endY}&month=${endM}&months=${span}`)
+    }
+  }
+
+  const handleCustomEndMonthChange = (event) => {
+    const nextEnd = event.target.value
+    setCustomEndMonth(nextEnd)
+    if (!nextEnd) {
+      return
+    }
+    const [endY, endM] = nextEnd.split('-').map(Number)
+    if (customStartMonth) {
+      const [startY, startM] = customStartMonth.split('-').map(Number)
+      const rawSpan = (endY - startY) * 12 + (endM - startM) + 1
+      const span = rawSpan >= 1
+        ? Math.min(24, rawSpan)
+        : Math.min(24, Math.max(1, Number(customMonths) || CHART_MONTHS))
+      setCustomMonths(span)
+      fetchPeriodWindow(`?year=${endY}&month=${endM}&months=${span}`)
+    } else {
+      const span = Math.min(24, Math.max(1, Number(customMonths) || CHART_MONTHS))
+      fetchPeriodWindow(`?year=${endY}&month=${endM}&months=${span}`)
+    }
+  }
+
+  const handleCustomMonthsChange = (event) => {
+    const raw = event.target.value
+    setCustomMonths(raw)
+    const span = Math.min(24, Math.max(1, Number(raw) || 0))
+    if (!Number(raw) || Number(raw) < 1) {
+      return
+    }
+    if (customEndMonth) {
+      const [endY, endM] = customEndMonth.split('-').map(Number)
+      setCustomStartMonth(shiftMonthLabel(customEndMonth, -(span - 1)))
+      fetchPeriodWindow(`?year=${endY}&month=${endM}&months=${span}`)
+    } else {
+      fetchPeriodWindow(`?months=${span}`, true)
+    }
+  }
+
   if (loading) {
     return (
       <section className="page">
@@ -241,6 +342,75 @@ export default function DashboardPage() {
           telling it. Above the grid so it leads: the numbers below are
           support for what this already said in plain language. */}
       <DashboardNarrative report={report} />
+
+      <div className="filter-bar dashboard-period-bar" role="group" aria-label="Dashboard time period">
+        <label>
+          Time period
+          <select
+            value={periodPreset}
+            onChange={(event) => selectPeriodPreset(event.target.value)}
+          >
+            {QUICK_PERIOD_OPTIONS.map((option) => (
+              <option key={option} value={String(option)}>
+                Last {option} months
+              </option>
+            ))}
+            <option value="custom">Custom period</option>
+          </select>
+        </label>
+        {QUICK_PERIOD_OPTIONS.map((option) => {
+          const isSelected = periodPreset === String(option)
+          return (
+            <button
+              key={option}
+              type="button"
+              className={isSelected ? 'button-primary' : ''}
+              aria-pressed={isSelected}
+              onClick={() => selectPeriodPreset(String(option))}
+            >
+              {option}m
+            </button>
+          )
+        })}
+        <button
+          type="button"
+          className={periodPreset === 'custom' ? 'button-primary' : ''}
+          aria-pressed={periodPreset === 'custom'}
+          onClick={() => selectPeriodPreset('custom')}
+        >
+          Custom
+        </button>
+        {periodPreset === 'custom' && (
+          <>
+            <label>
+              Start month
+              <input
+                type="month"
+                value={customStartMonth}
+                onChange={handleCustomStartMonthChange}
+              />
+            </label>
+            <label>
+              End month
+              <input
+                type="month"
+                value={customEndMonth}
+                onChange={handleCustomEndMonthChange}
+              />
+            </label>
+            <label>
+              Custom months
+              <input
+                type="number"
+                min="1"
+                max="24"
+                value={customMonths}
+                onChange={handleCustomMonthsChange}
+              />
+            </label>
+          </>
+        )}
+      </div>
 
       {addingWidget && (
         <Card id="dashboard-add-widget" title="Add a Widget">

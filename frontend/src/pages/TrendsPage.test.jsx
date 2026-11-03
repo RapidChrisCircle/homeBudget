@@ -588,4 +588,49 @@ describe('TrendsPage drill-down', () => {
     fireEvent.click(within(subCategoryTable).getByRole('button', { name: /Total Spent/ }))
     expect(getSubCategoryOrder()).toEqual(['Groceries', 'Takeaway'])
   })
+
+  it('switches the Average Spend column between per-transaction and per-month, and sorts by the active basis', async () => {
+    // Food: 400 total / 8 tx = 50.00 per tx, 400 / 3 months = 133.33 per month.
+    // Rent: 1500 / 3 tx = 500.00 per tx, 1500 / 3 months = 500.00 per month.
+    // Make a third row where the two bases disagree on order.
+    const categoriesWithCoffee = [
+      ...groupedCategories,
+      {
+        category_id: 4,
+        category_name: 'Coffee',
+        parent_id: null,
+        parent_name: null,
+        kind: 'expense',
+        amounts: { '2026-05': '60.00', '2026-06': '60.00', '2026-07': '60.00' },
+        total: '180.00',
+        transaction_count: 1,
+        first_date: '2026-05-02',
+        last_date: '2026-07-02',
+        average_spend: '180.00',
+      },
+    ]
+    mockLoad({ categories: categoriesWithCoffee })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    const categoryTable = screen.getByRole('table', { name: 'Spending by category' })
+    const getOrder = () =>
+      within(categoryTable)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => row.querySelector('td')?.textContent)
+
+    // Per transaction (default): Food 50, Coffee 180, Rent 500.
+    expect(within(categoryTable).getByRole('button', { name: /Average Spend \(per transaction\)/ })).toBeInTheDocument()
+    fireEvent.click(within(categoryTable).getByRole('button', { name: /Average Spend/ }))
+    expect(getOrder()).toEqual(['Food', 'Coffee', 'Rent'])
+
+    // Per month: Coffee 60, Food 133.33, Rent 500.
+    fireEvent.change(screen.getByLabelText('Average spend'), { target: { value: 'month' } })
+    expect(within(categoryTable).getByRole('button', { name: /Average Spend \(per month\)/ })).toBeInTheDocument()
+    expect(within(categoryTable).getByText('133.33')).toBeInTheDocument()
+    expect(getOrder()).toEqual(['Coffee', 'Food', 'Rent'])
+  })
 })

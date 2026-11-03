@@ -34,6 +34,8 @@ export function buildLevel(periods, categories, groupId) {
         : transactionCount > 0
           ? Number((total / transactionCount).toFixed(2))
           : 0
+    const averageMonthlySpend =
+      periods.length > 0 ? Number((total / periods.length).toFixed(2)) : 0
 
     return {
       label: category.category_name,
@@ -43,6 +45,7 @@ export function buildLevel(periods, categories, groupId) {
       first_date: category.first_date || null,
       last_date: category.last_date || null,
       average_spend: averageSpend,
+      average_monthly_spend: averageMonthlySpend,
       drill: { kind: 'category', id: category.category_id },
     }
   }
@@ -71,6 +74,7 @@ export function buildLevel(periods, categories, groupId) {
         first_date: null,
         last_date: null,
         average_spend: 0,
+        average_monthly_spend: 0,
         drill: { kind: 'group', id: category.parent_id },
       }
       groupRows.set(category.parent_id, group)
@@ -91,6 +95,10 @@ export function buildLevel(periods, categories, groupId) {
     group.average_spend =
       group.transaction_count > 0
         ? Number((group.total / group.transaction_count).toFixed(2))
+        : 0
+    group.average_monthly_spend =
+      periods.length > 0
+        ? Number((group.total / periods.length).toFixed(2))
         : 0
   }
 

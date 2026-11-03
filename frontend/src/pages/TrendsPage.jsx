@@ -55,12 +55,36 @@ export default function TrendsPage() {
   const [editingMerchantKey, setEditingMerchantKey] = useState(null)
   const [nicknameInput, setNicknameInput] = useState('')
   const [savingNickname, setSavingNickname] = useState(false)
+  const [averageMode, setAverageMode] = useState('transaction')
 
   const activeCategory = trends ? drilledCategory(trends.categories, categoryId) : null
   const activeCategoryId = activeCategory ? String(activeCategory.category_id) : ''
   const groupName = trends ? drilledGroupName(trends.categories, groupId) : null
   const activeGroupId = groupName ? groupId : ''
   const levelRows = trends ? buildLevel(trends.periods, trends.categories, activeGroupId) : []
+  const monthCount = trends?.periods?.length || months || 1
+
+  const categorySortColumns = {
+    ...CATEGORY_SORT_COLUMNS,
+    average: {
+      getValue: (r) =>
+        averageMode === 'month'
+          ? (r.average_monthly_spend ?? Number((r.total / monthCount).toFixed(2)))
+          : r.average_spend,
+      type: 'numeric',
+    },
+  }
+
+  const merchantSortColumns = {
+    ...MERCHANT_SORT_COLUMNS,
+    average: {
+      getValue: (m) =>
+        averageMode === 'month'
+          ? Number((Number(m.total_spent) / monthCount).toFixed(2))
+          : m.average_spend,
+      type: 'numeric',
+    },
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -139,7 +163,7 @@ export default function TrendsPage() {
     sortKey: categorySortKey,
     sortDirection: categorySortDirection,
     toggleSort: onCategorySort,
-  } = useTableSort(levelRows, CATEGORY_SORT_COLUMNS, {
+  } = useTableSort(levelRows, categorySortColumns, {
     sortKey: 'total',
     sortDirection: 'desc',
   })
@@ -149,7 +173,7 @@ export default function TrendsPage() {
     sortKey: merchantSortKey,
     sortDirection: merchantSortDirection,
     toggleSort: onMerchantSort,
-  } = useTableSort(merchantData?.merchants ?? [], MERCHANT_SORT_COLUMNS, {
+  } = useTableSort(merchantData?.merchants ?? [], merchantSortColumns, {
     sortKey: 'total',
     sortDirection: 'desc',
   })
@@ -293,6 +317,16 @@ export default function TrendsPage() {
         Ending month
         <input type="month" value={activeEndMonth} onChange={handleEndMonthChange} />
       </label>
+      <label>
+        Average spend
+        <select
+          value={averageMode}
+          onChange={(event) => setAverageMode(event.target.value)}
+        >
+          <option value="transaction">Avg / Transaction</option>
+          <option value="month">Avg / Month</option>
+        </select>
+      </label>
     </div>
   )
 
@@ -427,7 +461,7 @@ export default function TrendsPage() {
                       onSort={onCategorySort}
                     />
                     <SortableHeader
-                      label="Average Spend"
+                      label={averageMode === 'month' ? 'Average Spend (per month)' : 'Average Spend (per transaction)'}
                       sortKey="average"
                       activeSortKey={categorySortKey}
                       activeDirection={categorySortDirection}
@@ -458,7 +492,14 @@ export default function TrendsPage() {
                             : `${formatDate(row.first_date)} – ${formatDate(row.last_date)}`}
                       </td>
                       <td className="numeric">
-                        <Amount value={row.average_spend} neutral />
+                        <Amount
+                          value={
+                            averageMode === 'month'
+                              ? (row.average_monthly_spend ?? Number((row.total / monthCount).toFixed(2)))
+                              : row.average_spend
+                          }
+                          neutral
+                        />
                       </td>
                       <td className="numeric">
                         <Amount value={row.total} neutral />
@@ -535,7 +576,7 @@ export default function TrendsPage() {
                         onSort={onMerchantSort}
                       />
                       <SortableHeader
-                        label="Average Spend"
+                        label={averageMode === 'month' ? 'Average Spend (per month)' : 'Average Spend (per transaction)'}
                         sortKey="average"
                         activeSortKey={merchantSortKey}
                         activeDirection={merchantSortDirection}
@@ -595,7 +636,14 @@ export default function TrendsPage() {
                             : `${formatDate(m.first_date)} – ${formatDate(m.last_date)}`}
                         </td>
                         <td className="numeric">
-                          <Amount value={m.average_spend} neutral />
+                          <Amount
+                            value={
+                              averageMode === 'month'
+                                ? Number((Number(m.total_spent) / monthCount).toFixed(2))
+                                : m.average_spend
+                            }
+                            neutral
+                          />
                         </td>
                         <td className="numeric">
                           <Amount value={m.total_spent} neutral />
