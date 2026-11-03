@@ -18,8 +18,9 @@ const MONTH_OPTIONS = [6, 12, 24]
 const DEFAULT_MONTHS = 6
 
 const MERCHANT_SORT_COLUMNS = {
-  merchant: { getValue: (m) => m.merchant, type: 'string' },
+  merchant: { getValue: (m) => m.nickname || m.merchant, type: 'string' },
   count: { getValue: (m) => m.transaction_count, type: 'numeric' },
+  average: { getValue: (m) => m.average_spend, type: 'numeric' },
   total: { getValue: (m) => m.total_spent, type: 'numeric' },
 }
 
@@ -42,6 +43,9 @@ export default function TrendsPage() {
   const [merchantData, setMerchantData] = useState(null)
   const [merchantLoading, setMerchantLoading] = useState(false)
   const [merchantError, setMerchantError] = useState('')
+  const [editingMerchantKey, setEditingMerchantKey] = useState(null)
+  const [nicknameInput, setNicknameInput] = useState('')
+  const [savingNickname, setSavingNickname] = useState(false)
 
   const activeCategory = trends ? drilledCategory(trends.categories, categoryId) : null
   const activeCategoryId = activeCategory ? String(activeCategory.category_id) : ''
@@ -179,6 +183,45 @@ export default function TrendsPage() {
     next.delete('group')
     next.delete('category')
     setSearchParams(next)
+  }
+
+  const startEditingNickname = (merchantRow) => {
+    setEditingMerchantKey(merchantRow.narration_key)
+    setNicknameInput(merchantRow.nickname || '')
+  }
+
+  const cancelEditingNickname = () => {
+    setEditingMerchantKey(null)
+    setNicknameInput('')
+  }
+
+  const saveNickname = async (merchantRow) => {
+    setSavingNickname(true)
+    setMerchantError('')
+    try {
+      const response = await api.put('/trends/merchants/nickname', {
+        narration_key: merchantRow.narration_key,
+        nickname: nicknameInput.trim() || null,
+      })
+      setMerchantData((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          merchants: prev.merchants.map((item) =>
+            item.narration_key === merchantRow.narration_key
+              ? { ...item, nickname: response.data.nickname }
+              : item
+          ),
+        }
+      })
+      setEditingMerchantKey(null)
+      setNicknameInput('')
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Failed to save nickname'
+      setMerchantError(String(message))
+    } finally {
+      setSavingNickname(false)
+    }
   }
 
   if (loading) {
@@ -383,6 +426,14 @@ export default function TrendsPage() {
                       />
                       <th scope="col">Date Range</th>
                       <SortableHeader
+                        label="Average Spend"
+                        sortKey="average"
+                        activeSortKey={merchantSortKey}
+                        activeDirection={merchantSortDirection}
+                        onSort={onMerchantSort}
+                        numeric
+                      />
+                      <SortableHeader
                         label="Total Spent"
                         sortKey="total"
                         activeSortKey={merchantSortKey}
@@ -396,7 +447,38 @@ export default function TrendsPage() {
                   <tbody>
                     {sortedMerchants.map((m) => (
                       <tr key={m.narration_key}>
-                        <td>{m.merchant}</td>
+                        <td>
+                          {editingMerchantKey === m.narration_key ? (
+                            <div className="filter-bar">
+                              <input
+                                type="text"
+                                aria-label={`Nickname for ${m.merchant}`}
+                                placeholder={m.merchant}
+                                value={nicknameInput}
+                                onChange={(e) => setNicknameInput(e.target.value)}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => saveNickname(m)}
+                                disabled={savingNickname}
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditingNickname}
+                                disabled={savingNickname}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              {m.nickname || m.merchant}
+                              {m.nickname && <span className="muted"> ({m.merchant})</span>}
+                            </>
+                          )}
+                        </td>
                         <td className="numeric">{m.transaction_count}</td>
                         <td>
                           {m.first_date === m.last_date
@@ -404,12 +486,26 @@ export default function TrendsPage() {
                             : `${formatDate(m.first_date)} – ${formatDate(m.last_date)}`}
                         </td>
                         <td className="numeric">
+                          <Amount value={m.average_spend} neutral />
+                        </td>
+                        <td className="numeric">
                           <Amount value={m.total_spent} neutral />
                         </td>
                         <td>
-                          <Link to={transactionIdsLedgerLink(m.transaction_ids)}>
-                            View in ledger
-                          </Link>
+                          <div className="filter-bar">
+                            {editingMerchantKey !== m.narration_key && (
+                              <button
+                                type="button"
+                                aria-label={`Nickname ${m.merchant}`}
+                                onClick={() => startEditingNickname(m)}
+                              >
+                                {m.nickname ? 'Edit nickname' : 'Nickname'}
+                              </button>
+                            )}
+                            <Link to={transactionIdsLedgerLink(m.transaction_ids)}>
+                              View in ledger
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     ))}

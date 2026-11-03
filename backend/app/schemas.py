@@ -870,9 +870,11 @@ class TrendMerchantRowResponse(BaseModel):
 
     narration_key: str
     merchant: str
+    nickname: Optional[str] = None
     sample_narration: str
     transaction_count: int
     total_spent: Decimal
+    average_spend: Decimal
     first_date: date
     last_date: date
     transaction_ids: list[int]
@@ -886,6 +888,18 @@ class TrendMerchantsResponse(BaseModel):
     parent_name: Optional[str] = None
     total_spent: Decimal
     merchants: list[TrendMerchantRowResponse]
+
+
+class MerchantNicknameUpdate(BaseModel):
+
+    narration_key: str
+    nickname: Optional[str] = None
+
+
+class MerchantNicknameResponse(BaseModel):
+
+    narration_key: str
+    nickname: Optional[str] = None
 
 
 class BalanceHistoryResponse(BaseModel):

@@ -1264,3 +1264,35 @@ class AlertDismissal(Base):
         nullable=False,
         server_default=func.now()
     )
+
+
+class MerchantNickname(Base):
+    """A user-defined display nickname for a merchant, keyed by
+    services.narration.narration_key(narration) so every occurrence of that
+    merchant across statements and periods shares one friendly name.
+    """
+
+    __tablename__ = "merchant_nicknames"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    narration_key = Column(
+        String,
+        nullable=False,
+        unique=True,
+        index=True
+    )
+
+    nickname = Column(
+        String,
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )

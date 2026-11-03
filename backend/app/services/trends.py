@@ -47,7 +47,7 @@ from decimal import Decimal
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..models import Category, Transaction
+from ..models import Category, MerchantNickname, Transaction
 from .allocations import allocation_subquery
 from .narration import merchant_label, narration_key
 from .reporting import _year_month_columns, month_bounds
@@ -292,19 +292,28 @@ def category_merchants(
             key = (row.narration or "UNKNOWN").strip().upper() or "UNKNOWN"
         buckets[key].append(row)
 
+    nicknames = {
+        row.narration_key: row.nickname
+        for row in db.query(MerchantNickname).all()
+    }
+
     merchants = []
     for key, bucket_rows in buckets.items():
         net = sum((Decimal(r.amount) for r in bucket_rows), Decimal("0"))
         amount = -net if category.kind == "expense" else net
         transaction_ids = list(dict.fromkeys(int(r.transaction_id) for r in bucket_rows))
+        count = len(transaction_ids)
+        average_spend = (amount / Decimal(count)).quantize(Decimal("0.01"))
         dates = [r.transaction_date for r in bucket_rows]
         label = merchant_label(bucket_rows[0].narration) or bucket_rows[0].narration or key
         merchants.append({
             "narration_key": key,
             "merchant": label,
+            "nickname": nicknames.get(key),
             "sample_narration": bucket_rows[0].narration,
-            "transaction_count": len(transaction_ids),
+            "transaction_count": count,
             "total_spent": amount,
+            "average_spend": average_spend,
             "first_date": min(dates),
             "last_date": max(dates),
             "transaction_ids": transaction_ids,

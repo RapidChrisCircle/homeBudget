@@ -382,12 +382,49 @@ def test_get_trends_merchants_returns_sorted_merchants_including_singletons_and_
     merchants = body["merchants"]
     assert [m["merchant"] for m in merchants] == ["BISTRO LA VUE", "UBER *EATS", "COSTCO WHOLESALE"]
     assert [m["total_spent"] for m in merchants] == ["120.00", "85.00", "40.00"]
+    assert [m["average_spend"] for m in merchants] == ["120.00", "42.50", "40.00"]
     assert [m["transaction_count"] for m in merchants] == [1, 2, 1]
+    assert [m["nickname"] for m in merchants] == [None, None, None]
     assert merchants[0]["transaction_ids"] == [t3.id]
     assert set(merchants[1]["transaction_ids"]) == {t1.id, t2.id}
     assert merchants[2]["transaction_ids"] == [t4.id]
 
 
+def test_put_merchant_nickname_sets_updates_and_clears_nickname(client, db_session):
+    dining = make_category(db_session, name="Dining Out & Takeaway", kind="expense")
+    make_transaction(
+        db_session,
+        transaction_date=date(2026, 7, 12),
+        narration="UBER *EATS  789012",
+        debit=Decimal("-50.00"),
+        category_id=dining.id,
+    )
+    db_session.commit()
+
+    # Set nickname
+    put_res = client.put(
+        "/api/trends/merchants/nickname",
+        json={"narration_key": "UBER *EATS", "nickname": "Uber Eats"},
+    )
+    assert put_res.status_code == 200
+    assert put_res.json() == {"narration_key": "UBER *EATS", "nickname": "Uber Eats"}
+
+    merchants = client.get(f"/api/trends/merchants?category_id={dining.id}&year=2026&month=7&months=1").json()["merchants"]
+    assert merchants[0]["nickname"] == "Uber Eats"
+
+    # Clear nickname with empty string
+    clear_res = client.put(
+        "/api/trends/merchants/nickname",
+        json={"narration_key": "UBER *EATS", "nickname": "   "},
+    )
+    assert clear_res.status_code == 200
+    assert clear_res.json() == {"narration_key": "UBER *EATS", "nickname": None}
+
+    merchants_after = client.get(f"/api/trends/merchants?category_id={dining.id}&year=2026&month=7&months=1").json()["merchants"]
+    assert merchants_after[0]["nickname"] is None
+
+
 def test_get_trends_merchants_validates_category_and_period_params(client):
     assert client.get("/api/trends/merchants?category_id=9999").status_code == 404
     assert client.get("/api/trends/merchants?category_id=1&year=2026").status_code == 422
+    assert client.put("/api/trends/merchants/nickname", json={"narration_key": "  ", "nickname": "X"}).status_code == 422

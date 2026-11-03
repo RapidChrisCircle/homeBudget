@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
-from ..models import Category
+from ..models import Category, MerchantNickname
 from ..schemas import (
     CategoryGridPeriodResponse,
     CategoryGridRowResponse,
+    MerchantNicknameResponse,
+    MerchantNicknameUpdate,
     TrendBalanceResponse,
     TrendBudgetResponse,
     TrendMerchantRowResponse,
@@ -117,3 +119,31 @@ def get_trend_category_merchants(
         total_spent=total_spent,
         merchants=[TrendMerchantRowResponse(**m) for m in merchants],
     )
+
+
+@router.put("/trends/merchants/nickname", response_model=MerchantNicknameResponse)
+def set_merchant_nickname(
+    payload: MerchantNicknameUpdate,
+    db: Session = Depends(get_db),
+):
+
+    key = (payload.narration_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=422, detail="narration_key must not be empty")
+
+    clean_nickname = (payload.nickname or "").strip()
+    existing = db.query(MerchantNickname).filter(MerchantNickname.narration_key == key).first()
+
+    if not clean_nickname:
+        if existing is not None:
+            db.delete(existing)
+            db.commit()
+        return MerchantNicknameResponse(narration_key=key, nickname=None)
+
+    if existing is not None:
+        existing.nickname = clean_nickname
+    else:
+        db.add(MerchantNickname(narration_key=key, nickname=clean_nickname))
+
+    db.commit()
+    return MerchantNicknameResponse(narration_key=key, nickname=clean_nickname)

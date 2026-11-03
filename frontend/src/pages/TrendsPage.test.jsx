@@ -7,6 +7,7 @@ import TrendsPage from './TrendsPage.jsx'
 vi.mock('../services/api', () => ({
   api: {
     get: vi.fn(),
+    put: vi.fn(),
   },
 }))
 
@@ -423,9 +424,11 @@ describe('TrendsPage drill-down', () => {
               {
                 narration_key: 'BISTRO',
                 merchant: 'BISTRO LA VUE',
+                nickname: null,
                 sample_narration: 'BISTRO LA VUE',
                 transaction_count: 1,
                 total_spent: '55.00',
+                average_spend: '55.00',
                 first_date: '2026-06-14',
                 last_date: '2026-06-14',
                 transaction_ids: [101],
@@ -433,9 +436,11 @@ describe('TrendsPage drill-down', () => {
               {
                 narration_key: 'ALPHA CAFE',
                 merchant: 'ALPHA CAFE',
+                nickname: null,
                 sample_narration: 'ALPHA CAFE',
                 transaction_count: 2,
                 total_spent: '35.00',
+                average_spend: '17.50',
                 first_date: '2026-05-03',
                 last_date: '2026-07-19',
                 transaction_ids: [102, 103],
@@ -485,11 +490,34 @@ describe('TrendsPage drill-down', () => {
     fireEvent.click(screen.getByRole('button', { name: /Merchant/ }))
     expect(getMerchantOrder()).toEqual(['BISTRO LA VUE', 'ALPHA CAFE'])
 
+    // Average Spend column is displayed and sortable
+    expect(screen.getByText('17.50')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Average Spend/ }))
+    expect(getMerchantOrder()).toEqual(['ALPHA CAFE', 'BISTRO LA VUE'])
+
+    // Give ALPHA CAFE a nickname
+    api.put.mockResolvedValue({
+      data: { narration_key: 'ALPHA CAFE', nickname: 'Morning Coffee' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Nickname ALPHA CAFE' }))
+    fireEvent.change(screen.getByLabelText('Nickname for ALPHA CAFE'), {
+      target: { value: 'Morning Coffee' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/trends/merchants/nickname', {
+        narration_key: 'ALPHA CAFE',
+        nickname: 'Morning Coffee',
+      })
+      expect(screen.getByText(/Morning Coffee/)).toBeInTheDocument()
+    })
+
     // Clicking "View in ledger" opens the merchant's transactions in /transactions
     const viewLinks = screen.getAllByRole('link', { name: 'View in ledger' })
     fireEvent.click(viewLinks[0])
     await waitFor(() => {
-      expect(screen.getByText('ledger?transaction_ids=101')).toBeInTheDocument()
+      expect(screen.getByText('ledger?transaction_ids=102&transaction_ids=103')).toBeInTheDocument()
     })
   })
 })
