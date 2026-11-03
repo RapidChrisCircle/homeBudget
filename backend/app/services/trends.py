@@ -41,12 +41,15 @@ it's used, the same reasoning categorization._row_amount is imported as-is
 into recurring.py rather than re-derived.
 """
 
+from collections import defaultdict
 from decimal import Decimal
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..models import Transaction
+from ..models import Category, Transaction
+from .allocations import allocation_subquery
+from .narration import merchant_label, narration_key
 from .reporting import _year_month_columns, month_bounds
 
 
@@ -240,3 +243,72 @@ def account_balance_history(
         history[account_id] = filled
 
     return history
+
+
+def category_merchants(
+    db: Session,
+    category: Category,
+    periods: list[tuple[int, int]],
+) -> list[dict]:
+    """Merchant breakdown for a single leaf category across `periods`.
+
+    Uses `allocation_subquery(db)` so split transactions allocated to this
+    category are included and the sum across all returned merchants reconciles
+    with the category's trend total over the same window. Unlike
+    `ledger.transaction_groups()` (which filters out singletons with
+    `MIN_GROUP_SIZE = 2`), every merchant in the category is returned so a
+    household drilling into e.g. Dining Out & Takeaway can see every place
+    money was spent, sorted by total amount spent descending by default.
+    """
+
+    if not periods:
+        return []
+
+    window_start, _ = month_bounds(*periods[0])
+    _, window_end = month_bounds(*periods[-1])
+
+    alloc = allocation_subquery(db)
+    rows = (
+        db.query(
+            alloc.c.transaction_id.label("transaction_id"),
+            alloc.c.amount.label("amount"),
+            alloc.c.transaction_date.label("transaction_date"),
+            Transaction.narration.label("narration"),
+        )
+        .join(Transaction, Transaction.id == alloc.c.transaction_id)
+        .filter(
+            alloc.c.category_id == category.id,
+            alloc.c.transaction_date >= window_start,
+            alloc.c.transaction_date < window_end,
+        )
+        .order_by(alloc.c.transaction_date.desc(), alloc.c.transaction_id.desc())
+        .all()
+    )
+
+    buckets: dict[str, list] = defaultdict(list)
+    for row in rows:
+        key = narration_key(row.narration)
+        if not key:
+            key = (row.narration or "UNKNOWN").strip().upper() or "UNKNOWN"
+        buckets[key].append(row)
+
+    merchants = []
+    for key, bucket_rows in buckets.items():
+        net = sum((Decimal(r.amount) for r in bucket_rows), Decimal("0"))
+        amount = -net if category.kind == "expense" else net
+        transaction_ids = list(dict.fromkeys(int(r.transaction_id) for r in bucket_rows))
+        dates = [r.transaction_date for r in bucket_rows]
+        label = merchant_label(bucket_rows[0].narration) or bucket_rows[0].narration or key
+        merchants.append({
+            "narration_key": key,
+            "merchant": label,
+            "sample_narration": bucket_rows[0].narration,
+            "transaction_count": len(transaction_ids),
+            "total_spent": amount,
+            "first_date": min(dates),
+            "last_date": max(dates),
+            "transaction_ids": transaction_ids,
+        })
+
+    merchants.sort(key=lambda m: (-m["total_spent"], -m["transaction_count"], m["merchant"].lower()))
+    return merchants

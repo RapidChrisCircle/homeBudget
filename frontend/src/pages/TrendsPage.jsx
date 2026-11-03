@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import Amount from '../components/Amount.jsx'
 import BarChart from '../components/charts/BarChart.jsx'
 import LineChart from '../components/charts/LineChart.jsx'
 import Card from '../components/Card.jsx'
@@ -7,12 +8,20 @@ import EmptyState from '../components/EmptyState.jsx'
 import ErrorState from '../components/ErrorState.jsx'
 import LoadingState from '../components/LoadingState.jsx'
 import PageHeader from '../components/PageHeader.jsx'
+import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
-import { formatAmount } from '../utils/format.js'
-import { buildLevel, buildSeries, drilledGroupName, monthBounds } from '../utils/trendsSeries.js'
+import { formatAmount, formatDate, transactionIdsLedgerLink } from '../utils/format.js'
+import { useTableSort } from '../utils/tableSort.js'
+import { buildLevel, buildSeries, drilledCategory, drilledGroupName, monthBounds } from '../utils/trendsSeries.js'
 
 const MONTH_OPTIONS = [6, 12, 24]
 const DEFAULT_MONTHS = 6
+
+const MERCHANT_SORT_COLUMNS = {
+  merchant: { getValue: (m) => m.merchant, type: 'string' },
+  count: { getValue: (m) => m.transaction_count, type: 'numeric' },
+  total: { getValue: (m) => m.total_spent, type: 'numeric' },
+}
 
 export default function TrendsPage() {
   const navigate = useNavigate()
@@ -25,10 +34,17 @@ export default function TrendsPage() {
   // drilled-in chart is reloadable and shareable, not a state that
   // evaporates on refresh.
   const groupId = searchParams.get('group') || ''
+  const categoryId = searchParams.get('category') || ''
 
   const [trends, setTrends] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [merchantData, setMerchantData] = useState(null)
+  const [merchantLoading, setMerchantLoading] = useState(false)
+  const [merchantError, setMerchantError] = useState('')
+
+  const activeCategory = trends ? drilledCategory(trends.categories, categoryId) : null
+  const activeCategoryId = activeCategory ? String(activeCategory.category_id) : ''
 
   useEffect(() => {
     let cancelled = false
@@ -63,6 +79,55 @@ export default function TrendsPage() {
     }
   }, [months, year, month])
 
+  useEffect(() => {
+    if (!activeCategoryId) {
+      setMerchantData(null)
+      setMerchantLoading(false)
+      setMerchantError('')
+      return undefined
+    }
+
+    let cancelled = false
+    setMerchantLoading(true)
+    setMerchantError('')
+
+    const query = year && month
+      ? `/trends/merchants?category_id=${activeCategoryId}&year=${year}&month=${month}&months=${months}`
+      : `/trends/merchants?category_id=${activeCategoryId}&months=${months}`
+
+    api.get(query)
+      .then((response) => {
+        if (!cancelled) {
+          setMerchantData(response.data)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          const message = err?.response?.data?.detail || err?.message || 'Unknown error'
+          setMerchantError(String(message))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMerchantLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeCategoryId, months, year, month])
+
+  const {
+    sortedRows: sortedMerchants,
+    sortKey: merchantSortKey,
+    sortDirection: merchantSortDirection,
+    toggleSort: onMerchantSort,
+  } = useTableSort(merchantData?.merchants ?? [], MERCHANT_SORT_COLUMNS, {
+    sortKey: 'total',
+    sortDirection: 'desc',
+  })
+
   const handleMonthsChange = (event) => {
     const next = new URLSearchParams(searchParams)
     next.set('months', event.target.value)
@@ -70,6 +135,7 @@ export default function TrendsPage() {
     // group with no activity in the new window isn't in the data at all),
     // so drilling resets rather than leaving an empty chart.
     next.delete('group')
+    next.delete('category')
     setSearchParams(next)
   }
 
@@ -85,18 +151,33 @@ export default function TrendsPage() {
       next.set('month', String(Number(nextMonth)))
     }
     next.delete('group')
+    next.delete('category')
     setSearchParams(next)
   }
 
   const drillIntoGroup = (id) => {
     const next = new URLSearchParams(searchParams)
     next.set('group', String(id))
+    next.delete('category')
+    setSearchParams(next)
+  }
+
+  const drillIntoCategory = (id) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('category', String(id))
+    setSearchParams(next)
+  }
+
+  const clearCategoryDrill = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('category')
     setSearchParams(next)
   }
 
   const clearDrill = () => {
     const next = new URLSearchParams(searchParams)
     next.delete('group')
+    next.delete('category')
     setSearchParams(next)
   }
 
@@ -211,6 +292,8 @@ export default function TrendsPage() {
   const selectCategorySeries = ({ series }) => {
     if (series.drill?.kind === 'group') {
       drillIntoGroup(series.drill.id)
+    } else if (series.drill?.kind === 'category') {
+      drillIntoCategory(series.drill.id)
     }
   }
 
@@ -229,15 +312,16 @@ export default function TrendsPage() {
       >
         {groupName ? (
           <p>
-            Showing the sub-categories of <strong>{groupName}</strong>. Click a point to see
-            that month&apos;s transactions.{' '}
+            Showing the sub-categories of <strong>{groupName}</strong>. Click a sub-category in the
+            legend to see its merchants, or click a point to see that month&apos;s transactions.{' '}
             <button type="button" onClick={clearDrill}>Back to all categories</button>
           </p>
         ) : (
           <p>
             Sub-categories are rolled up into their group. Click a group (a point, or its name in
-            the legend) to see what it is made of; click a point on an ungrouped category to see
-            that month&apos;s transactions.
+            the legend) to see what it is made of; click a category in the legend to see its
+            merchants, or click a point on an ungrouped category to see that month&apos;s
+            transactions.
           </p>
         )}
 
@@ -252,6 +336,88 @@ export default function TrendsPage() {
             onSelectPoint={openCategoryMonth}
             onSelectSeries={selectCategorySeries}
           />
+        )}
+
+        {activeCategory && (
+          <div className="trends-merchants-drilldown">
+            <div className="filter-bar">
+              <h4>
+                Merchants in {activeCategory.category_name} ({periodLabels[0]} &ndash;{' '}
+                {periodLabels[periodLabels.length - 1]})
+              </h4>
+              <button type="button" onClick={clearCategoryDrill}>
+                Hide merchants
+              </button>
+            </div>
+
+            {merchantLoading && (
+              <LoadingState message={`Loading merchants for ${activeCategory.category_name}...`} />
+            )}
+            {!merchantLoading && merchantError && (
+              <ErrorState label="Failed to load merchants:" message={merchantError} />
+            )}
+            {!merchantLoading && !merchantError && merchantData && (
+              sortedMerchants.length === 0 ? (
+                <EmptyState message="No merchant spending in this category for the selected window." />
+              ) : (
+                <table>
+                  <caption className="visually-hidden">
+                    Merchants in {activeCategory.category_name}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <SortableHeader
+                        label="Merchant"
+                        sortKey="merchant"
+                        activeSortKey={merchantSortKey}
+                        activeDirection={merchantSortDirection}
+                        onSort={onMerchantSort}
+                      />
+                      <SortableHeader
+                        label="Transactions"
+                        sortKey="count"
+                        activeSortKey={merchantSortKey}
+                        activeDirection={merchantSortDirection}
+                        onSort={onMerchantSort}
+                        numeric
+                      />
+                      <th scope="col">Date Range</th>
+                      <SortableHeader
+                        label="Total Spent"
+                        sortKey="total"
+                        activeSortKey={merchantSortKey}
+                        activeDirection={merchantSortDirection}
+                        onSort={onMerchantSort}
+                        numeric
+                      />
+                      <th scope="col"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedMerchants.map((m) => (
+                      <tr key={m.narration_key}>
+                        <td>{m.merchant}</td>
+                        <td className="numeric">{m.transaction_count}</td>
+                        <td>
+                          {m.first_date === m.last_date
+                            ? formatDate(m.first_date)
+                            : `${formatDate(m.first_date)} – ${formatDate(m.last_date)}`}
+                        </td>
+                        <td className="numeric">
+                          <Amount value={m.total_spent} neutral />
+                        </td>
+                        <td>
+                          <Link to={transactionIdsLedgerLink(m.transaction_ids)}>
+                            View in ledger
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            )}
+          </div>
         )}
       </Card>
 
