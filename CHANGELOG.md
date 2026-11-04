@@ -4,6 +4,43 @@ All notable changes to homeBudget are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are tracked in the repo-root `VERSION` file (see `README.md`'s [Versioning](README.md#versioning) section) — there are no git tags, so each entry below cross-references the commit that shipped it. `VERSION` was introduced at 0.11.0; commits before that point exist but predate any recorded version number, so this file starts there rather than inventing 0.1–0.10.
 
+## [0.46.0] - 2026-11-04
+
+Merchant nicknames, Trends drill-down tables, configurable dashboard time periods, automated version generation, and CI modernisation.
+
+### Added
+
+- **Merchant Nicknames (end-to-end)**:
+  - Database migration `b4e7c9d2f1a8_add_merchant_nicknames.py` introducing the `merchant_nicknames` table (mapping `narration_key` to a custom nickname).
+  - Dedicated management card (`MerchantNicknamesCard.jsx`) on the Rules page (`RulesPage.jsx`) to list all assigned nicknames, edit them inline, delete them, and see sample narrations and transaction counts.
+  - Ability to assign and edit merchant nicknames during auto-rule creation/editing (`RuleEditor.jsx`), in manual transaction forms (`EditManualTransactionForm.jsx`), directly in the ledger (`TransactionsPage.jsx`), and in the Trends drill-down table.
+  - API endpoints: `GET /api/merchants/nicknames`, `PUT /api/merchants/nickname`, and `DELETE /api/merchants/nicknames/{id}` (with backwards-compatible aliases under `/api/trends/merchants/...`).
+  - Database export/backup inclusion (`services/export.py`) preserving merchant nicknames across JSON snapshots.
+- **Trends Breakdown Tables & Average Spend Toggle**:
+  - Sub-category drill-down now displays a **Merchants breakdown table** listing each merchant with transaction count, date range, average spend, total spend, inline nickname editing, and direct "View in ledger" filtered links.
+  - Category and sub-category tabular breakdown underneath the "Spending by Category Over Time" chart with columns for Transactions, Date Range, Average Spend, and Total Spent, sortable across all columns.
+  - **Average spend basis toggle**: switch average spend calculations between **Avg / Transaction** (`total / transaction_count`) and **Avg / Month** (`total / months_in_period`) across category, sub-category, and merchant tables, with adaptive column headers and sorting by the active basis.
+- **Configurable Home Dashboard Time Period**:
+  - Dashboard period selector bar on `DashboardPage.jsx` defaulting to **Last 6 months**, preserving the established initial view.
+  - Quick-switch buttons for **3m, 6m, 12m, and 18m**, plus a **Custom** period mode allowing selection of custom start/end months and custom durations (up to 24 months).
+  - Dynamically updates Stat Tile metrics, Cash Flow, Net Worth, and Net Worth Change widgets to reflect the selected window.
+- **Automated Version Incrementing**:
+  - Introduced `scripts/get-version.sh`: reads the base version from `VERSION` (e.g. `0.46.0`) and calculates the patch increment from git commits since the last `VERSION` modification (`<major>.<minor>.<commits_since>`).
+  - CI workflow (`.github/workflows/deploy.yml`) now checks out with `fetch-depth: 0` and computes `APP_VERSION` via `scripts/get-version.sh`, ensuring intermediate commits on `main` automatically receive an incrementing patch version.
+  - Local dev tooling (`frontend/vite.config.js`, `scripts/start.sh`) updated to resolve dynamic versions automatically.
+- **Database & Query Optimization**:
+  - Migration `a9c4b1e8d203_add_transaction_query_indexes.py` adding indexes on frequent transaction filtering and sorting columns.
+
+### Changed
+
+- Updated GitHub Actions workflow (`deploy.yml`) to Node 22/24 runners and modernized setup actions, resolving Node 20 deprecation warnings.
+- Refined coverage gap detection logic and account group balance stitching.
+- Corrected explanation text and test assertions in `AlertsPage.jsx` and `AlertsPage.test.jsx`.
+
+### Verification
+
+All 812 backend tests (`pytest`) and all 872 frontend tests (`vitest`) passing. Linting (`oxlint`) clean with 0 errors.
+
 ## [0.45.0] - 2026-09-29
 
 Roadmap item T5.4 (`ROADMAP.md`), Finding 23 - the inverse of the original Finding 3: pay-period budgeting was fortnightly-only, and this household is paid monthly, on the last business day.

@@ -36,7 +36,14 @@ if [[ "$install_deps" == true ]]; then
   (cd "$FRONTEND_DIR" && npm install)
 fi
 
-echo "[start] Starting backend on http://localhost:8000"
+if [[ -z "${APP_VERSION:-}" && -x "$ROOT_DIR/scripts/get-version.sh" ]]; then
+  export APP_VERSION="$("$ROOT_DIR/scripts/get-version.sh")"
+fi
+if [[ -z "${GIT_SHA:-}" ]]; then
+  export GIT_SHA="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo "dev")"
+fi
+
+echo "[start] Starting backend on http://localhost:8000 (v${APP_VERSION:-dev} · ${GIT_SHA:-unknown})"
 (
   cd "$BACKEND_DIR"
   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
