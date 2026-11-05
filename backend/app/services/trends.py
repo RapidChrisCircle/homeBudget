@@ -249,6 +249,7 @@ def category_merchants(
     db: Session,
     category: Category,
     periods: list[tuple[int, int]],
+    exclude_savings_spend: bool = False,
 ) -> list[dict]:
     """Merchant breakdown for a single leaf category across `periods`.
 
@@ -268,7 +269,7 @@ def category_merchants(
     _, window_end = month_bounds(*periods[-1])
 
     alloc = allocation_subquery(db)
-    rows = (
+    query = (
         db.query(
             alloc.c.transaction_id.label("transaction_id"),
             alloc.c.amount.label("amount"),
@@ -281,9 +282,12 @@ def category_merchants(
             alloc.c.transaction_date >= window_start,
             alloc.c.transaction_date < window_end,
         )
-        .order_by(alloc.c.transaction_date.desc(), alloc.c.transaction_id.desc())
-        .all()
     )
+
+    if exclude_savings_spend:
+        query = query.filter(alloc.c.is_savings_spend.is_(False))
+
+    rows = query.order_by(alloc.c.transaction_date.desc(), alloc.c.transaction_id.desc()).all()
 
     buckets: dict[str, list] = defaultdict(list)
     for row in rows:

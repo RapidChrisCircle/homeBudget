@@ -1,5 +1,6 @@
 import io
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
@@ -943,3 +944,92 @@ def test_bulk_assign_category_to_transactions(client):
 
     categories = {t["category_id"] for t in list_transactions(client)}
     assert categories == {category_id}
+
+
+def test_update_transaction_savings_spend(client):
+    upload(client, SAMPLE_CSV)
+    tx = list_transactions(client)[0]
+    assert tx["is_savings_spend"] is False
+
+    patch_resp = client.patch(f"/api/transactions/{tx['id']}/savings-spend", json={"is_savings_spend": True})
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["is_savings_spend"] is True
+
+    # Check via list
+    refetched = [t for t in list_transactions(client) if t["id"] == tx["id"]][0]
+    assert refetched["is_savings_spend"] is True
+
+    # Toggle off
+    patch_resp2 = client.patch(f"/api/transactions/{tx['id']}/savings-spend", json={"is_savings_spend": False})
+    assert patch_resp2.status_code == 200
+    assert patch_resp2.json()["is_savings_spend"] is False
+
+
+def test_update_transaction_savings_spend_cascades_to_splits(client):
+    upload(client, SAMPLE_CSV)
+    tx = list_transactions(client)[0]
+    cat_id = client.post("/api/categories", json={"name": "General", "kind": "expense"}).json()["id"]
+
+    # Create split
+    amount = Decimal(tx["debit"] or tx["credit"])
+    half = (amount / 2).quantize(Decimal("0.01"))
+    other_half = amount - half
+    split_resp = client.put(f"/api/transactions/{tx['id']}/splits", json={
+        "splits": [
+            {"category_id": cat_id, "amount": str(half), "is_savings_spend": False},
+            {"category_id": cat_id, "amount": str(other_half), "is_savings_spend": False},
+        ]
+    })
+    assert split_resp.status_code == 200
+    assert split_resp.json()["is_savings_spend"] is False
+    assert all(s["is_savings_spend"] is False for s in split_resp.json()["splits"])
+
+    # Patch savings_spend to True cascades to all splits
+    patch_resp = client.patch(f"/api/transactions/{tx['id']}/savings-spend", json={"is_savings_spend": True})
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["is_savings_spend"] is True
+    assert all(s["is_savings_spend"] is True for s in patch_resp.json()["splits"])
+
+
+def test_bulk_update_transaction_savings_spend(client):
+    upload(client, SAMPLE_CSV)
+    txs = list_transactions(client)[:3]
+    ids = [t["id"] for t in txs]
+
+    resp = client.post("/api/transactions/bulk-savings-spend", json={
+        "transaction_ids": ids,
+        "is_savings_spend": True,
+    })
+    assert resp.status_code == 200
+    assert resp.json()["updated_count"] == 3
+
+    # Filter savings_spend=true
+    savings_only = client.get("/api/transactions?savings_spend=true").json()["items"]
+    assert len(savings_only) == 3
+    assert {t["id"] for t in savings_only} == set(ids)
+
+    # Filter savings_spend=false
+    regular_only = client.get("/api/transactions?savings_spend=false").json()["items"]
+    assert all(t["id"] not in set(ids) for t in regular_only)
+
+
+def test_split_editor_sets_savings_spend_per_split(client):
+    upload(client, SAMPLE_CSV)
+    tx = list_transactions(client)[0]
+    cat_id = client.post("/api/categories", json={"name": "General", "kind": "expense"}).json()["id"]
+
+    amount = Decimal(tx["debit"] or tx["credit"])
+    half = (amount / 2).quantize(Decimal("0.01"))
+    other_half = amount - half
+    split_resp = client.put(f"/api/transactions/{tx['id']}/splits", json={
+        "splits": [
+            {"category_id": cat_id, "amount": str(half), "is_savings_spend": True},
+            {"category_id": cat_id, "amount": str(other_half), "is_savings_spend": False},
+        ]
+    })
+    assert split_resp.status_code == 200
+    data = split_resp.json()
+    assert data["is_savings_spend"] is True
+    assert data["splits"][0]["is_savings_spend"] is True
+    assert data["splits"][1]["is_savings_spend"] is False
+

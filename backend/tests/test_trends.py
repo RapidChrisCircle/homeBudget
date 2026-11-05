@@ -22,7 +22,7 @@ def make_category(db_session, name="Groceries", kind="expense", budget_amount=No
 
 def make_transaction(db_session, transaction_date=date(2026, 7, 24), narration="Coffee",
                      debit=None, credit=None, transaction_type="WDL", category_id=None,
-                     account_number="1111"):
+                     account_number="1111", is_savings_spend=False):
 
     batch = ImportBatch(filename="seed.csv", row_count=0, skipped_duplicate_count=0)
     db_session.add(batch)
@@ -40,6 +40,7 @@ def make_transaction(db_session, transaction_date=date(2026, 7, 24), narration="
         credit=credit,
         balance="100.00",
         transaction_type=transaction_type,
+        is_savings_spend=is_savings_spend,
     )
     db_session.add(transaction)
     db_session.flush()
@@ -537,4 +538,57 @@ def test_merchant_nicknames_across_rules_ledger_and_management_endpoints(client,
     assert del_res.status_code == 204
     remaining = client.get("/api/merchants/nicknames").json()
     assert [n["narration_key"] for n in remaining] == ["UBER *EATS"]
+
+
+def test_trends_and_merchants_exclude_savings_spend(client, db_session):
+    dining = Category(name="Dining", kind="expense")
+    db_session.add(dining)
+    db_session.commit()
+
+    # t1 is regular spend, t2 is once-off savings spend
+    t1 = make_transaction(
+        db_session,
+        narration="CAFE REGULAR",
+        transaction_date=date(2026, 6, 10),
+        debit="-50.00",
+        category_id=dining.id,
+        is_savings_spend=False,
+    )
+    t2 = make_transaction(
+        db_session,
+        narration="FANCY WEDDING DINNER",
+        transaction_date=date(2026, 6, 15),
+        debit="-1000.00",
+        category_id=dining.id,
+        is_savings_spend=True,
+    )
+    db_session.commit()
+
+    # 1. With exclude_savings_spend=false (all spending)
+    all_res = client.get("/api/trends?year=2026&month=6&months=1&exclude_savings_spend=false")
+    assert all_res.status_code == 200
+    dining_row = next(c for c in all_res.json()["categories"] if c["category_id"] == dining.id)
+    assert dining_row["total"] == "1050.00"
+    assert dining_row["transaction_count"] == 2
+    assert dining_row["average_spend"] == "525.00"
+
+    merchants_all = client.get(f"/api/trends/merchants?category_id={dining.id}&year=2026&month=6&months=1&exclude_savings_spend=false")
+    assert merchants_all.status_code == 200
+    assert len(merchants_all.json()["merchants"]) == 2
+    assert merchants_all.json()["total_spent"] == "1050.00"
+
+    # 2. With exclude_savings_spend=true (typical spend only)
+    typical_res = client.get("/api/trends?year=2026&month=6&months=1&exclude_savings_spend=true")
+    assert typical_res.status_code == 200
+    dining_typical = next(c for c in typical_res.json()["categories"] if c["category_id"] == dining.id)
+    assert dining_typical["total"] == "50.00"
+    assert dining_typical["transaction_count"] == 1
+    assert dining_typical["average_spend"] == "50.00"
+
+    merchants_typical = client.get(f"/api/trends/merchants?category_id={dining.id}&year=2026&month=6&months=1&exclude_savings_spend=true")
+    assert merchants_typical.status_code == 200
+    assert len(merchants_typical.json()["merchants"]) == 1
+    assert merchants_typical.json()["total_spent"] == "50.00"
+    assert merchants_typical.json()["merchants"][0]["merchant"] == "CAFE REGULAR"
+
 

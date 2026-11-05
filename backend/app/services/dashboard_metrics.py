@@ -105,17 +105,45 @@ def dashboard_kpis(db: Session, year: int, month: int, months: int) -> dict:
         .scalar()
     ) or 0
 
+    savings_spend_total = (
+        db.query(func.coalesce(func.sum(-alloc.c.amount), 0))
+        .join(Category, alloc.c.category_id == Category.id)
+        .filter(
+            Category.kind == "expense",
+            alloc.c.is_savings_spend.is_(True),
+            alloc.c.transaction_date >= window_start,
+            alloc.c.transaction_date < window_end,
+        )
+        .scalar()
+    ) or Decimal("0.00")
+    savings_spend_total = Decimal(savings_spend_total)
+
+    typical_transaction_count = (
+        db.query(func.count(func.distinct(alloc.c.transaction_id)))
+        .join(Category, alloc.c.category_id == Category.id)
+        .filter(
+            Category.kind == "expense",
+            alloc.c.is_savings_spend.is_(False),
+            alloc.c.transaction_date >= window_start,
+            alloc.c.transaction_date < window_end,
+        )
+        .scalar()
+    ) or 0
+
+    typical_expenses = max(Decimal("0.00"), total_expenses - savings_spend_total)
     net_saved = total_income - total_expenses
-    avg_per_month = total_expenses / len(periods)
+    avg_per_month = typical_expenses / len(periods)
 
     return {
         "periods": periods,
         "total_income": total_income,
         "total_expenses": total_expenses,
+        "savings_spend_total": savings_spend_total,
+        "typical_expenses": typical_expenses,
         "net_saved": net_saved,
         "transaction_count": transaction_count,
         "avg_per_month": avg_per_month,
-        "avg_per_transaction": (total_expenses / transaction_count) if transaction_count else None,
+        "avg_per_transaction": (typical_expenses / typical_transaction_count) if typical_transaction_count else None,
         "savings_rate": (net_saved / total_income) if total_income else None,
         "runway_months": (liquid_assets(db) / avg_per_month) if avg_per_month else None,
     }

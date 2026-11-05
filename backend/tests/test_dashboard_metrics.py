@@ -14,7 +14,8 @@ def make_category(db_session, name="Groceries", kind="expense"):
 
 
 def make_transaction(db_session, transaction_date=date(2026, 7, 10), narration="Coffee",
-                     debit=None, credit=None, category_id=None, account_number="1111"):
+                     debit=None, credit=None, category_id=None, account_number="1111",
+                     account_id=None, balance="100.00", is_savings_spend=False):
 
     batch = ImportBatch(filename="seed.csv", row_count=0, skipped_duplicate_count=0)
     db_session.add(batch)
@@ -23,6 +24,7 @@ def make_transaction(db_session, transaction_date=date(2026, 7, 10), narration="
     transaction = Transaction(
         import_batch_id=batch.id,
         category_id=category_id,
+        account_id=account_id,
         bsb_number=None,
         account_number=account_number,
         transaction_date=transaction_date,
@@ -30,8 +32,9 @@ def make_transaction(db_session, transaction_date=date(2026, 7, 10), narration="
         cheque_number=None,
         debit=debit,
         credit=credit,
-        balance="100.00",
+        balance=balance,
         transaction_type="WDL" if debit is not None else "DEP",
+        is_savings_spend=is_savings_spend,
     )
     db_session.add(transaction)
     db_session.flush()
@@ -443,3 +446,50 @@ def test_daily_endpoint_requires_both_dates(client):
 
     assert client.get("/api/reports/daily", params={"date_from": "2026-07-01"}).status_code == 422
     assert client.get("/api/reports/daily", params={"date_to": "2026-07-31"}).status_code == 422
+
+
+def test_dashboard_kpis_separates_savings_spend_from_typical_monthly_spend(db_session, client):
+    # Setup account with liquid balance
+    account = make_account(db_session, name="Everyday", account_type="everyday", account_number="1111")
+
+    groceries = make_category(db_session, "Groceries", "expense")
+    travel = make_category(db_session, "Travel", "expense")
+
+    # Regular spend in 2026-06: $500
+    make_transaction(
+        db_session, date(2026, 6, 10), account_id=account.id, account_number="1111", debit=Decimal("-500.00"),
+        balance=Decimal("10000.00"), category_id=groceries.id, is_savings_spend=False,
+    )
+    # Once-off savings spend in 2026-06: $3,000 for overseas flight
+    make_transaction(
+        db_session, date(2026, 6, 12), account_id=account.id, account_number="1111", debit=Decimal("-3000.00"),
+        balance=Decimal("7000.00"), category_id=travel.id, is_savings_spend=True,
+    )
+    # Regular spend in 2026-07: $500
+    make_transaction(
+        db_session, date(2026, 7, 10), account_id=account.id, account_number="1111", debit=Decimal("-500.00"),
+        balance=Decimal("6500.00"), category_id=groceries.id, is_savings_spend=False,
+    )
+    db_session.commit()
+
+    kpis = dashboard_kpis(db_session, 2026, 7, months=2)
+    # Total expenses should include everything ($500 + $3000 + $500 = $4000)
+    assert kpis["total_expenses"] == Decimal("4000.00")
+    # savings_spend_total should be $3000
+    assert kpis["savings_spend_total"] == Decimal("3000.00")
+    # typical_expenses should be $1000
+    assert kpis["typical_expenses"] == Decimal("1000.00")
+    # avg_per_month is calculated from typical expenses: $1000 / 2 months = $500/month (not $2000/month!)
+    assert kpis["avg_per_month"] == Decimal("500.00")
+    # runway_months is liquid assets / typical avg_per_month: $6500 / $500 = 13 months (not 3.25 months!)
+    assert kpis["runway_months"] == Decimal("13.00")
+
+    # API endpoint check
+    res = client.get("/api/reports/kpis?year=2026&month=7&months=2")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_expenses"] == "4000.00"
+    assert data["savings_spend_total"] == "3000.00"
+    assert data["avg_per_month"] == "500.00"
+    assert data["runway_months"] == "13"
+

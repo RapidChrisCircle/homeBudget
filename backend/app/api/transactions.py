@@ -10,6 +10,7 @@ from ..deps import get_db
 from ..models import CATEGORY_KINDS, Account, Category, ImportBatch, Transaction, TransactionSplit
 from ..schemas import (
     BulkCategoryUpdate,
+    BulkSavingsSpendUpdate,
     CsvColumnMappingInput,
     CsvImportPreviewResponse,
     CsvPreviewRowResponse,
@@ -22,6 +23,7 @@ from ..schemas import (
     TransactionNicknameUpdate,
     TransactionNoteUpdate,
     TransactionResponse,
+    TransactionSavingsSpendUpdate,
     TransactionSplitsUpdate,
     TransactionUpdate,
 )
@@ -279,6 +281,7 @@ def _validated_ledger_query(
     max_amount: Decimal | None,
     import_batch_id: int | None,
     transaction_ids: list[int] | None,
+    savings_spend: bool | None = None,
     sort: str | None,
     direction: str,
 ):
@@ -355,6 +358,7 @@ def _validated_ledger_query(
         max_amount=max_amount,
         import_batch_id=import_batch_id,
         transaction_ids=transaction_ids,
+        savings_spend=savings_spend,
     )
 
     return build_transaction_query(db, filters, sort=sort, direction=direction)
@@ -377,6 +381,7 @@ def list_transactions(
     max_amount: Decimal | None = Query(None, ge=0),
     import_batch_id: int | None = None,
     transaction_ids: list[int] | None = Query(None),
+    savings_spend: bool | None = None,
     sort: str | None = None,
     direction: str = "asc",
     page: int = Query(1, ge=1),
@@ -390,6 +395,7 @@ def list_transactions(
         uncategorized=uncategorized, kind=kind, date_from=date_from, date_to=date_to,
         search=search, transaction_type=transaction_type, min_amount=min_amount, max_amount=max_amount,
         import_batch_id=import_batch_id, transaction_ids=transaction_ids,
+        savings_spend=savings_spend,
         sort=sort, direction=direction,
     )
     items, total = paginate(query, page=page, page_size=page_size, options=LIST_LOADERS)
@@ -435,6 +441,7 @@ def export_transactions(
     max_amount: Decimal | None = Query(None, ge=0),
     import_batch_id: int | None = None,
     transaction_ids: list[int] | None = Query(None),
+    savings_spend: bool | None = None,
     sort: str | None = None,
     direction: str = "asc",
     db: Session = Depends(get_db)
@@ -458,6 +465,7 @@ def export_transactions(
         uncategorized=uncategorized, kind=kind, date_from=date_from, date_to=date_to,
         search=search, transaction_type=transaction_type, min_amount=min_amount, max_amount=max_amount,
         import_batch_id=import_batch_id, transaction_ids=transaction_ids,
+        savings_spend=savings_spend,
         sort=sort, direction=direction,
     )
 
@@ -509,6 +517,7 @@ def list_transaction_groups(
     max_amount: Decimal | None = Query(None, ge=0),
     import_batch_id: int | None = None,
     transaction_ids: list[int] | None = Query(None),
+    savings_spend: bool | None = None,
     include_categorized: bool = False,
     db: Session = Depends(get_db)
 ):
@@ -577,6 +586,7 @@ def list_transaction_groups(
         max_amount=max_amount,
         import_batch_id=import_batch_id,
         transaction_ids=transaction_ids,
+        savings_spend=savings_spend,
     )
 
     total_in, total_out, net_total = transaction_group_totals(db, filters, include_categorized=include_categorized)
@@ -650,6 +660,7 @@ def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)
         category_id=payload.category_id,
         note=payload.note,
         is_manual=True,
+        is_savings_spend=payload.is_savings_spend,
     )
 
     # Matches import's own behaviour: a row with no explicit category is
@@ -738,6 +749,7 @@ def update_transaction(transaction_id: int, payload: TransactionUpdate, db: Sess
     transaction.category_id = payload.category_id
     transaction.categorized_by_rule_id = None
     transaction.note = payload.note
+    transaction.is_savings_spend = payload.is_savings_spend
 
     if payload.merchant_nickname is not None:
         upsert_merchant_nickname(db, payload.narration, payload.merchant_nickname)
@@ -808,6 +820,31 @@ def bulk_update_transaction_category(
     return {"updated_count": updated}
 
 
+@router.post("/transactions/bulk-savings-spend")
+def bulk_update_transaction_savings_spend(
+    payload: BulkSavingsSpendUpdate,
+    db: Session = Depends(get_db)
+):
+
+    updated = (
+        db.query(Transaction)
+        .filter(Transaction.id.in_(payload.transaction_ids))
+        .update(
+            {"is_savings_spend": payload.is_savings_spend},
+            synchronize_session=False,
+        )
+    )
+    db.query(TransactionSplit).filter(
+        TransactionSplit.transaction_id.in_(payload.transaction_ids)
+    ).update(
+        {"is_savings_spend": payload.is_savings_spend},
+        synchronize_session=False,
+    )
+    db.commit()
+
+    return {"updated_count": updated}
+
+
 @router.put("/transactions/{transaction_id}/splits", response_model=TransactionResponse)
 def update_transaction_splits(
     transaction_id: int,
@@ -854,9 +891,16 @@ def update_transaction_splits(
     # regardless of dialect (no SQLite-ignores-ondelete concern here, since
     # this never goes through a bulk query).
     transaction.splits = [
-        TransactionSplit(category_id=s.category_id, amount=s.amount, note=s.note)
+        TransactionSplit(
+            category_id=s.category_id,
+            amount=s.amount,
+            note=s.note,
+            is_savings_spend=s.is_savings_spend,
+        )
         for s in payload.splits
     ]
+    if payload.splits:
+        transaction.is_savings_spend = any(s.is_savings_spend for s in payload.splits)
     # Splitting supersedes direct categorization, the same reason it goes
     # the other way above - a transaction is never both at once.
     transaction.category_id = None
@@ -901,6 +945,29 @@ def update_transaction_nickname(
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     upsert_merchant_nickname(db, transaction.narration, payload.nickname)
+    db.commit()
+    db.refresh(transaction)
+    _attach_merchant_nicknames(db, [transaction])
+
+    return transaction
+
+
+@router.patch("/transactions/{transaction_id}/savings-spend", response_model=TransactionResponse)
+def update_transaction_savings_spend(
+    transaction_id: int,
+    payload: TransactionSavingsSpendUpdate,
+    db: Session = Depends(get_db)
+):
+
+    transaction = db.get(Transaction, transaction_id)
+
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    transaction.is_savings_spend = payload.is_savings_spend
+    for split in transaction.splits:
+        split.is_savings_spend = payload.is_savings_spend
+
     db.commit()
     db.refresh(transaction)
     _attach_merchant_nicknames(db, [transaction])

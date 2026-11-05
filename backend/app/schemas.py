@@ -378,6 +378,7 @@ class TransactionSplitResponse(BaseModel):
     category_name: Optional[str]
     amount: Decimal
     note: Optional[str]
+    is_savings_spend: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -387,6 +388,7 @@ class TransactionSplitInput(BaseModel):
     category_id: Optional[int] = None
     amount: Decimal
     note: Optional[str] = None
+    is_savings_spend: bool = False
 
 
 class TransactionSplitsUpdate(BaseModel):
@@ -397,6 +399,17 @@ class TransactionSplitsUpdate(BaseModel):
 class TransactionNoteUpdate(BaseModel):
 
     note: Optional[str] = None
+
+
+class TransactionSavingsSpendUpdate(BaseModel):
+
+    is_savings_spend: bool
+
+
+class BulkSavingsSpendUpdate(BaseModel):
+
+    transaction_ids: list[int]
+    is_savings_spend: bool
 
 
 class TransactionCreate(BaseModel):
@@ -427,6 +440,7 @@ class TransactionCreate(BaseModel):
     # entry never has to invent a value it has no opinion about.
     transaction_type: Optional[str] = None
     merchant_nickname: Optional[str] = None
+    is_savings_spend: bool = False
 
 
 class TransactionUpdate(BaseModel):
@@ -445,6 +459,7 @@ class TransactionUpdate(BaseModel):
     note: Optional[str] = None
     transaction_type: Optional[str] = None
     merchant_nickname: Optional[str] = None
+    is_savings_spend: bool = False
 
 
 class TransactionNicknameUpdate(BaseModel):
@@ -473,6 +488,7 @@ class TransactionResponse(BaseModel):
     note: Optional[str]
     merchant_nickname: Optional[str] = None
     is_manual: bool
+    is_savings_spend: bool = False
     is_split: bool
     splits: list[TransactionSplitResponse]
 
@@ -769,6 +785,7 @@ class DashboardKpiResponse(BaseModel):
     # every other figure.
     savings_rate: Optional[Decimal]
     runway_months: Optional[Decimal]
+    savings_spend_total: Decimal = Decimal("0.00")
 
 
 class DailyActivityResponse(BaseModel):

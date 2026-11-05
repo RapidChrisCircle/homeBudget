@@ -139,6 +139,7 @@ def daily_run_rates(db: Session, as_of: date, series: list[RecurringSeries]) -> 
         db.query(Transaction.account_id, Transaction.narration, Transaction.debit, Transaction.credit)
         .filter(
             Transaction.account_id.isnot(None),
+            Transaction.is_savings_spend.is_(False),
             Transaction.transaction_date >= window_start,
             Transaction.transaction_date < window_end,
         )
@@ -183,6 +184,7 @@ def category_daily_rates(db: Session, as_of: date, series: list[RecurringSeries]
         .filter(
             Transaction.account_id.isnot(None),
             Transaction.category_id.isnot(None),
+            Transaction.is_savings_spend.is_(False),
             Transaction.transaction_date >= window_start,
             Transaction.transaction_date < window_end,
         )

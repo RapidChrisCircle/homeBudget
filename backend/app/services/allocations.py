@@ -50,7 +50,7 @@ _NET_EXPR = func.coalesce(Transaction.debit, 0) + func.coalesce(Transaction.cred
 
 
 def allocation_subquery(db: Session):
-    """A (transaction_id, category_id, amount, transaction_date) subquery.
+    """A (transaction_id, category_id, amount, transaction_date, is_savings_spend) subquery.
     Callers outer-join Category to this instead of to Transaction directly,
     on `alloc.c.category_id == Category.id` plus whatever date-range
     condition they need in the same ON clause (never in WHERE - see
@@ -63,6 +63,7 @@ def allocation_subquery(db: Session):
         Transaction.category_id.label("category_id"),
         _NET_EXPR.label("amount"),
         Transaction.transaction_date.label("transaction_date"),
+        Transaction.is_savings_spend.label("is_savings_spend"),
     ).filter(Transaction.category_id.isnot(None))
 
     split = (
@@ -71,6 +72,7 @@ def allocation_subquery(db: Session):
             TransactionSplit.category_id.label("category_id"),
             TransactionSplit.amount.label("amount"),
             Transaction.transaction_date.label("transaction_date"),
+            TransactionSplit.is_savings_spend.label("is_savings_spend"),
         )
         .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
         .filter(TransactionSplit.category_id.isnot(None))

@@ -185,6 +185,7 @@ class TransactionFilters:
     max_amount: Decimal | None = None
     import_batch_id: int | None = None
     transaction_ids: list[int] | None = None
+    savings_spend: bool | None = None
 
 
 def build_transaction_query(
@@ -240,6 +241,19 @@ def build_transaction_query(
 
     if filters.transaction_ids is not None:
         query = query.filter(Transaction.id.in_(filters.transaction_ids))
+
+    if filters.savings_spend is True:
+        query = query.filter(
+            or_(
+                Transaction.is_savings_spend.is_(True),
+                Transaction.splits.any(TransactionSplit.is_savings_spend.is_(True)),
+            )
+        )
+    elif filters.savings_spend is False:
+        query = query.filter(
+            Transaction.is_savings_spend.is_(False),
+            ~Transaction.splits.any(TransactionSplit.is_savings_spend.is_(True)),
+        )
 
     if sort not in _SORT_EXPRESSIONS:
         return query.order_by(Transaction.transaction_date.desc(), Transaction.id.desc())

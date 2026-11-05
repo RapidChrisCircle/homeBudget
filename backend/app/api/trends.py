@@ -44,6 +44,7 @@ def get_trends(
     year: int | None = Query(None, ge=1900, le=2999),
     month: int | None = Query(None, ge=1, le=12),
     months: int = Query(DEFAULT_GRID_MONTHS, ge=1, le=MAX_GRID_MONTHS),
+    exclude_savings_spend: bool = Query(False),
     db: Session = Depends(get_db)
 ):
 
@@ -52,7 +53,7 @@ def get_trends(
 
     year, month = chart_period_bounds(db, year, month)
 
-    periods, grid_rows = category_grid(db, year, month, months=months)
+    periods, grid_rows = category_grid(db, year, month, months=months, exclude_savings_spend=exclude_savings_spend)
     net_worth_by_period = net_worth_history(db, periods)
 
     return TrendsResponse(
@@ -100,6 +101,7 @@ def get_trend_category_merchants(
     year: int | None = Query(None, ge=1900, le=2999),
     month: int | None = Query(None, ge=1, le=12),
     months: int = Query(DEFAULT_GRID_MONTHS, ge=1, le=MAX_GRID_MONTHS),
+    exclude_savings_spend: bool = Query(False),
     db: Session = Depends(get_db),
 ):
 
@@ -113,7 +115,7 @@ def get_trend_category_merchants(
     year, month = chart_period_bounds(db, year, month)
 
     periods = contiguous_periods(year, month, months)
-    merchants = category_merchants(db, category, periods)
+    merchants = category_merchants(db, category, periods, exclude_savings_spend=exclude_savings_spend)
     total_spent = sum((m["total_spent"] for m in merchants), Decimal("0"))
     parent_name = category.parent.name if category.parent_id and category.parent else None
 

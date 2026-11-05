@@ -414,7 +414,8 @@ def category_grid(
     db: Session,
     year: int,
     month: int,
-    months: int = DEFAULT_GRID_MONTHS
+    months: int = DEFAULT_GRID_MONTHS,
+    exclude_savings_spend: bool = False,
 ) -> tuple[list[tuple[int, int]], list[dict]]:
     """Category x month totals for the `months` months ending at (year, month)
     inclusive. Returns (periods, rows) where periods is the ordered, CONTIGUOUS
@@ -462,6 +463,14 @@ def category_grid(
     year_col, month_col = _year_month_columns(alloc.c.transaction_date)
     parent = aliased(Category)
 
+    join_conditions = [
+        alloc.c.category_id == Category.id,
+        alloc.c.transaction_date >= window_start,
+        alloc.c.transaction_date < window_end,
+    ]
+    if exclude_savings_spend:
+        join_conditions.append(alloc.c.is_savings_spend.is_(False))
+
     rows = (
         db.query(
             Category.id,
@@ -481,11 +490,7 @@ def category_grid(
         .select_from(Category)
         .outerjoin(
             alloc,
-            and_(
-                alloc.c.category_id == Category.id,
-                alloc.c.transaction_date >= window_start,
-                alloc.c.transaction_date < window_end,
-            ),
+            and_(*join_conditions),
         )
         .outerjoin(parent, Category.parent_id == parent.id)
         .filter(Category.kind != "transfer")

@@ -765,6 +765,17 @@ class Transaction(Base):
         server_default=false()
     )
 
+    # Identifies transactions funded from accumulated savings (e.g. major vacation,
+    # vehicle purchase, capital repair, wedding) rather than regular operating cashflow,
+    # so they do not misrepresent typical monthly spending averages or run rates.
+    is_savings_spend = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+        index=True
+    )
+
     import_batch = relationship(
         "ImportBatch",
         back_populates="transactions"
@@ -894,6 +905,13 @@ class TransactionSplit(Base):
     note = Column(
         String,
         nullable=True
+    )
+
+    is_savings_spend = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false()
     )
 
     transaction = relationship(
