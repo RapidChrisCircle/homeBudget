@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Card from '../components/Card.jsx'
 import DashboardNarrative from '../components/DashboardNarrative.jsx'
@@ -7,6 +7,7 @@ import LoadingState from '../components/LoadingState.jsx'
 import OnboardingChecklist from '../components/OnboardingChecklist.jsx'
 import PageHeader from '../components/PageHeader.jsx'
 import { api } from '../services/api'
+import { lastCompletedMonth } from '../utils/trendsSeries.js'
 import { WIDGET_TYPE_KEYS, WIDGET_TYPES, WIDGET_WIDTHS, widgetTypeLabel } from '../widgetRegistry.jsx'
 
 // A simple in/out picture, not the full multi-month analysis /trends
@@ -48,6 +49,7 @@ function shiftMonthLabel(label, deltaMonths) {
 // shared fetches below can serve.
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const maxEndMonth = lastCompletedMonth().label
 
   const [widgets, setWidgets] = useState([])
   const [accounts, setAccounts] = useState([])
@@ -73,6 +75,21 @@ export default function DashboardPage() {
   const [customStartMonth, setCustomStartMonth] = useState('')
   const [customEndMonth, setCustomEndMonth] = useState('')
   const [customMonths, setCustomMonths] = useState(CHART_MONTHS)
+
+  const safeTrends = useMemo(() => {
+    if (!trends) return trends
+    const periods = (trends.periods || []).filter((p) => p.label <= maxEndMonth)
+    const monthly = (trends.monthly || []).filter((m) => m.label <= maxEndMonth)
+    const balances = (trends.balances || []).filter((b) => b.label <= maxEndMonth)
+    const budget = (trends.budget || []).filter((b) => b.label <= maxEndMonth)
+    return {
+      ...trends,
+      periods,
+      monthly,
+      balances,
+      budget,
+    }
+  }, [trends, maxEndMonth])
 
   const fetchDashboardData = () => Promise.all([
     api.get('/dashboard/widgets'),
@@ -110,9 +127,11 @@ export default function DashboardPage() {
           setTrends(trendsRes.data)
           setKpis(kpisRes.data)
           if (trendsRes.data?.periods?.length > 0) {
-            const loadedPeriods = trendsRes.data.periods
-            setCustomStartMonth(loadedPeriods[0].label)
-            setCustomEndMonth(loadedPeriods[loadedPeriods.length - 1].label)
+            const loadedPeriods = trendsRes.data.periods.filter((p) => p.label <= maxEndMonth)
+            if (loadedPeriods.length > 0) {
+              setCustomStartMonth(loadedPeriods[0].label)
+              setCustomEndMonth(loadedPeriods[loadedPeriods.length - 1].label)
+            }
           }
           setNetWorth(netWorthRes.data)
           setGoals(goalsRes.data.goals)
@@ -139,7 +158,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [maxEndMonth])
 
   const refreshWidgets = async () => {
     const response = await api.get('/dashboard/widgets')
@@ -213,9 +232,11 @@ export default function DashboardPage() {
       setTrends(trendsRes.data)
       setKpis(kpisRes.data)
       if (syncCustomBounds && trendsRes.data?.periods?.length > 0) {
-        const nextPeriods = trendsRes.data.periods
-        setCustomStartMonth(nextPeriods[0].label)
-        setCustomEndMonth(nextPeriods[nextPeriods.length - 1].label)
+        const nextPeriods = trendsRes.data.periods.filter((p) => p.label <= maxEndMonth)
+        if (nextPeriods.length > 0) {
+          setCustomStartMonth(nextPeriods[0].label)
+          setCustomEndMonth(nextPeriods[nextPeriods.length - 1].label)
+        }
       }
     } catch (err) {
       setLayoutError(String(err?.response?.data?.detail || err?.message || 'Failed to update period'))
@@ -233,7 +254,10 @@ export default function DashboardPage() {
   }
 
   const handleCustomStartMonthChange = (event) => {
-    const nextStart = event.target.value
+    let nextStart = event.target.value
+    if (nextStart && nextStart > maxEndMonth) {
+      nextStart = maxEndMonth
+    }
     setCustomStartMonth(nextStart)
     if (!nextStart) {
       return
@@ -250,7 +274,10 @@ export default function DashboardPage() {
   }
 
   const handleCustomEndMonthChange = (event) => {
-    const nextEnd = event.target.value
+    let nextEnd = event.target.value
+    if (nextEnd && nextEnd > maxEndMonth) {
+      nextEnd = maxEndMonth
+    }
     setCustomEndMonth(nextEnd)
     if (!nextEnd) {
       return
@@ -317,7 +344,7 @@ export default function DashboardPage() {
   // component's own module docstring on why this is the one place all of
   // that data is assembled, not fetched per widget.
   const widgetData = {
-    accounts, report, trends, kpis, netWorth, goals, overAllocatedAccounts,
+    accounts, report, trends: safeTrends, kpis, netWorth, goals, overAllocatedAccounts,
     recent, recurringSeries, recurringSummary, recurringAsOf, navigate,
   }
 
@@ -386,6 +413,7 @@ export default function DashboardPage() {
               Start month
               <input
                 type="month"
+                max={maxEndMonth}
                 value={customStartMonth}
                 onChange={handleCustomStartMonthChange}
               />
@@ -394,6 +422,7 @@ export default function DashboardPage() {
               End month
               <input
                 type="month"
+                max={maxEndMonth}
                 value={customEndMonth}
                 onChange={handleCustomEndMonthChange}
               />

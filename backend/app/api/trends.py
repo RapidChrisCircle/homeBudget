@@ -25,6 +25,7 @@ from ..services.reporting import (
     DEFAULT_GRID_MONTHS,
     MAX_GRID_MONTHS,
     category_grid,
+    chart_period_bounds,
     contiguous_periods,
     default_period,
 )
@@ -49,8 +50,7 @@ def get_trends(
     if (year is None) != (month is None):
         raise HTTPException(status_code=422, detail="year and month must be supplied together")
 
-    if year is None or month is None:
-        year, month = default_period(db)
+    year, month = chart_period_bounds(db, year, month)
 
     periods, grid_rows = category_grid(db, year, month, months=months)
     net_worth_by_period = net_worth_history(db, periods)
@@ -110,8 +110,7 @@ def get_trend_category_merchants(
     if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
 
-    if year is None or month is None:
-        year, month = default_period(db)
+    year, month = chart_period_bounds(db, year, month)
 
     periods = contiguous_periods(year, month, months)
     merchants = category_merchants(db, category, periods)

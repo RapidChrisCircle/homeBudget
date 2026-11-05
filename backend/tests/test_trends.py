@@ -290,6 +290,39 @@ def test_get_trends_rejects_year_without_month(client):
     assert response.status_code == 422
 
 
+def test_get_trends_endpoint_clamps_future_or_current_month(client, db_session):
+    today = date.today()
+    last_completed = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
+    last_label = f"{last_completed[0]:04d}-{last_completed[1]:02d}"
+
+    category = make_category(db_session, name="FutureCat")
+    make_transaction(db_session, transaction_date=date(2099, 12, 1), debit=Decimal("-10.00"), category_id=category.id)
+    db_session.commit()
+
+    # When querying with future month, it clamps to last completed month
+    response = client.get("/api/trends?year=2099&month=12&months=1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["periods"][-1]["label"] == last_label
+
+    # When querying default /trends, it also bounds to last completed month
+    default_res = client.get("/api/trends?months=1")
+    assert default_res.status_code == 200
+    assert default_res.json()["periods"][-1]["label"] <= last_label
+
+
+def test_get_trend_category_merchants_clamps_future_month(client, db_session):
+    category = make_category(db_session, name="CoffeeCat")
+    make_transaction(db_session, transaction_date=date(2099, 12, 1), debit=Decimal("-5.00"), category_id=category.id, narration="Futuristic Cafe")
+    db_session.commit()
+
+    response = client.get(f"/api/trends/merchants?category_id={category.id}&year=2099&month=12&months=1")
+    assert response.status_code == 200
+    merchants = response.json()["merchants"]
+    assert not any(m["merchant"] == "Futuristic Cafe" for m in merchants)
+
+
+
 def test_trends_categories_carry_their_parent(client, db_session):
     """/trends' own chart rolls leaves up into their group and drills back
     down into it, so each row has to name the group it belongs to.

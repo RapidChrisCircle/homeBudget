@@ -527,4 +527,24 @@ describe('AccountDetailPage statement coverage', () => {
 
     expect(screen.queryByText('Statement Coverage')).not.toBeInTheDocument()
   })
+
+  it('filters out future and current months from the balance history chart', async () => {
+    mockLoad({
+      balanceHistory: {
+        periods: [
+          ...sampleBalanceHistory.periods,
+          { year: 2099, month: 12, label: '2099-12' },
+        ],
+        balances: {
+          ...sampleBalanceHistory.balances,
+          '2099-12': '9999.00',
+        },
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Balance History')).toBeInTheDocument())
+    expect(screen.queryByText('2099-12')).not.toBeInTheDocument()
+  })
 })

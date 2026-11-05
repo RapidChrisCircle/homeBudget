@@ -33,13 +33,17 @@ Merchant nicknames, Trends drill-down tables, configurable dashboard time period
 
 ### Changed
 
+- **Exclude Current and Future Months from Charts & Trend Averages**:
+  - Historical trend charts (`TrendsPage.jsx`), Cash Flow and Net Worth charts (`DashboardPage.jsx`), and account balance history (`AccountDetailPage.jsx`) now strictly display completed past months only.
+  - The in-progress current calendar month and any future months are excluded from chart series, breakdown tables, and average metrics, preventing partial-month spending drops to zero and incomplete data from distorting historical trends.
+  - Date pickers for ending/custom months on Trends and Dashboard enforce a `max` constraint capped at the last completed month (`last_completed_period` / `lastCompletedMonth()`), with server-side query bounding via `chart_period_bounds` across `/api/trends`, `/api/trends/merchants`, `/api/reports/kpis`, and `/api/accounts/{id}/balance-history`.
 - Updated GitHub Actions workflow (`deploy.yml`) to Node 22/24 runners and modernized setup actions, resolving Node 20 deprecation warnings.
 - Refined coverage gap detection logic and account group balance stitching.
 - Corrected explanation text and test assertions in `AlertsPage.jsx` and `AlertsPage.test.jsx`.
 
 ### Verification
 
-All 812 backend tests (`pytest`) and all 872 frontend tests (`vitest`) passing. Linting (`oxlint`) clean with 0 errors.
+All 817 backend tests (`pytest`) and all 878 frontend tests (`vitest`) passing. Linting (`oxlint`) clean with 0 errors.
 
 ## [0.45.0] - 2026-09-29
 

@@ -165,3 +165,16 @@ export function monthBounds(label) {
 
   return { from: `${label}-01`, to: `${label}-${String(lastDay).padStart(2, '0')}` }
 }
+
+// The most recently COMPLETED calendar month as of `refDate` (defaults to now).
+// Historical trend charts and averages should never include the in-progress
+// current month or future months so partial-month drops do not distort data.
+export function lastCompletedMonth(refDate = new Date()) {
+  const year = refDate.getFullYear()
+  const month = refDate.getMonth() // 0-indexed: month 0 is Jan -> last month was Dec of year-1
+  if (month === 0) {
+    return { year: year - 1, month: 12, label: `${year - 1}-12` }
+  }
+  return { year, month, label: `${year}-${String(month).padStart(2, '0')}` }
+}
+

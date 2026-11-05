@@ -12,7 +12,14 @@ import SortableHeader from '../components/SortableHeader.jsx'
 import { api } from '../services/api'
 import { formatAmount, formatDate, transactionIdsLedgerLink } from '../utils/format.js'
 import { useTableSort } from '../utils/tableSort.js'
-import { buildLevel, buildSeries, drilledCategory, drilledGroupName, monthBounds } from '../utils/trendsSeries.js'
+import {
+  buildLevel,
+  buildSeries,
+  drilledCategory,
+  drilledGroupName,
+  lastCompletedMonth,
+  monthBounds,
+} from '../utils/trendsSeries.js'
 
 const MONTH_OPTIONS = [6, 12, 24]
 const DEFAULT_MONTHS = 6
@@ -36,9 +43,15 @@ const MERCHANT_SORT_COLUMNS = {
 export default function TrendsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const months = Number(searchParams.get('months')) || DEFAULT_MONTHS
-  const year = searchParams.get('year')
-  const month = searchParams.get('month')
+  const maxEndMonth = lastCompletedMonth().label
+  const rawMonths = Number(searchParams.get('months')) || DEFAULT_MONTHS
+  const months = Math.min(Math.max(rawMonths, 1), 24)
+  const rawYear = searchParams.get('year')
+  const rawMonth = searchParams.get('month')
+  const rawEndLabel = rawYear && rawMonth ? `${rawYear}-${String(rawMonth).padStart(2, '0')}` : null
+  const isPastMax = rawEndLabel && rawEndLabel > maxEndMonth
+  const year = isPastMax ? String(lastCompletedMonth().year) : rawYear
+  const month = isPastMax ? String(lastCompletedMonth().month) : rawMonth
   // Which group the category chart is drilled into, in the URL beside
   // `months` for the same reason every other view state in this app is: a
   // drilled-in chart is reloadable and shareable, not a state that
@@ -57,12 +70,22 @@ export default function TrendsPage() {
   const [savingNickname, setSavingNickname] = useState(false)
   const [averageMode, setAverageMode] = useState('transaction')
 
-  const activeCategory = trends ? drilledCategory(trends.categories, categoryId) : null
+  const safePeriods = (trends?.periods || []).filter((p) => p.label <= maxEndMonth)
+  const safeMonthly = (trends?.monthly || []).filter((m) => m.label <= maxEndMonth)
+  const safeBudget = (trends?.budget || []).filter((b) => b.label <= maxEndMonth)
+  const safeCategories = (trends?.categories || []).map((cat) => ({
+    ...cat,
+    amounts: Object.fromEntries(
+      Object.entries(cat.amounts || {}).filter(([lbl]) => lbl <= maxEndMonth)
+    ),
+  }))
+
+  const activeCategory = trends ? drilledCategory(safeCategories, categoryId) : null
   const activeCategoryId = activeCategory ? String(activeCategory.category_id) : ''
-  const groupName = trends ? drilledGroupName(trends.categories, groupId) : null
+  const groupName = trends ? drilledGroupName(safeCategories, groupId) : null
   const activeGroupId = groupName ? groupId : ''
-  const levelRows = trends ? buildLevel(trends.periods, trends.categories, activeGroupId) : []
-  const monthCount = trends?.periods?.length || months || 1
+  const levelRows = trends ? buildLevel(safePeriods, safeCategories, activeGroupId) : []
+  const monthCount = safePeriods.length || months || 1
 
   const categorySortColumns = {
     ...CATEGORY_SORT_COLUMNS,
@@ -190,7 +213,10 @@ export default function TrendsPage() {
   }
 
   const handleEndMonthChange = (event) => {
-    const value = event.target.value
+    let value = event.target.value
+    if (value && value > maxEndMonth) {
+      value = maxEndMonth
+    }
     const next = new URLSearchParams(searchParams)
     if (!value) {
       next.delete('year')
@@ -288,8 +314,7 @@ export default function TrendsPage() {
     )
   }
 
-  const { periods, monthly, budget } = trends
-  const periodLabels = periods.map((p) => p.label)
+  const periodLabels = safePeriods.map((p) => p.label)
   const activeEndMonth = year && month
     ? `${year}-${String(month).padStart(2, '0')}`
     : (periodLabels[periodLabels.length - 1] || '')
@@ -299,7 +324,7 @@ export default function TrendsPage() {
   // (see reporting.category_grid's docstring) - keying off it here would
   // show three flat-zero charts captioned as trends on a fresh install with
   // nothing imported yet. Real monthly activity is the only honest signal.
-  const hasHistory = monthly.some((m) => Number(m.total_income) !== 0 || Number(m.total_spending) !== 0)
+  const hasHistory = safeMonthly.some((m) => Number(m.total_income) !== 0 || Number(m.total_spending) !== 0)
 
   const monthLabel = (
     <div className="filter-bar">
@@ -315,7 +340,12 @@ export default function TrendsPage() {
       </label>
       <label>
         Ending month
-        <input type="month" value={activeEndMonth} onChange={handleEndMonthChange} />
+        <input
+          type="month"
+          value={activeEndMonth}
+          max={maxEndMonth}
+          onChange={handleEndMonthChange}
+        />
       </label>
       <label>
         Average spend
@@ -340,7 +370,7 @@ export default function TrendsPage() {
     )
   }
 
-  const categorySeries = buildSeries(periods, levelRows)
+  const categorySeries = buildSeries(safePeriods, levelRows)
   // Income/Spending and Actual each carry which `kind` their own bar
   // stands for, so one handler (openKindMonth below) can drill any of them
   // into the ledger. Net saved and Budgeted opt out with `selectable:
@@ -348,18 +378,18 @@ export default function TrendsPage() {
   // something any transaction ever "is", so neither has a bar's worth of
   // transactions to show.
   const incomeSpendingSeries = [
-    { label: 'Income', values: monthly.map((m) => Number(m.total_income)), drill: { kind: 'income' } },
-    { label: 'Spending', values: monthly.map((m) => Number(m.total_spending)), drill: { kind: 'expense' } },
-    { label: 'Net saved', values: monthly.map((m) => Number(m.net_saved)), selectable: false },
+    { label: 'Income', values: safeMonthly.map((m) => Number(m.total_income)), drill: { kind: 'income' } },
+    { label: 'Spending', values: safeMonthly.map((m) => Number(m.total_spending)), drill: { kind: 'expense' } },
+    { label: 'Net saved', values: safeMonthly.map((m) => Number(m.net_saved)), selectable: false },
   ]
   const budgetSeries = [
-    { label: 'Budgeted', values: budget.map((b) => Number(b.budgeted)), selectable: false },
+    { label: 'Budgeted', values: safeBudget.map((b) => Number(b.budgeted)), selectable: false },
     // Budget vs actual is scoped to expense categories only (see /reports'
     // own budget-vs-actual table), so "Actual" here always means expense
     // spending.
-    { label: 'Actual', values: budget.map((b) => Number(b.actual)), drill: { kind: 'expense' } },
+    { label: 'Actual', values: safeBudget.map((b) => Number(b.actual)), drill: { kind: 'expense' } },
   ]
-  const hasBudget = budget.some((b) => Number(b.budgeted) !== 0)
+  const hasBudget = safeBudget.some((b) => Number(b.budgeted) !== 0)
 
   // A bar drills into the transactions behind it: the ledger, filtered to
   // that bar's kind and that month.

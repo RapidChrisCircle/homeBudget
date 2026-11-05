@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildLevel, buildSeries, drilledGroupName, monthBounds } from './trendsSeries.js'
+import { buildLevel, buildSeries, drilledGroupName, lastCompletedMonth, monthBounds } from './trendsSeries.js'
 
 const periods = [
   { year: 2026, month: 6, label: '2026-06' },
@@ -140,5 +140,17 @@ describe('monthBounds', () => {
     expect(monthBounds('2026-07')).toEqual({ from: '2026-07-01', to: '2026-07-31' })
     expect(monthBounds('2026-02')).toEqual({ from: '2026-02-01', to: '2026-02-28' })
     expect(monthBounds('2028-02')).toEqual({ from: '2028-02-01', to: '2028-02-29' })
+  })
+})
+
+describe('lastCompletedMonth', () => {
+  it('returns the previous month in the same year', () => {
+    const ref = new Date('2026-11-05T12:00:00Z')
+    expect(lastCompletedMonth(ref)).toEqual({ year: 2026, month: 10, label: '2026-10' })
+  })
+
+  it('rolls back to December of previous year when currently in January', () => {
+    const ref = new Date('2026-01-15T12:00:00Z')
+    expect(lastCompletedMonth(ref)).toEqual({ year: 2025, month: 12, label: '2025-12' })
   })
 })

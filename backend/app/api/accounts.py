@@ -27,7 +27,13 @@ from ..schemas import (
 from ..services.coverage import account_coverage_gaps
 from ..services.ledger import account_balance, account_balances
 from ..services.net_worth import group_contributors_by_period, infer_balance_sign
-from ..services.reporting import DEFAULT_GRID_MONTHS, MAX_GRID_MONTHS, contiguous_periods, default_period
+from ..services.reporting import (
+    DEFAULT_GRID_MONTHS,
+    MAX_GRID_MONTHS,
+    chart_period_bounds,
+    contiguous_periods,
+    default_period,
+)
 from ..services.trends import account_balance_history
 
 router = APIRouter()
@@ -395,7 +401,7 @@ def get_account_balance_history(
     if account is None:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    year, month = default_period(db)
+    year, month = chart_period_bounds(db)
     periods = contiguous_periods(year, month, months)
 
     history = account_balance_history(db, periods)

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
+import { lastCompletedMonth } from '../utils/trendsSeries.js'
 import DashboardPage from './DashboardPage.jsx'
 
 vi.mock('../services/api', () => ({
@@ -1111,6 +1112,30 @@ describe('DashboardPage', () => {
       await waitFor(() => {
         expect(api.get).toHaveBeenCalledWith('/trends?year=2026&month=7&months=9')
         expect(api.get).toHaveBeenCalledWith('/reports/kpis?year=2026&month=7&months=9')
+      })
+    })
+
+    it('restricts Start and End month inputs to last completed month and clamps future entries', async () => {
+      mockLoad()
+
+      renderPage()
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
+
+      const maxMonth = lastCompletedMonth()
+      const startInput = screen.getByLabelText('Start month')
+      const endInput = screen.getByLabelText('End month')
+
+      expect(startInput).toHaveAttribute('max', maxMonth.label)
+      expect(endInput).toHaveAttribute('max', maxMonth.label)
+
+      fireEvent.change(endInput, { target: { value: '2099-12' } })
+
+      await waitFor(() => {
+        expect(api.get).toHaveBeenCalledWith(
+          expect.stringContaining(`/trends?year=${maxMonth.year}&month=${maxMonth.month}&`)
+        )
       })
     })
   })

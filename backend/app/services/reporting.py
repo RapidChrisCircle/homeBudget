@@ -212,6 +212,52 @@ def default_period(db: Session) -> tuple[int, int]:
     return today.year, today.month
 
 
+def last_completed_period(ref_date: date | None = None) -> tuple[int, int]:
+    """The (year, month) of the most recently COMPLETED calendar month.
+
+    Charts, historical trends, and average metrics show completed months only;
+    the in-progress current month and any future months are excluded so partial-month
+    spending drops and incomplete data do not distort charts.
+    """
+    today = ref_date or date.today()
+    if today.month == 1:
+        return today.year - 1, 12
+    return today.year, today.month - 1
+
+
+def chart_period_bounds(
+    db: Session,
+    year: int | None = None,
+    month: int | None = None,
+    ref_date: date | None = None,
+) -> tuple[int, int]:
+    """Resolves and bounds the (year, month) ending period for chart and trend queries.
+
+    Ensures that historical trend charts, averages, and balance histories never show
+    the in-progress current month or future months.
+
+    If (year, month) is provided:
+        - If (year, month) exceeds the last completed month, clamps to the last completed month.
+        - Otherwise returns (year, month).
+    If year or month is None:
+        - Finds the most recent period in available_periods(db) that is <= last completed month.
+        - If no such period exists (e.g., empty ledger, or only current/future transactions),
+          falls back to the last completed month.
+    """
+    max_year, max_month = last_completed_period(ref_date)
+
+    if year is not None and month is not None:
+        if (year, month) > (max_year, max_month):
+            return max_year, max_month
+        return year, month
+
+    for y, m, _ in available_periods(db):
+        if (y, m) <= (max_year, max_month):
+            return y, m
+
+    return max_year, max_month
+
+
 def category_totals_for_period(db: Session, start: date, end: date) -> list[CategoryPeriodTotal]:
     """Every non-transfer category's activity in [start, end), one row per
     category regardless of whether it had any transactions.

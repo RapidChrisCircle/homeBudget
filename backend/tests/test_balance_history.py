@@ -170,3 +170,20 @@ def test_get_balance_history_for_account_with_no_transactions_is_all_none(client
 
     assert response.status_code == 200
     assert all(v is None for v in response.json()["balances"].values())
+
+
+def test_get_balance_history_endpoint_clamps_to_last_completed_month(client, db_session):
+    today = date.today()
+    last_completed = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
+    last_label = f"{last_completed[0]:04d}-{last_completed[1]:02d}"
+
+    account = make_account(db_session)
+    make_transaction(db_session, account.id, date(2099, 12, 1), balance="500.00")
+    db_session.commit()
+
+    response = client.get(f"/api/accounts/{account.id}/balance-history?months=1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["periods"][-1]["label"] == last_label
+    assert "2099-12" not in body["balances"]
+

@@ -24,6 +24,7 @@ from ..services.reporting import (
     MAX_GRID_MONTHS,
     available_periods,
     build_monthly_report,
+    chart_period_bounds,
     default_period,
 )
 
@@ -109,8 +110,7 @@ def get_dashboard_kpis(
     if (year is None) != (month is None):
         raise HTTPException(status_code=422, detail="year and month must be supplied together")
 
-    if year is None or month is None:
-        year, month = default_period(db)
+    year, month = chart_period_bounds(db, year, month)
 
     kpis = dashboard_kpis(db, year, month, months)
 

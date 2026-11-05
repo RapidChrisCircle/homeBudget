@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
+import { lastCompletedMonth } from '../utils/trendsSeries.js'
 import TrendsPage from './TrendsPage.jsx'
 
 vi.mock('../services/api', () => ({
@@ -632,5 +633,50 @@ describe('TrendsPage drill-down', () => {
     expect(within(categoryTable).getByRole('button', { name: /Average Spend \(per month\)/ })).toBeInTheDocument()
     expect(within(categoryTable).getByText('133.33')).toBeInTheDocument()
     expect(getOrder()).toEqual(['Coffee', 'Food', 'Rent'])
+  })
+
+  it('restricts Ending month input max attribute to last completed month and clamps values beyond it', async () => {
+    mockLoad()
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    const endingMonthInput = screen.getByLabelText('Ending month')
+    const maxMonth = lastCompletedMonth()
+    expect(endingMonthInput).toHaveAttribute('max', maxMonth.label)
+
+    // Entering a future month clamps to maxMonth
+    fireEvent.change(endingMonthInput, { target: { value: '2099-12' } })
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        `/trends?year=${maxMonth.year}&month=${maxMonth.month}&months=6`
+      )
+    })
+  })
+
+  it('filters out any current or future month data points from charts and tables', async () => {
+    const futurePeriod = { year: 2099, month: 12, label: '2099-12' }
+    mockLoad({
+      periods: [...periods, futurePeriod],
+      monthly: [
+        ...monthly,
+        { label: '2099-12', total_income: '9999.00', total_spending: '9999.00', net_saved: '0.00' },
+      ],
+      budget: [
+        ...budget,
+        { label: '2099-12', budgeted: '9999.00', actual: '9999.00' },
+      ],
+    })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    // Future month should not appear in any chart titles, bars, or ending month selector
+    expect(screen.queryByText('2099-12')).not.toBeInTheDocument()
+    const endingMonthInput = screen.getByLabelText('Ending month')
+    expect(endingMonthInput.value).not.toBe('2099-12')
   })
 })

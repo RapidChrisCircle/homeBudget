@@ -8,7 +8,9 @@ from app.services.reporting import (
     build_monthly_report,
     category_grid,
     category_totals_for_period,
+    chart_period_bounds,
     default_period,
+    last_completed_period,
     month_bounds,
     monthly_summary,
     uncategorized_summary,
@@ -452,3 +454,35 @@ def test_build_monthly_report_returns_all_four_sections(db_session):
     assert "budgets" in report
     assert "grid" in report
     assert "uncategorized" in report
+
+
+def test_last_completed_period():
+    assert last_completed_period(date(2026, 11, 5)) == (2026, 10)
+    assert last_completed_period(date(2026, 1, 15)) == (2025, 12)
+
+
+def test_chart_period_bounds_clamps_future_and_current_months(db_session):
+    ref_date = date(2026, 11, 5)
+
+    # Empty DB: defaults to last completed month
+    assert chart_period_bounds(db_session, ref_date=ref_date) == (2026, 10)
+
+    # Transactions in past and in current/future
+    make_transaction(db_session, transaction_date=date(2026, 9, 10))
+    make_transaction(db_session, transaction_date=date(2026, 10, 15))
+    make_transaction(db_session, transaction_date=date(2026, 11, 2))
+    make_transaction(db_session, transaction_date=date(2026, 12, 1))
+    db_session.commit()
+
+    # When no year/month provided, skips 2026-12 and 2026-11 and returns 2026-10
+    assert chart_period_bounds(db_session, ref_date=ref_date) == (2026, 10)
+
+    # When requesting current month (2026-11), clamps to 2026-10
+    assert chart_period_bounds(db_session, 2026, 11, ref_date=ref_date) == (2026, 10)
+
+    # When requesting future month (2027-01), clamps to 2026-10
+    assert chart_period_bounds(db_session, 2027, 1, ref_date=ref_date) == (2026, 10)
+
+    # When requesting past completed month (2026-09), returns requested
+    assert chart_period_bounds(db_session, 2026, 9, ref_date=ref_date) == (2026, 9)
+

@@ -22,7 +22,7 @@ import {
 import { api } from '../services/api'
 import { accountTypeLabel } from '../utils/accountTypes.js'
 import { formatAmount, formatBalance, formatDate, transactionAmount } from '../utils/format.js'
-import { monthBounds } from '../utils/trendsSeries.js'
+import { lastCompletedMonth, monthBounds } from '../utils/trendsSeries.js'
 
 // account_id is implicit from the route here, so it is never a form field and
 // never carried in this page's own URL - it is added only when calling the API.
@@ -241,35 +241,41 @@ export default function AccountDetailPage() {
         {account.group_name && <p>Part of group: {account.group_name}</p>}
       </div>
 
-      {balanceHistory && (
-        <Card id="account-detail-balance-history" title="Balance History">
-          {account.group_name && (
-            <p className="text-muted">
-              This account is part of the &quot;{account.group_name}&quot; group - the chart below
-              is the group&apos;s stitched history, continuous across every member. A point still
-              drills into THIS physical account's own transactions for that month, which reads as
-              empty for a month a different member of the group was actually carrying.
-            </p>
-          )}
-          <p>Click a point to see this account&apos;s transactions for that month.</p>
-          <LineChart
-            periods={balanceHistory.periods.map((p) => p.label)}
-            series={[{
-              label: 'Balance',
-              values: balanceHistory.periods.map((p) => {
-                const value = balanceHistory.balances[p.label]
-                return value === null || value === undefined ? null : Number(value)
-              }),
-            }]}
-            formatValue={formatAmount}
-            title="Balance history"
-            onSelectPoint={({ period }) => {
-              const { from, to } = monthBounds(period)
-              navigate(`/transactions?account_id=${accountId}&date_from=${from}&date_to=${to}`)
-            }}
-          />
-        </Card>
-      )}
+      {(() => {
+        const maxEndMonth = lastCompletedMonth().label
+        const safePeriods = (balanceHistory?.periods || []).filter((p) => p.label <= maxEndMonth)
+        if (!balanceHistory || safePeriods.length === 0) return null
+
+        return (
+          <Card id="account-detail-balance-history" title="Balance History">
+            {account.group_name && (
+              <p className="text-muted">
+                This account is part of the &quot;{account.group_name}&quot; group - the chart below
+                is the group&apos;s stitched history, continuous across every member. A point still
+                drills into THIS physical account's own transactions for that month, which reads as
+                empty for a month a different member of the group was actually carrying.
+              </p>
+            )}
+            <p>Click a point to see this account&apos;s transactions for that month.</p>
+            <LineChart
+              periods={safePeriods.map((p) => p.label)}
+              series={[{
+                label: 'Balance',
+                values: safePeriods.map((p) => {
+                  const value = balanceHistory.balances[p.label]
+                  return value === null || value === undefined ? null : Number(value)
+                }),
+              }]}
+              formatValue={formatAmount}
+              title="Balance history"
+              onSelectPoint={({ period }) => {
+                const { from, to } = monthBounds(period)
+                navigate(`/transactions?account_id=${accountId}&date_from=${from}&date_to=${to}`)
+              }}
+            />
+          </Card>
+        )
+      })()}
 
       {coverage && (
         <Card id="account-detail-coverage" title="Statement Coverage">
