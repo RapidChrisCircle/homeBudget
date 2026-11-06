@@ -316,3 +316,97 @@ def test_get_transfers_reports_an_unmatched_leg(client, db_session):
     assert unmatched["account_name"] == "Everyday"
     assert unmatched["narration"] == "Lonely Transfer"
     assert unmatched["amount"] == "-300.00"
+
+
+def test_acknowledge_and_unacknowledge_pair_match(client, db_session):
+    everyday = make_account(db_session, "Everyday", "1111")
+    savings = make_account(db_session, "Savings", "2222")
+    transfer_cat = make_category(db_session, "Transfer", "transfer")
+
+    t1 = make_transaction(db_session, everyday, date(2026, 1, 5), debit=Decimal("-150.00"), category_id=transfer_cat.id)
+    t2 = make_transaction(db_session, savings, date(2026, 1, 5), credit=Decimal("150.00"), category_id=None)
+    db_session.commit()
+
+    # Initial state: 1 match
+    initial = client.get("/api/transfers").json()
+    assert len(initial["matches"]) == 1
+    assert initial["acknowledged_matches"] == []
+
+    # Acknowledge pair
+    ack_res = client.post("/api/transfers/acknowledge", json={"leg_a_id": t1.id, "leg_b_id": t2.id})
+    assert ack_res.status_code == 201
+    assert ack_res.json()["key"] == f"pair:{min(t1.id, t2.id)}:{max(t1.id, t2.id)}"
+
+    # After acknowledgment: pair is hidden from active matches, present in acknowledged_matches
+    after_ack = client.get("/api/transfers").json()
+    assert len(after_ack["matches"]) == 0
+    assert len(after_ack["acknowledged_matches"]) == 1
+    assert after_ack["acknowledged_matches"][0]["leg_a_id"] == t1.id
+
+    # Unacknowledge pair
+    unack_res = client.post("/api/transfers/unacknowledge", json={"leg_a_id": t1.id, "leg_b_id": t2.id})
+    assert unack_res.status_code == 200
+    assert unack_res.json()["unacknowledged"] is True
+
+    # Restored to active matches
+    restored = client.get("/api/transfers").json()
+    assert len(restored["matches"]) == 1
+    assert restored["acknowledged_matches"] == []
+
+
+def test_acknowledge_and_unacknowledge_unmatched_leg(client, db_session):
+    everyday = make_account(db_session, "Everyday", "1111")
+    transfer_cat = make_category(db_session, "Transfer", "transfer")
+
+    t = make_transaction(
+        db_session, everyday, date(2026, 1, 5), debit=Decimal("-75.00"),
+        category_id=transfer_cat.id, narration="Unmatched withdrawal"
+    )
+    db_session.commit()
+
+    # Initial state: 1 unmatched leg
+    initial = client.get("/api/transfers").json()
+    assert len(initial["unmatched"]) == 1
+    assert initial["acknowledged_unmatched"] == []
+
+    # Acknowledge unmatched leg
+    ack_res = client.post("/api/transfers/acknowledge", json={"transaction_id": t.id})
+    assert ack_res.status_code == 201
+    assert ack_res.json()["key"] == f"unmatched:{t.id}"
+
+    # After acknowledgment: hidden from active unmatched, present in acknowledged_unmatched
+    after_ack = client.get("/api/transfers").json()
+    assert len(after_ack["unmatched"]) == 0
+    assert len(after_ack["acknowledged_unmatched"]) == 1
+    assert after_ack["acknowledged_unmatched"][0]["transaction_id"] == t.id
+
+    # Unacknowledge
+    unack_res = client.post("/api/transfers/unacknowledge", json={"transaction_id": t.id})
+    assert unack_res.status_code == 200
+
+    # Restored
+    restored = client.get("/api/transfers").json()
+    assert len(restored["unmatched"]) == 1
+    assert restored["acknowledged_unmatched"] == []
+
+
+def test_update_transaction_narration(client, db_session):
+    everyday = make_account(db_session, "Everyday", "1111")
+    t = make_transaction(
+        db_session, everyday, date(2026, 1, 5), debit=Decimal("-50.00"),
+        narration="Original Raw Description"
+    )
+    db_session.commit()
+
+    # Patch narration
+    res = client.patch(f"/api/transactions/{t.id}/narration", json={"narration": "Updated Meaningful Narration"})
+    assert res.status_code == 200
+    assert res.json()["narration"] == "Updated Meaningful Narration"
+
+    # Reject empty
+    empty_res = client.patch(f"/api/transactions/{t.id}/narration", json={"narration": "   "})
+    assert empty_res.status_code == 422
+
+    # Non-existent
+    missing_res = client.patch("/api/transactions/999999/narration", json={"narration": "Test"})
+    assert missing_res.status_code == 404

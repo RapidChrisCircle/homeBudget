@@ -1314,3 +1314,55 @@ class MerchantNickname(Base):
         nullable=False,
         server_default=func.now()
     )
+
+
+class TransferAcknowledgment(Base):
+    """Records user confirmation / acknowledgment of candidate transfer matches
+    or unmatched transfer legs, hiding them from the active Transfer Matching
+    view once reviewed.
+
+    Key is deterministic:
+    - For candidate pairs: 'pair:{min(a,b)}:{max(a,b)}'
+    - For unmatched transfers: 'unmatched:{transaction_id}'
+    """
+
+    __tablename__ = "transfer_acknowledgments"
+
+    id = Column(
+        Integer,
+        primary_key=True
+    )
+
+    key = Column(
+        String,
+        nullable=False,
+        unique=True,
+        index=True
+    )
+
+    leg_a_id = Column(
+        Integer,
+        ForeignKey("transactions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
+
+    leg_b_id = Column(
+        Integer,
+        ForeignKey("transactions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
+
+    transaction_id = Column(
+        Integer,
+        ForeignKey("transactions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )

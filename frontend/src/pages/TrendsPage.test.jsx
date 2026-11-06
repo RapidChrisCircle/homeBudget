@@ -702,4 +702,69 @@ describe('TrendsPage drill-down', () => {
       expect(api.get).toHaveBeenCalledWith(expect.stringContaining('exclude_savings_spend=true'))
     })
   })
+
+  it('allows selecting any category and its respective sub-categories from dropdowns', async () => {
+    mockLoad({ categories: groupedCategories })
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    const categorySelect = screen.getByLabelText('Category')
+    const subCategorySelect = screen.getByLabelText('Sub-category')
+
+    expect(categorySelect.value).toBe('')
+    expect(subCategorySelect.value).toBe('')
+
+    // Selecting group "Food"
+    fireEvent.change(categorySelect, { target: { value: 'group-10' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('Spending in Food Over Time')).toBeInTheDocument()
+    })
+    expect(categorySelect.value).toBe('group-10')
+
+    // The sub-category dropdown now contains the respective sub-categories of Food: Groceries and Takeaway
+    expect(within(subCategorySelect).getByRole('option', { name: 'Groceries' })).toBeInTheDocument()
+    expect(within(subCategorySelect).getByRole('option', { name: 'Takeaway' })).toBeInTheDocument()
+
+    // Selecting sub-category "Groceries"
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/trends/merchants')) {
+        return Promise.resolve({
+          data: {
+            category_id: 1,
+            category_name: 'Groceries',
+            merchants: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: { periods, categories: groupedCategories, monthly, budget } })
+    })
+
+    fireEvent.change(subCategorySelect, { target: { value: '1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Merchants in Groceries/)).toBeInTheDocument()
+    })
+    expect(subCategorySelect.value).toBe('1')
+
+    // Selecting "All sub-categories" keeps group but clears category
+    fireEvent.change(subCategorySelect, { target: { value: '' } })
+    await waitFor(() => {
+      expect(screen.queryByText(/Merchants in Groceries/)).not.toBeInTheDocument()
+    })
+    expect(categorySelect.value).toBe('group-10')
+
+    // Selecting "All categories" clears both
+    fireEvent.change(categorySelect, { target: { value: '' } })
+    await waitFor(() => {
+      expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument()
+    })
+    expect(categorySelect.value).toBe('')
+    expect(subCategorySelect.value).toBe('')
+
+    // Selecting a standalone category (Rent)
+    fireEvent.change(categorySelect, { target: { value: 'cat-3' } })
+    expect(subCategorySelect).toBeDisabled()
+  })
 })

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TransferMatchingCard from './TransferMatchingCard.jsx'
@@ -7,6 +7,8 @@ import { api } from '../services/api'
 vi.mock('../services/api', () => ({
   api: {
     get: vi.fn(),
+    post: vi.fn(),
+    patch: vi.fn(),
   },
 }))
 
@@ -174,5 +176,111 @@ describe('TransferMatchingCard', () => {
     await waitForLoaded()
 
     expect(within(section()).getByText(/Boom/)).toBeInTheDocument()
+  })
+
+  it('allows acknowledging a mismatched pair and hides it from the screen', async () => {
+    mockLoad({
+      matches: [{
+        leg_a_id: 1, leg_a_account_id: 1, leg_a_account_name: 'Everyday', leg_a_date: '2026-01-05',
+        leg_a_category_name: 'Groceries', leg_a_is_transfer: false,
+        leg_b_id: 2, leg_b_account_id: 2, leg_b_account_name: 'Savings', leg_b_date: '2026-01-06',
+        leg_b_category_name: 'Card Payment', leg_b_is_transfer: true,
+        amount: '200.00', both_categorized_as_transfer: false,
+      }],
+      unmatched: [],
+    })
+    api.post.mockResolvedValue({ data: { id: 1, key: 'pair:1:2' } })
+
+    renderCard()
+    await waitForLoaded()
+
+    expect(within(section()).getByText(/Everyday/)).toBeInTheDocument()
+    expect(within(section()).getByText('Groceries')).toBeInTheDocument()
+
+    const ackButton = within(section()).getByRole('button', { name: 'Acknowledge' })
+    fireEvent.click(ackButton)
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/transfers/acknowledge', { leg_a_id: 1, leg_b_id: 2 })
+    })
+
+    // Hidden from the active table and shows feedback message
+    await waitFor(() => {
+      expect(within(section()).queryByText('Groceries')).not.toBeInTheDocument()
+    })
+    expect(within(section()).getByText(/Transfer match acknowledged and hidden/)).toBeInTheDocument()
+
+    // Can toggle acknowledged transfers
+    const toggleButton = within(section()).getByRole('button', { name: /Show acknowledged transfers/ })
+    expect(toggleButton).toBeInTheDocument()
+    fireEvent.click(toggleButton)
+
+    expect(within(section()).getByText('Acknowledged transfer pairs')).toBeInTheDocument()
+    expect(within(section()).getByRole('button', { name: 'Restore' })).toBeInTheDocument()
+  })
+
+  it('allows editing narration on an unmatched transfer', async () => {
+    mockLoad({
+      matches: [],
+      unmatched: [{
+        transaction_id: 42, account_id: 1, account_name: 'Everyday', transaction_date: '2026-01-05',
+        narration: 'Vague TFR', amount: '-100.00',
+      }],
+    })
+    api.patch.mockResolvedValue({ data: { id: 42, narration: 'Transfer to partner for dinner' } })
+
+    renderCard()
+    await waitForLoaded()
+
+    expect(within(section()).getByText('Vague TFR')).toBeInTheDocument()
+
+    const editButton = within(section()).getByRole('button', { name: 'Edit narration for Vague TFR' })
+    fireEvent.click(editButton)
+
+    const input = within(section()).getByLabelText('Edit narration')
+    expect(input.value).toBe('Vague TFR')
+
+    fireEvent.change(input, { target: { value: 'Transfer to partner for dinner' } })
+    const saveButton = within(section()).getByRole('button', { name: 'Save' })
+    fireEvent.click(saveButton)
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/transactions/42/narration', {
+        narration: 'Transfer to partner for dinner',
+      })
+    })
+
+    await waitFor(() => {
+      expect(within(section()).getByText('Transfer to partner for dinner')).toBeInTheDocument()
+    })
+    expect(within(section()).getByText('Narration updated.')).toBeInTheDocument()
+  })
+
+  it('allows acknowledging an unmatched transfer and hides it from the screen', async () => {
+    mockLoad({
+      matches: [],
+      unmatched: [{
+        transaction_id: 99, account_id: 1, account_name: 'Everyday', transaction_date: '2026-01-05',
+        narration: 'Old Account Transfer', amount: '-50.00',
+      }],
+    })
+    api.post.mockResolvedValue({ data: { id: 2, key: 'unmatched:99' } })
+
+    renderCard()
+    await waitForLoaded()
+
+    expect(within(section()).getByText('Old Account Transfer')).toBeInTheDocument()
+
+    const ackButton = within(section()).getByRole('button', { name: 'Acknowledge' })
+    fireEvent.click(ackButton)
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/transfers/acknowledge', { transaction_id: 99 })
+    })
+
+    await waitFor(() => {
+      expect(within(section()).queryByText('Old Account Transfer')).not.toBeInTheDocument()
+    })
+    expect(within(section()).getByText(/Unmatched transfer acknowledged and hidden/)).toBeInTheDocument()
   })
 })

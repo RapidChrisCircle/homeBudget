@@ -20,6 +20,7 @@ from ..schemas import (
     TransactionCreate,
     TransactionGroupListResponse,
     TransactionListResponse,
+    TransactionNarrationUpdate,
     TransactionNicknameUpdate,
     TransactionNoteUpdate,
     TransactionResponse,
@@ -519,6 +520,7 @@ def list_transaction_groups(
     transaction_ids: list[int] | None = Query(None),
     savings_spend: bool | None = None,
     include_categorized: bool = False,
+    min_group_size: int | None = Query(None, ge=1),
     db: Session = Depends(get_db)
 ):
     """Rows grouped by merchant, scoped to the same filters the ledger itself
@@ -592,7 +594,7 @@ def list_transaction_groups(
     total_in, total_out, net_total = transaction_group_totals(db, filters, include_categorized=include_categorized)
 
     return TransactionGroupListResponse(
-        groups=transaction_groups(db, filters, include_categorized=include_categorized),
+        groups=transaction_groups(db, filters, include_categorized=include_categorized, min_group_size=min_group_size),
         total_in=total_in,
         total_out=total_out,
         net_total=net_total,
@@ -925,6 +927,29 @@ def update_transaction_note(
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     transaction.note = payload.note
+    db.commit()
+    db.refresh(transaction)
+    _attach_merchant_nicknames(db, [transaction])
+
+    return transaction
+
+
+@router.patch("/transactions/{transaction_id}/narration", response_model=TransactionResponse)
+def update_transaction_narration(
+    transaction_id: int,
+    payload: TransactionNarrationUpdate,
+    db: Session = Depends(get_db)
+):
+    clean = payload.narration.strip()
+    if not clean:
+        raise HTTPException(status_code=422, detail="Narration cannot be empty")
+
+    transaction = db.get(Transaction, transaction_id)
+
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    transaction.narration = clean
     db.commit()
     db.refresh(transaction)
     _attach_merchant_nicknames(db, [transaction])

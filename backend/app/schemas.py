@@ -1149,6 +1149,32 @@ class TransferMatchingResponse(BaseModel):
 
     matches: list[TransferMatchResponse]
     unmatched: list[UnmatchedTransferLegResponse]
+    acknowledged_matches: list[TransferMatchResponse] = []
+    acknowledged_unmatched: list[UnmatchedTransferLegResponse] = []
+
+
+class TransferAcknowledgeRequest(BaseModel):
+
+    leg_a_id: Optional[int] = None
+    leg_b_id: Optional[int] = None
+    transaction_id: Optional[int] = None
+
+
+class TransferAcknowledgeResponse(BaseModel):
+
+    id: int
+    key: str
+    leg_a_id: Optional[int] = None
+    leg_b_id: Optional[int] = None
+    transaction_id: Optional[int] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TransactionNarrationUpdate(BaseModel):
+
+    narration: str
 
 
 class AlertResponse(BaseModel):

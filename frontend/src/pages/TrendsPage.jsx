@@ -88,6 +88,57 @@ export default function TrendsPage() {
   const levelRows = trends ? buildLevel(safePeriods, safeCategories, activeGroupId) : []
   const monthCount = safePeriods.length || months || 1
 
+  const expenseCategories = safeCategories.filter((c) => c.kind === 'expense')
+
+  const parentGroupsMap = new Map()
+  for (const c of expenseCategories) {
+    if (c.parent_id && !parentGroupsMap.has(String(c.parent_id))) {
+      parentGroupsMap.set(String(c.parent_id), c.parent_name || `Group ${c.parent_id}`)
+    }
+  }
+  const parentGroups = Array.from(parentGroupsMap.entries())
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const standaloneCategories = expenseCategories
+    .filter((c) => !c.parent_id)
+    .sort((a, b) => a.category_name.localeCompare(b.category_name))
+
+  let selectedCategoryValue = ''
+  if (activeGroupId) {
+    selectedCategoryValue = `group-${activeGroupId}`
+  } else if (activeCategory?.parent_id) {
+    selectedCategoryValue = `group-${activeCategory.parent_id}`
+  } else if (activeCategoryId) {
+    selectedCategoryValue = `cat-${activeCategoryId}`
+  }
+
+  const isStandaloneSelected = selectedCategoryValue.startsWith('cat-')
+  const currentGroupId = activeGroupId || (activeCategory?.parent_id ? String(activeCategory.parent_id) : '')
+
+  const respectiveSubCategories = currentGroupId
+    ? expenseCategories
+        .filter((c) => String(c.parent_id) === currentGroupId)
+        .sort((a, b) => a.category_name.localeCompare(b.category_name))
+    : []
+
+  const groupBuckets = new Map()
+  for (const c of expenseCategories) {
+    if (c.parent_id) {
+      const pName = c.parent_name || `Group ${c.parent_id}`
+      if (!groupBuckets.has(pName)) {
+        groupBuckets.set(pName, [])
+      }
+      groupBuckets.get(pName).push(c)
+    }
+  }
+  const allSubCategoriesByGroup = Array.from(groupBuckets.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([pName, subs]) => [
+      pName,
+      subs.sort((a, b) => a.category_name.localeCompare(b.category_name)),
+    ])
+
   const categorySortColumns = {
     ...CATEGORY_SORT_COLUMNS,
     average: {
@@ -260,6 +311,37 @@ export default function TrendsPage() {
     setSearchParams(next)
   }
 
+  const handleCategorySelectChange = (event) => {
+    const value = event.target.value
+    const next = new URLSearchParams(searchParams)
+    if (!value) {
+      next.delete('group')
+      next.delete('category')
+    } else if (value.startsWith('group-')) {
+      next.set('group', value.slice('group-'.length))
+      next.delete('category')
+    } else if (value.startsWith('cat-')) {
+      next.delete('group')
+      next.set('category', value.slice('cat-'.length))
+    }
+    setSearchParams(next)
+  }
+
+  const handleSubCategorySelectChange = (event) => {
+    const value = event.target.value
+    const next = new URLSearchParams(searchParams)
+    if (!value) {
+      next.delete('category')
+    } else {
+      const selected = expenseCategories.find((c) => String(c.category_id) === value)
+      if (selected?.parent_id) {
+        next.set('group', String(selected.parent_id))
+      }
+      next.set('category', value)
+    }
+    setSearchParams(next)
+  }
+
   const startEditingNickname = (merchantRow) => {
     setEditingMerchantKey(merchantRow.narration_key)
     setNicknameInput(merchantRow.nickname || '')
@@ -375,6 +457,62 @@ export default function TrendsPage() {
           }}
         />
         Exclude once-off savings spend
+      </label>
+      <label>
+        Category
+        <select
+          aria-label="Category"
+          value={selectedCategoryValue}
+          onChange={handleCategorySelectChange}
+        >
+          <option value="">All categories</option>
+          {parentGroups.length > 0 && (
+            <optgroup label="Category Groups">
+              {parentGroups.map((g) => (
+                <option key={`group-${g.id}`} value={`group-${g.id}`}>
+                  {g.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {standaloneCategories.length > 0 && (
+            <optgroup label="Standalone Categories">
+              {standaloneCategories.map((c) => (
+                <option key={`cat-${c.category_id}`} value={`cat-${c.category_id}`}>
+                  {c.category_name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </label>
+      <label>
+        Sub-category
+        <select
+          aria-label="Sub-category"
+          value={activeCategoryId}
+          onChange={handleSubCategorySelectChange}
+          disabled={isStandaloneSelected}
+        >
+          <option value="">{isStandaloneSelected ? 'No sub-categories' : 'All sub-categories'}</option>
+          {respectiveSubCategories.length > 0 ? (
+            respectiveSubCategories.map((sub) => (
+              <option key={sub.category_id} value={String(sub.category_id)}>
+                {sub.category_name}
+              </option>
+            ))
+          ) : !isStandaloneSelected && allSubCategoriesByGroup.length > 0 ? (
+            allSubCategoriesByGroup.map(([grpName, subs]) => (
+              <optgroup key={grpName} label={grpName}>
+                {subs.map((sub) => (
+                  <option key={sub.category_id} value={String(sub.category_id)}>
+                    {sub.category_name}
+                  </option>
+                ))}
+              </optgroup>
+            ))
+          ) : null}
+        </select>
       </label>
     </div>
   )

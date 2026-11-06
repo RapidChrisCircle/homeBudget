@@ -461,7 +461,11 @@ def transaction_group_totals(
 
 
 def transaction_groups(
-    db: Session, filters: TransactionFilters, *, include_categorized: bool = False
+    db: Session,
+    filters: TransactionFilters,
+    *,
+    include_categorized: bool = False,
+    min_group_size: int | None = None,
 ) -> list[TransactionGroup]:
     """Rows grouped by narration_key - "similar transactions", for bulk
     categorization AND for the ledger's own Group by merchant view, from
@@ -489,7 +493,19 @@ def transaction_groups(
     which is what keeps a group's transaction_ids scoped to exactly the
     caller's current view: "categorise all N" can never reach a row the
     caller couldn't already see.
+
+    min_group_size controls the minimum bucket size to return. When
+    unspecified (None), it defaults to 1 when include_categorized=True (the
+    ledger's Group by merchant view, so singleton transactions are never
+    dropped from the ledger table) and MIN_GROUP_SIZE (2) when
+    include_categorized=False (the triage queue, which specifically seeks
+    repeated transactions for bulk categorization).
     """
+
+    effective_min_group_size = (
+        min_group_size if min_group_size is not None
+        else (1 if include_categorized else MIN_GROUP_SIZE)
+    )
 
     grouped_filters = _grouped_filters(filters, include_categorized)
 
@@ -523,7 +539,7 @@ def transaction_groups(
 
     for key, bucket_rows in buckets.items():
 
-        if len(bucket_rows) < MIN_GROUP_SIZE:
+        if len(bucket_rows) < effective_min_group_size:
             continue
 
         amounts = [abs((row.debit or Decimal(0)) + (row.credit or Decimal(0))) for row in bucket_rows]

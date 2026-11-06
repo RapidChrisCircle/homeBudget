@@ -365,7 +365,17 @@ def test_include_categorized_does_not_override_an_incoming_category_filter(db_se
         db_session, no_filters(category_id=category.id), include_categorized=True
     )
 
-    assert len(groups) == 0  # only 1 row matches category_id=category.id - below MIN_GROUP_SIZE
+    # When include_categorized=True (the ledger view), singletons are preserved
+    # (min_group_size defaults to 1) so no transactions vanish from the ledger.
+    assert len(groups) == 1
+    assert groups[0].transaction_count == 1
+    assert groups[0].category_names == ["Groceries"]
+
+    # Passing min_group_size=2 explicitly filters out singletons.
+    filtered_groups = transaction_groups(
+        db_session, no_filters(category_id=category.id), include_categorized=True, min_group_size=2
+    )
+    assert len(filtered_groups) == 0
 
 
 def test_groups_endpoint_include_categorized_query_param(client, db_session):
@@ -420,8 +430,17 @@ def test_groups_endpoint_honours_uncategorized_only_with_include_categorized(cli
 
     assert response.status_code == 200
     groups = response.json()["groups"]
-    # Below MIN_GROUP_SIZE once the categorized row is excluded by the filter.
-    assert groups == []
+    # With include_categorized=True (ledger view), the uncategorized singleton is preserved.
+    assert len(groups) == 1
+    assert groups[0]["transaction_count"] == 1
+    assert groups[0]["uncategorized_count"] == 1
+
+    # With explicit min_group_size=2, singletons are excluded.
+    min2_response = client.get("/api/transactions/groups", params={
+        "include_categorized": "true", "uncategorized": "true", "min_group_size": "2",
+    })
+    assert min2_response.status_code == 200
+    assert min2_response.json()["groups"] == []
 
 
 def test_groups_endpoint_honours_category_id_with_include_categorized(client, db_session):
@@ -445,8 +464,17 @@ def test_groups_endpoint_honours_category_id_with_include_categorized(client, db
     })
 
     assert response.status_code == 200
-    # Only 1 row matches category_id=groceries.id - below MIN_GROUP_SIZE.
-    assert response.json()["groups"] == []
+    # With include_categorized=True, the matching groceries singleton is preserved.
+    groups = response.json()["groups"]
+    assert len(groups) == 1
+    assert groups[0]["category_names"] == ["Groceries"]
+
+    # With explicit min_group_size=2, it is filtered out.
+    min2_response = client.get("/api/transactions/groups", params={
+        "include_categorized": "true", "category_id": groceries.id, "min_group_size": "2",
+    })
+    assert min2_response.status_code == 200
+    assert min2_response.json()["groups"] == []
 
 
 def test_groups_endpoint_honours_kind_with_include_categorized(client, db_session):

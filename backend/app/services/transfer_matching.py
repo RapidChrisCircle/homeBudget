@@ -30,7 +30,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session, joinedload
 
-from ..models import Transaction
+from ..models import AlertDismissal, Transaction, TransferAcknowledgment
 
 # A transfer's two legs normally clear within a few days of each other (bank
 # processing delay, or one side backdating to the instruction date) - wide
@@ -104,20 +104,102 @@ def transfer_candidates(db: Session, window_days: int = TRANSFER_WINDOW_DAYS) ->
     return _match_pairs(_matchable_transactions(db), window_days)
 
 
+def pair_key(leg_a_id: int, leg_b_id: int) -> str:
+    return f"pair:{min(leg_a_id, leg_b_id)}:{max(leg_a_id, leg_b_id)}"
+
+
+def unmatched_key(transaction_id: int) -> str:
+    return f"unmatched:{transaction_id}"
+
+
+def acknowledge_transfer(
+    db: Session,
+    *,
+    leg_a_id: int | None = None,
+    leg_b_id: int | None = None,
+    transaction_id: int | None = None,
+) -> TransferAcknowledgment:
+    if transaction_id is not None:
+        key = unmatched_key(transaction_id)
+        existing = db.query(TransferAcknowledgment).filter(TransferAcknowledgment.key == key).first()
+        if existing is not None:
+            return existing
+        ack = TransferAcknowledgment(key=key, transaction_id=transaction_id)
+        alert_k = f"unmatched_transfer:{transaction_id}"
+        if not db.query(AlertDismissal).filter(AlertDismissal.alert_key == alert_k).first():
+            db.add(AlertDismissal(alert_key=alert_k))
+    elif leg_a_id is not None and leg_b_id is not None:
+        key = pair_key(leg_a_id, leg_b_id)
+        existing = db.query(TransferAcknowledgment).filter(TransferAcknowledgment.key == key).first()
+        if existing is not None:
+            return existing
+        min_id, max_id = min(leg_a_id, leg_b_id), max(leg_a_id, leg_b_id)
+        ack = TransferAcknowledgment(key=key, leg_a_id=min_id, leg_b_id=max_id)
+        for alert_k in [f"mismatched_transfer:{leg_a_id}:{leg_b_id}", f"mismatched_transfer:{leg_b_id}:{leg_a_id}"]:
+            if not db.query(AlertDismissal).filter(AlertDismissal.alert_key == alert_k).first():
+                db.add(AlertDismissal(alert_key=alert_k))
+    else:
+        raise ValueError("Either transaction_id or both leg_a_id and leg_b_id must be provided")
+
+    db.add(ack)
+    db.commit()
+    db.refresh(ack)
+    return ack
+
+
+def unacknowledge_transfer(
+    db: Session,
+    *,
+    leg_a_id: int | None = None,
+    leg_b_id: int | None = None,
+    transaction_id: int | None = None,
+) -> bool:
+    if transaction_id is not None:
+        key = unmatched_key(transaction_id)
+    elif leg_a_id is not None and leg_b_id is not None:
+        key = pair_key(leg_a_id, leg_b_id)
+    else:
+        raise ValueError("Either transaction_id or both leg_a_id and leg_b_id must be provided")
+
+    existing = db.query(TransferAcknowledgment).filter(TransferAcknowledgment.key == key).first()
+    if existing is not None:
+        db.delete(existing)
+        db.commit()
+        return True
+    return False
+
+
 def transfer_analysis(
-    db: Session, window_days: int = TRANSFER_WINDOW_DAYS
-) -> tuple[list[TransferMatch], list[Transaction]]:
+    db: Session, window_days: int = TRANSFER_WINDOW_DAYS, return_acknowledged: bool = False
+):
     """(transfer_candidates, unmatched_transfer_legs) from ONE load of the
     matchable rows. Calling the two public functions back to back hydrates
     every unsplit transaction (plus its category) twice; the alerts feed and
     GET /transfers both need both answers on every request, so this is the
     entry point they use.
+
+    When return_acknowledged=True, returns:
+    (active_matches, active_unmatched, acknowledged_matches, acknowledged_unmatched)
+    When return_acknowledged=False (default), returns:
+    (active_matches, active_unmatched)
     """
 
     rows = _matchable_transactions(db)
-    matches = _match_pairs(rows, window_days)
+    all_matches = _match_pairs(rows, window_days)
+    all_unmatched = _unmatched_in(rows, all_matches)
 
-    return matches, _unmatched_in(rows, matches)
+    ack_keys = {row.key for row in db.query(TransferAcknowledgment.key).all()}
+
+    active_matches = [m for m in all_matches if pair_key(m.leg_a_id, m.leg_b_id) not in ack_keys]
+    ack_matches = [m for m in all_matches if pair_key(m.leg_a_id, m.leg_b_id) in ack_keys]
+
+    active_unmatched = [t for t in all_unmatched if unmatched_key(t.id) not in ack_keys]
+    ack_unmatched = [t for t in all_unmatched if unmatched_key(t.id) in ack_keys]
+
+    if return_acknowledged:
+        return active_matches, active_unmatched, ack_matches, ack_unmatched
+
+    return active_matches, active_unmatched
 
 
 def _match_pairs(rows: list[Transaction], window_days: int) -> list[TransferMatch]:
