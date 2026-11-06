@@ -672,6 +672,7 @@ describe('TransactionsPage', () => {
       'Filter by Date',
       'Filter by Import batch',
       'Filter by Narration',
+      'Filter by Spend Type',
       'Filter by Transactions',
       'Filter by Type',
     ])
@@ -1818,5 +1819,92 @@ describe('TransactionsPage saved CSV formats', () => {
 
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/csv-formats/4'))
     confirmSpy.mockRestore()
+  })
+
+  it('renders savings spend badge and toggles savings spend flag via Details', async () => {
+    mockLoad({
+      transactions: [
+        {
+          id: 1,
+          account_id: 1,
+          account_name: 'Checking',
+          transaction_date: '2026-03-01',
+          narration: 'New Laptop',
+          debit: '-2000.00',
+          credit: null,
+          category_id: 1,
+          category_name: 'Electronics',
+          is_savings_spend: true,
+          splits: [],
+        },
+      ],
+    })
+    api.patch.mockResolvedValue({ data: {} })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('New Laptop')).toBeInTheDocument())
+
+    expect(screen.getByText('savings spend')).toBeInTheDocument()
+
+    const row = screen.getByText('New Laptop').closest('tr')
+    fireEvent.click(within(row).getByRole('button', { name: 'Details' }))
+
+    const checkbox = screen.getByLabelText('Savings spend for New Laptop')
+    expect(checkbox).toBeChecked()
+
+    fireEvent.click(checkbox)
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/transactions/1/savings-spend', {
+      is_savings_spend: false,
+    }))
+  })
+
+  it('bulk marks and unmarks selected transactions as savings spend', async () => {
+    mockLoad({
+      transactions: [
+        {
+          id: 1,
+          account_id: 1,
+          account_name: 'Checking',
+          transaction_date: '2026-03-01',
+          narration: 'Item One',
+          debit: '-100.00',
+          credit: null,
+          category_id: 1,
+          category_name: 'Shopping',
+          is_savings_spend: false,
+          splits: [],
+        },
+        {
+          id: 2,
+          account_id: 1,
+          account_name: 'Checking',
+          transaction_date: '2026-03-02',
+          narration: 'Item Two',
+          debit: '-200.00',
+          credit: null,
+          category_id: 1,
+          category_name: 'Shopping',
+          is_savings_spend: false,
+          splits: [],
+        },
+      ],
+    })
+    api.post.mockResolvedValue({ data: { updated_count: 2 } })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Item One')).toBeInTheDocument())
+
+    const row1 = screen.getByText('Item One').closest('tr')
+    const row2 = screen.getByText('Item Two').closest('tr')
+    fireEvent.click(within(row1).getByRole('checkbox'))
+    fireEvent.click(within(row2).getByRole('checkbox'))
+
+    const markButton = screen.getByRole('button', { name: 'Mark as savings spend (2)' })
+    fireEvent.click(markButton)
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/transactions/bulk-savings-spend', {
+      transaction_ids: [1, 2],
+      is_savings_spend: true,
+    }))
   })
 })

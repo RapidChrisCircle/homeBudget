@@ -108,7 +108,7 @@ describe('TrendsPage', () => {
 
     renderPage()
 
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/trends?months=6'))
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/trends?months=6&exclude_savings_spend=true'))
   })
 
   it('updates the URL and refetches when the months selector changes', async () => {
@@ -121,7 +121,7 @@ describe('TrendsPage', () => {
     fireEvent.change(screen.getByLabelText('Months'), { target: { value: '12' } })
 
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/trends?months=12')
+      expect(api.get).toHaveBeenCalledWith('/trends?months=12&exclude_savings_spend=true')
     })
   })
 
@@ -479,7 +479,7 @@ describe('TrendsPage drill-down', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Takeaway' }))
 
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/trends/merchants?category_id=2&months=6')
+      expect(api.get).toHaveBeenCalledWith('/trends/merchants?category_id=2&months=6&exclude_savings_spend=true')
       expect(screen.getByText(/Merchants in Takeaway/)).toBeInTheDocument()
     })
 
@@ -651,7 +651,7 @@ describe('TrendsPage drill-down', () => {
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(
-        `/trends?year=${maxMonth.year}&month=${maxMonth.month}&months=6`
+        `/trends?year=${maxMonth.year}&month=${maxMonth.month}&months=6&exclude_savings_spend=true`
       )
     })
   })
@@ -678,5 +678,28 @@ describe('TrendsPage drill-down', () => {
     expect(screen.queryByText('2099-12')).not.toBeInTheDocument()
     const endingMonthInput = screen.getByLabelText('Ending month')
     expect(endingMonthInput.value).not.toBe('2099-12')
+  })
+
+  it('defaults to excluding once-off savings spend and allows toggling to include them', async () => {
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Spending by Category Over Time')).toBeInTheDocument())
+
+    const checkbox = screen.getByLabelText('Exclude once-off savings spend')
+    expect(checkbox).toBeChecked()
+
+    fireEvent.click(checkbox)
+    expect(checkbox).not.toBeChecked()
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringContaining('exclude_savings_spend=false'))
+    })
+
+    fireEvent.click(checkbox)
+    expect(checkbox).toBeChecked()
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(expect.stringContaining('exclude_savings_spend=true'))
+    })
   })
 })

@@ -23,6 +23,7 @@ export default function EditManualTransactionForm({ transaction, categories, onC
     categoryId: transaction.category_id ? String(transaction.category_id) : '',
     note: transaction.note || '',
     merchantNickname: transaction.merchant_nickname || '',
+    isSavingsSpend: Boolean(transaction.is_savings_spend),
   }))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -57,6 +58,7 @@ export default function EditManualTransactionForm({ transaction, categories, onC
         credit: form.direction === 'credit' ? form.amount : null,
         category_id: form.categoryId ? Number(form.categoryId) : null,
         note: form.note || null,
+        is_savings_spend: Boolean(form.isSavingsSpend),
         ...(form.merchantNickname.trim() || transaction.merchant_nickname
           ? { merchant_nickname: form.merchantNickname.trim() || null }
           : {}),
@@ -181,6 +183,17 @@ export default function EditManualTransactionForm({ transaction, categories, onC
                 value={form.merchantNickname}
                 onChange={handleFieldChange('merchantNickname')}
               />
+            </label>
+          </div>
+
+          <div>
+            <label className="checkbox-inline">
+              <input
+                type="checkbox"
+                checked={form.isSavingsSpend}
+                onChange={(e) => setForm((prev) => ({ ...prev, isSavingsSpend: e.target.checked }))}
+              />
+              Once-off savings spend
             </label>
           </div>
 

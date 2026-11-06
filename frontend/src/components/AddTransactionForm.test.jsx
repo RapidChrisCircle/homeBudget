@@ -119,4 +119,17 @@ describe('AddTransactionForm', () => {
 
     expect(await screen.findByText(/on or after this account's latest transaction/)).toBeInTheDocument()
   })
+
+  it('submits with is_savings_spend when checkbox is checked', async () => {
+    api.post.mockResolvedValue({ data: { id: 5 } })
+    render(<AddTransactionForm accounts={accounts} categories={categories} onCreated={vi.fn()} />)
+
+    fillRequiredFields()
+    fireEvent.click(screen.getByLabelText('Once-off savings spend'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add transaction' }))
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/transactions', expect.objectContaining({
+      is_savings_spend: true,
+    })))
+  })
 })

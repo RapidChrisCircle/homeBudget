@@ -22,6 +22,7 @@ function rowsFromTransaction(transaction) {
       category_name: s.category_name,
       amount: s.amount,
       note: s.note ?? '',
+      is_savings_spend: Boolean(s.is_savings_spend),
     }))
   }
 
@@ -35,6 +36,7 @@ function rowsFromTransaction(transaction) {
     category_name: transaction.category_name,
     amount: transactionAmount(transaction).toFixed(2),
     note: '',
+    is_savings_spend: Boolean(transaction.is_savings_spend),
   }]
 }
 
@@ -75,7 +77,10 @@ export default function SplitEditor({ transaction, categories, onCategoryCreated
 
   const addRow = () => {
     nextRowKeyRef.current += 1
-    setRows((prev) => [...prev, { key: `new-${nextRowKeyRef.current}`, category_id: '', amount: '', note: '' }])
+    setRows((prev) => [
+      ...prev,
+      { key: `new-${nextRowKeyRef.current}`, category_id: '', amount: '', note: '', is_savings_spend: false },
+    ])
   }
 
   const removeRow = (key) => {
@@ -105,6 +110,7 @@ export default function SplitEditor({ transaction, categories, onCategoryCreated
       category_id: row.category_id ? Number(row.category_id) : null,
       amount: row.amount,
       note: row.note || null,
+      is_savings_spend: Boolean(row.is_savings_spend),
     })))
   }
 
@@ -158,6 +164,15 @@ export default function SplitEditor({ transaction, categories, onCategoryCreated
                   value={row.note}
                   onChange={(e) => updateRow(row.key, 'note', e.target.value)}
                 />
+              </label>
+              <label className="checkbox-inline">
+                <input
+                  type="checkbox"
+                  checked={Boolean(row.is_savings_spend)}
+                  onChange={(e) => updateRow(row.key, 'is_savings_spend', e.target.checked)}
+                  aria-label="Savings spend"
+                />
+                Savings
               </label>
               <button
                 type="button"

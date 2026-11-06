@@ -375,6 +375,27 @@ export default function TransactionsPage() {
         </label>
       )}
     </HeaderFilter>,
+    <HeaderFilter
+      key="savings_spend"
+      as="div"
+      label="Spend Type"
+      valueLabel={filterValueLabels.savings_spend}
+      value={committedFilters.savings_spend}
+      isActive={Boolean(committedFilters.savings_spend)}
+      onApply={(draft) => applyFilterPatch({ savings_spend: draft })}
+      onClear={() => applyFilterPatch({ savings_spend: '' })}
+    >
+      {(draft, setDraft) => (
+        <label>
+          Spend type
+          <select value={draft} onChange={(event) => setDraft(event.target.value)}>
+            <option value="">All spending</option>
+            <option value="true">Savings spend only</option>
+            <option value="false">Exclude savings spend</option>
+          </select>
+        </label>
+      )}
+    </HeaderFilter>,
     // Import batch (T4.3b) - scopes the ledger to one CSV import, the same
     // batch list already fetched for the History table below, so this adds
     // no new request. Labelled "Import batch", not "Import" - the Import
@@ -802,6 +823,19 @@ export default function TransactionsPage() {
     }
   }
 
+  const handleSavingsSpendToggle = async (transaction, isSavingsSpend) => {
+    setActionError('')
+    try {
+      await api.patch(`/transactions/${transaction.id}/savings-spend`, {
+        is_savings_spend: isSavingsSpend,
+      })
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Savings spend update failed'
+      setActionError(String(message))
+    }
+  }
+
   const toggleSelected = (id) => {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((selectedId) => selectedId !== id) : [...prev, id]
@@ -832,6 +866,24 @@ export default function TransactionsPage() {
       await refresh()
     } catch (err) {
       const message = err?.response?.data?.detail || err?.message || 'Bulk category update failed'
+      setActionError(String(message))
+    }
+  }
+
+  const handleBulkSavingsSpend = async (isSavingsSpend) => {
+    if (selectedIds.length === 0) {
+      return
+    }
+    setActionError('')
+    try {
+      await api.post('/transactions/bulk-savings-spend', {
+        transaction_ids: selectedIds,
+        is_savings_spend: isSavingsSpend,
+      })
+      setSelectedIds([])
+      await refresh()
+    } catch (err) {
+      const message = err?.response?.data?.detail || err?.message || 'Bulk savings spend update failed'
       setActionError(String(message))
     }
   }
@@ -1181,6 +1233,20 @@ export default function TransactionsPage() {
                   <button type="button" className="button-primary" onClick={handleBulkAssign} disabled={selectedIds.length === 0}>
                     Set category for selected ({selectedIds.length})
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBulkSavingsSpend(true)}
+                    disabled={selectedIds.length === 0}
+                  >
+                    Mark as savings spend ({selectedIds.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBulkSavingsSpend(false)}
+                    disabled={selectedIds.length === 0}
+                  >
+                    Unmark as savings spend ({selectedIds.length})
+                  </button>
                 </>
               )}
               {/* Grouped view: ONE + New category here, not one per row
@@ -1437,6 +1503,9 @@ export default function TransactionsPage() {
                             {transaction.is_manual && (
                               <Badge tone="neutral" title="Entered by hand, not imported from a bank export"> manual</Badge>
                             )}
+                            {transaction.is_savings_spend && (
+                              <Badge tone="warning" title="Once-off savings spend excluded from typical monthly metrics"> savings spend</Badge>
+                            )}
                           </td>
                           <td data-label="Amount"><Amount value={transactionAmount(transaction)} /></td>
                           <td data-label="Category">
@@ -1528,6 +1597,15 @@ export default function TransactionsPage() {
                                   onBlur={(e) => handleNicknameChange(transaction, e.target.value)}
                                   aria-label={`Merchant nickname for ${transaction.narration}`}
                                 />
+                                <label className="checkbox-inline">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(transaction.is_savings_spend)}
+                                    onChange={(e) => handleSavingsSpendToggle(transaction, e.target.checked)}
+                                    aria-label={`Savings spend for ${transaction.narration}`}
+                                  />
+                                  Savings spend
+                                </label>
                                 {transaction.is_manual && (
                                   <button
                                     type="button"

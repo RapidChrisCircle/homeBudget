@@ -12,6 +12,8 @@ const kpis = {
   avg_per_transaction: '76.19',
   savings_rate: '0.36',
   runway_months: '4.2',
+  savings_spend_total: '1500.00',
+  typical_expenses: '1700.00',
 }
 
 describe('StatTileWidget', () => {
@@ -88,5 +90,27 @@ describe('StatTileWidget savings rate and runway', () => {
 
     expect(screen.getByText('—')).toBeInTheDocument()
     expect(screen.queryByText('0.0%')).not.toBeInTheDocument()
+  })
+
+  it('renders savings_spend and drills into ledger with savings_spend=true', () => {
+    const navigate = vi.fn()
+    render(<StatTileWidget config={{ metric: 'savings_spend' }} kpis={kpis} navigate={navigate} />)
+
+    expect(screen.getByText('Savings Spend')).toBeInTheDocument()
+    expect(screen.getByText('1500.00')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button'))
+    expect(navigate).toHaveBeenCalledWith('/transactions?savings_spend=true&date_from=2026-06-01&date_to=2026-07-31')
+  })
+
+  it('renders typical_expenses and drills into ledger with savings_spend=false', () => {
+    const navigate = vi.fn()
+    render(<StatTileWidget config={{ metric: 'typical_expenses' }} kpis={kpis} navigate={navigate} />)
+
+    expect(screen.getByText('Typical Expenses')).toBeInTheDocument()
+    expect(screen.getByText('1700.00')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button'))
+    expect(navigate).toHaveBeenCalledWith('/transactions?kind=expense&savings_spend=false&date_from=2026-06-01&date_to=2026-07-31')
   })
 })

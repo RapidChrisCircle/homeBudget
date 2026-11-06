@@ -57,6 +57,8 @@ export const EMPTY_FILTERS = {
   // params (what the backend actually expects - see
   // searchParamsFromFilters below) at the URL boundary.
   transaction_ids: '',
+  // '' = all, 'true' = savings spend only, 'false' = exclude savings spend
+  savings_spend: '',
 }
 
 export function filtersFromSearchParams(searchParams) {
@@ -82,6 +84,7 @@ export function filtersFromSearchParams(searchParams) {
     // single value, so reading only the first would silently drop every
     // id after it.
     transaction_ids: searchParams.getAll('transaction_ids').join(','),
+    savings_spend: searchParams.get('savings_spend') || '',
   }
 }
 
@@ -123,6 +126,7 @@ export function searchParamsFromFilters(filters, pageSize) {
       if (id) params.append('transaction_ids', id)
     }
   }
+  if (filters.savings_spend) params.set('savings_spend', filters.savings_spend)
 
   if (pageSize && pageSize !== DEFAULT_PAGE_SIZE) params.set('page_size', String(pageSize))
 
@@ -143,7 +147,7 @@ export function searchParamsFromFilters(filters, pageSize) {
 const GROUPS_FILTER_KEYS = [
   'account_id', 'account_group_id', 'category_id', 'uncategorized', 'kind',
   'date_from', 'date_to', 'search', 'transaction_type', 'min_amount', 'max_amount',
-  'import_batch_id',
+  'import_batch_id', 'savings_spend',
 ]
 
 export function groupsQueryFromSearchParams(searchParams) {
@@ -228,6 +232,7 @@ export const LEDGER_FILTER_GROUPS = [
   ['transaction_type'],
   ['import_batch_id'],
   ['transaction_ids'],
+  ['savings_spend'],
 ]
 
 export function activeFilterCount(filters) {
@@ -290,6 +295,12 @@ export function describeFilters(filters, { accounts = [], accountGroups = [], ca
     return `${count} transaction${count === 1 ? '' : 's'}`
   }
 
+  const savingsSpendLabel = () => {
+    if (filters.savings_spend === 'true') return 'Savings spend only'
+    if (filters.savings_spend === 'false') return 'Exclude savings spend'
+    return null
+  }
+
   return {
     date: range(filters.date_from, filters.date_to, formatDate),
     account: accountLabel(),
@@ -299,5 +310,6 @@ export function describeFilters(filters, { accounts = [], accountGroups = [], ca
     transaction_type: filters.transaction_type || null,
     import: importLabel(),
     transaction_ids: transactionIdsLabel(),
+    savings_spend: savingsSpendLabel(),
   }
 }

@@ -26,6 +26,20 @@ const METRIC_META = {
   runway_months: {
     label: 'Runway', tone: 'neutral', kind: null, getValue: (k) => k.runway_months, formatValue: formatMonths,
   },
+  savings_spend: {
+    label: 'Savings Spend',
+    tone: 'neutral',
+    kind: null,
+    getValue: (k) => k.savings_spend_total,
+    drillUrl: (from, to) => `/transactions?savings_spend=true&date_from=${from}&date_to=${to}`,
+  },
+  typical_expenses: {
+    label: 'Typical Expenses',
+    tone: 'expense',
+    kind: 'expense',
+    getValue: (k) => k.typical_expenses,
+    drillUrl: (from, to) => `/transactions?kind=expense&savings_spend=false&date_from=${from}&date_to=${to}`,
+  },
 }
 
 export const STAT_TILE_METRICS = Object.keys(METRIC_META)
@@ -44,11 +58,15 @@ export default function StatTileWidget({ config, kpis, navigate }) {
   const periods = kpis?.periods || []
   const windowLabel = periods.length > 0 ? `${periods[0].label} - ${periods[periods.length - 1].label}` : ''
 
-  const handleClick = metric.kind && periods.length > 0
+  const handleClick = periods.length > 0 && (metric.drillUrl || metric.kind)
     ? () => {
         const { from } = monthBounds(periods[0].label)
         const { to } = monthBounds(periods[periods.length - 1].label)
-        navigate(`/transactions?kind=${metric.kind}&date_from=${from}&date_to=${to}`)
+        if (metric.drillUrl) {
+          navigate(metric.drillUrl(from, to))
+        } else {
+          navigate(`/transactions?kind=${metric.kind}&date_from=${from}&date_to=${to}`)
+        }
       }
     : null
 

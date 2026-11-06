@@ -315,4 +315,18 @@ describe('sortFromSearchParams / nextSortParams', () => {
     expect(describeFilters({ ...EMPTY_FILTERS, transaction_ids: '5' }).transaction_ids).toBe('1 transaction')
     expect(describeFilters({ ...EMPTY_FILTERS, transaction_ids: '5,9' }).transaction_ids).toBe('2 transactions')
   })
+
+  it('handles savings_spend filter encoding, decoding, groups query, and description', () => {
+    const encoded = searchParamsFromFilters({ ...EMPTY_FILTERS, savings_spend: 'true' })
+    expect(encoded.get('savings_spend')).toBe('true')
+    const decoded = filtersFromSearchParams(encoded)
+    expect(decoded.savings_spend).toBe('true')
+
+    const groupsQuery = groupsQueryFromSearchParams(encoded)
+    expect(groupsQuery).toContain('savings_spend=true')
+
+    expect(activeFilterCount({ ...EMPTY_FILTERS, savings_spend: 'true' })).toBe(1)
+    expect(describeFilters({ ...EMPTY_FILTERS, savings_spend: 'true' }).savings_spend).toBe('Savings spend only')
+    expect(describeFilters({ ...EMPTY_FILTERS, savings_spend: 'false' }).savings_spend).toBe('Exclude savings spend')
+  })
 })

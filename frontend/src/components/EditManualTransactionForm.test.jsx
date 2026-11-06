@@ -131,4 +131,22 @@ describe('EditManualTransactionForm', () => {
     expect(await screen.findByText(/on or after this account's other latest transaction/)).toBeInTheDocument()
     expect(onSaved).not.toHaveBeenCalled()
   })
+
+  it('updates once-off savings spend flag on save', async () => {
+    api.put.mockResolvedValue({ data: { id: 7 } })
+    const { onSaved } = renderEditor(debitTransaction)
+
+    const checkbox = screen.getByLabelText('Once-off savings spend')
+    expect(checkbox).not.toBeChecked()
+
+    fireEvent.click(checkbox)
+    expect(checkbox).toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/transactions/7', expect.objectContaining({
+      is_savings_spend: true,
+    })))
+    expect(onSaved).toHaveBeenCalled()
+  })
 })

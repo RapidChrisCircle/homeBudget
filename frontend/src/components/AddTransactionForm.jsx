@@ -15,6 +15,7 @@ const EMPTY_FORM = {
   amount: '',
   categoryId: '',
   note: '',
+  isSavingsSpend: false,
 }
 
 // Records a transaction by hand - cash spending, a reimbursement, or
@@ -57,6 +58,7 @@ export default function AddTransactionForm({ accounts, categories, onCreated }) 
         credit: form.direction === 'credit' ? form.amount : null,
         category_id: form.categoryId ? Number(form.categoryId) : null,
         note: form.note || null,
+        is_savings_spend: Boolean(form.isSavingsSpend),
       })
       // Account and date are kept as-is (the common case is entering
       // several cash transactions from the same day/account in a row) -
@@ -169,6 +171,17 @@ export default function AddTransactionForm({ accounts, categories, onCreated }) 
         <label>
           Note (optional)
           <input type="text" value={form.note} onChange={handleFieldChange('note')} />
+        </label>
+      </div>
+
+      <div>
+        <label className="checkbox-inline">
+          <input
+            type="checkbox"
+            checked={form.isSavingsSpend}
+            onChange={(e) => setForm((prev) => ({ ...prev, isSavingsSpend: e.target.checked }))}
+          />
+          Once-off savings spend
         </label>
       </div>
 

@@ -187,6 +187,33 @@ def _is_pending_authorisation(narration: str, raw_row: list[str], mapping: Colum
     return _has_numeric_debit(raw_row, mapping, cell)
 
 
+# Informational balance summary rows exported by banks (e.g. Commonwealth
+# Bank's 'Current Balance as of 24/10/2026') that report account status
+# rather than an actual transaction. Matched case-insensitively and as a
+# PREFIX since the as-of date/timestamp legitimately follows.
+_BALANCE_SUMMARY_PREFIX = "current balance as of"
+
+
+def _is_balance_summary_row(raw_row: list[str], narration: str | None = None) -> bool:
+    """A bank export's informational summary row (e.g. 'Current Balance as of
+    24/10/2026' from banks such as Commonwealth Bank) that reports account
+    status rather than an actual transaction.
+
+    Skipped completely before column-count or field validation so a short
+    column count, missing debit/credit, or missing date on a summary line
+    never fails the file's import or imports a fake transaction into the
+    ledger.
+    """
+    if narration and narration.strip().lower().startswith(_BALANCE_SUMMARY_PREFIX):
+        return True
+
+    for cell_value in raw_row:
+        if cell_value and cell_value.strip().lower().startswith(_BALANCE_SUMMARY_PREFIX):
+            return True
+
+    return False
+
+
 def _read_header_and_rows(file_bytes: bytes):
     """Shared by parse_and_validate and preview_import - decodes the file,
     reads off the header row, and returns (header, reader) with the reader
@@ -275,6 +302,9 @@ def _parse_rows(mapping: ColumnMapping, header: list[str], reader, *, stop_after
                 break
 
             if all(_blank(value) for value in raw_row):
+                continue
+
+            if _is_balance_summary_row(raw_row):
                 continue
 
             if len(raw_row) != column_count:
@@ -413,7 +443,7 @@ def parse_and_validate(db: Session, file_bytes: bytes) -> tuple[ColumnMapping, l
         for raw_row in reader:
             if len(sample_rows) >= PREVIEW_SAMPLE_ROWS:
                 break
-            if any(not _blank(value) for value in raw_row):
+            if any(not _blank(value) for value in raw_row) and not _is_balance_summary_row(raw_row):
                 sample_rows.append(raw_row)
 
         raise UnrecognizedFormatError(header, sample_rows)

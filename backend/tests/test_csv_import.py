@@ -314,3 +314,64 @@ def test_import_matches_account_and_deduplicates_when_leading_zero_stripped_by_e
     items = client.get("/api/transactions", params={"page_size": 10}).json()["items"]
     assert len(items) == 3
     assert all(t["account_name"] == "BW-Transaction" for t in items)
+
+
+# --- balance summary rows (Current Balance as of ...) ------------------------
+
+def test_import_skips_current_balance_as_of_row(client):
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"Current Balance as of 24/07/2026",,,,100.00,WDL\n'
+        ',1111,25/07/2026,"Coles",,"12.00",,"88.00",WDL\n'
+    )
+
+    response = upload(client, csv_content)
+    assert response.status_code == 201
+    body = response.json()
+    assert body["imported_count"] == 1
+
+    narrations = [t["narration"] for t in client.get("/api/transactions", params={"page_size": 10}).json()["items"]]
+    assert narrations == ["Coles"]
+
+
+def test_import_matches_current_balance_as_of_case_insensitively(client):
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"CURRENT BALANCE AS OF 24/07/2026",,"10.00",,"100.00",WDL\n'
+        ',1111,24/07/2026,"current balance as of 24/07/2026",,"20.00",,"100.00",WDL\n'
+        ',1111,25/07/2026,"Woolworths",,"30.00",,"70.00",WDL\n'
+    )
+
+    response = upload(client, csv_content)
+    assert response.status_code == 201
+    assert response.json()["imported_count"] == 1
+
+    narrations = [t["narration"] for t in client.get("/api/transactions", params={"page_size": 10}).json()["items"]]
+    assert narrations == ["Woolworths"]
+
+
+def test_current_balance_as_of_row_skipped_before_field_and_column_validation(client):
+    # Missing debit/credit, blank date, and even fewer columns - still cleanly ignored
+    csv_content = HEADER + (
+        '"Current Balance as of 24/07/2026",1500.00\n'
+        ',1111,25/07/2026,"IGA Supermarket",,"15.00",,"85.00",WDL\n'
+    )
+
+    response = upload(client, csv_content)
+    assert response.status_code == 201
+    assert response.json()["imported_count"] == 1
+
+    narrations = [t["narration"] for t in client.get("/api/transactions", params={"page_size": 10}).json()["items"]]
+    assert narrations == ["IGA Supermarket"]
+
+
+def test_preview_skips_current_balance_as_of_row(client):
+    csv_content = HEADER + (
+        ',1111,24/07/2026,"Current Balance as of 24/07/2026",,,,100.00,WDL\n'
+        ',1111,25/07/2026,"Coles",,"12.00",,"88.00",WDL\n'
+    )
+
+    response = preview(client, csv_content, _built_in_mapping())
+    assert response.status_code == 200
+    rows = response.json()["rows"]
+    assert len(rows) == 1
+    assert rows[0]["narration"] == "Coles"
+

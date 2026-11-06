@@ -58,6 +58,7 @@ export default function TrendsPage() {
   // evaporates on refresh.
   const groupId = searchParams.get('group') || ''
   const categoryId = searchParams.get('category') || ''
+  const excludeSavings = searchParams.get('exclude_savings') !== 'false'
 
   const [trends, setTrends] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -115,9 +116,10 @@ export default function TrendsPage() {
     setLoading(true)
     setError('')
 
-    const query = year && month
+    const baseQuery = year && month
       ? `/trends?year=${year}&month=${month}&months=${months}`
       : `/trends?months=${months}`
+    const query = `${baseQuery}&exclude_savings_spend=${excludeSavings}`
 
     api.get(query)
       .then((response) => {
@@ -140,7 +142,7 @@ export default function TrendsPage() {
     return () => {
       cancelled = true
     }
-  }, [months, year, month])
+  }, [months, year, month, excludeSavings])
 
   useEffect(() => {
     if (!activeCategoryId) {
@@ -154,9 +156,10 @@ export default function TrendsPage() {
     setMerchantLoading(true)
     setMerchantError('')
 
-    const query = year && month
+    const baseQuery = year && month
       ? `/trends/merchants?category_id=${activeCategoryId}&year=${year}&month=${month}&months=${months}`
       : `/trends/merchants?category_id=${activeCategoryId}&months=${months}`
+    const query = `${baseQuery}&exclude_savings_spend=${excludeSavings}`
 
     api.get(query)
       .then((response) => {
@@ -179,7 +182,7 @@ export default function TrendsPage() {
     return () => {
       cancelled = true
     }
-  }, [activeCategoryId, months, year, month])
+  }, [activeCategoryId, months, year, month, excludeSavings])
 
   const {
     sortedRows: sortedCategories,
@@ -356,6 +359,22 @@ export default function TrendsPage() {
           <option value="transaction">Avg / Transaction</option>
           <option value="month">Avg / Month</option>
         </select>
+      </label>
+      <label className="checkbox-inline">
+        <input
+          type="checkbox"
+          checked={excludeSavings}
+          onChange={(event) => {
+            const next = new URLSearchParams(searchParams)
+            if (event.target.checked) {
+              next.delete('exclude_savings')
+            } else {
+              next.set('exclude_savings', 'false')
+            }
+            setSearchParams(next)
+          }}
+        />
+        Exclude once-off savings spend
       </label>
     </div>
   )

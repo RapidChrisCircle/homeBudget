@@ -143,8 +143,36 @@ describe('SplitEditor', () => {
     await waitFor(() => {
       expect(api.put).toHaveBeenCalledWith('/transactions/10/splits', {
         splits: [
-          { category_id: 1, amount: '-100.00', note: null },
-          { category_id: 2, amount: '-50.00', note: null },
+          { category_id: 1, amount: '-100.00', note: null, is_savings_spend: false },
+          { category_id: 2, amount: '-50.00', note: null, is_savings_spend: false },
+        ],
+      })
+    })
+    expect(onSaved).toHaveBeenCalled()
+  })
+
+  it('preserves and updates savings spend flag per split', async () => {
+    api.put.mockResolvedValue({ data: { ...unsplitTransaction, is_split: true } })
+    const { onSaved } = renderEditor({
+      transaction: {
+        ...unsplitTransaction,
+        is_savings_spend: true,
+      },
+    })
+
+    const rows = splitRows()
+    const checkbox = within(rows[0]).getByLabelText('Savings spend')
+    expect(checkbox).toBeChecked()
+
+    fireEvent.click(checkbox)
+    expect(checkbox).not.toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save split' }))
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/transactions/10/splits', {
+        splits: [
+          { category_id: 1, amount: '-150.00', note: null, is_savings_spend: false },
         ],
       })
     })
